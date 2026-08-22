@@ -124,3 +124,61 @@ def sync_with_accounts(
             changed = True
 
     return characters, changed
+
+
+def export_roster(characters: list[dict]) -> str:
+    """Serialize the roster into portable JSON for exporting.
+
+    Drops char_id and account_id, since those are local identifiers that
+    mean nothing on the machine importing the file. A freshly imported
+    character starts unlinked and syncs to a matching account by username
+    on its own, the same way a hand-typed character does (see
+    sync_with_accounts).
+    """
+    portable = [
+        {
+            "username": character.get("username", ""),
+            "class_name": character.get("class_name", ""),
+            "race": character.get("race", ""),
+            "notes": character.get("notes", ""),
+            "items": character.get("items", []),
+        }
+        for character in characters
+    ]
+    return json.dumps(portable, indent=2)
+
+
+def import_roster(text: str) -> list[dict]:
+    """Parse exported JSON text into fresh character dicts, each with a
+    new char_id and no account link.
+
+    Raises ValueError, with a message safe to show the user directly, if
+    text isn't a valid roster export.
+    """
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise ValueError("That file isn't valid JSON.") from e
+    if not isinstance(data, list):
+        raise ValueError("That file doesn't contain a character list.")
+
+    characters = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        username = (entry.get("username") or "").strip()
+        if not username:
+            continue
+        characters.append(
+            new_character(
+                account_id=None,
+                username=username,
+                display_name=None,
+                avatar_url=None,
+                class_name=entry.get("class_name", ""),
+                race=entry.get("race", ""),
+                notes=entry.get("notes", ""),
+                items=entry.get("items", []),
+            )
+        )
+    return characters

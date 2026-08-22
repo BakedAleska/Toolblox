@@ -130,10 +130,20 @@ async def watch_join(
         _set_watching(page, user_id, False)
 
 
-async def poll_presence(page: ft.Page, accounts: list[dict], on_change: Callable[[], None]) -> None:
+async def poll_presence(
+    page: ft.Page,
+    accounts: list[dict],
+    on_change: Callable[[], None],
+    on_left: Callable[[dict], None] | None = None,
+) -> None:
     """Refresh status for every account with a saved session that isn't
     currently being watched after a Join, from one batched presence
     request.
+
+    Calls on_left(account), if given, for every account caught going from
+    GREEN to GREY in this poll - i.e. it was in a place and now isn't,
+    which is the ambient signal for "left the place" (as opposed to a
+    crash, which watch_join catches separately). Used to drive auto-rejoin.
     """
     watchable = [
         a for a in accounts if a.get("security_cookie") and not _is_watching(page, a["id"])
@@ -147,9 +157,12 @@ async def poll_presence(page: ft.Page, accounts: list[dict], on_change: Callable
     changed = False
     for account in watchable:
         status = GREEN if presence.get(account["id"]) == IN_GAME else GREY
-        if get_status(page, account["id"]) != status:
+        previous = get_status(page, account["id"])
+        if previous != status:
             _set_status(page, account["id"], status)
             changed = True
+            if on_left is not None and previous == GREEN and status == GREY:
+                on_left(account)
 
     if changed:
         on_change()

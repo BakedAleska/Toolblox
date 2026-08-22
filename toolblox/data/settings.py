@@ -21,6 +21,7 @@ DEFAULTS = {
     "disabled_widgets": [],
     "widget_settings": {},
     "multi_instance": False,
+    "auto_rejoin": False,
     "open_on_launch": False,
     "run_in_background": True,
     "widgets_start_on_launch": [],

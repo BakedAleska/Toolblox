@@ -16,6 +16,24 @@
  * to a "ROBLOX_singletonMutex" instead; the live handle table on the
  * client versions tested showed an Event by this name, not a Mutant).
  *
+ * Only the process ids passed on the command line are touched (decimal
+ * pids, space-separated) - see toolblox/roblox/multi_instance.py, which
+ * only ever passes pids it hasn't already cleared in a previous call.
+ * Earlier versions of this helper self-discovered and closed the handle
+ * for *every* running RobloxPlayerBeta.exe process on every single call,
+ * including ones that had already been cleared by a previous join. That
+ * repeatedly yanks a live handle out from under an already-running,
+ * already-stable instance for no benefit (its handle was already gone),
+ * and is suspected of contributing to the "closing one account closes
+ * the others" report: Roblox appears to keep its own wait tied to this
+ * same event for cross-instance signaling, and force-closing that handle
+ * out from under an in-flight wait, over and over, is exactly the kind
+ * of thing that can misbehave. Bloxstrap - a much more mature project
+ * using the same category of technique - has open, unresolved issues with
+ * this identical symptom, so this is treated as a mitigation (touch each
+ * process once, not repeatedly), not a full fix; the underlying fragility
+ * is believed to live in Roblox's own client, outside our control.
+ *
  * Implementation notes:
  * - NtQuerySystemInformation / NtQueryObject are undocumented NT internals
  *   without a stable public header, so their prototypes and the handle-
@@ -39,6 +57,7 @@
 #include <windows.h>
 #include <tlhelp32.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <wchar.h>
 
 typedef LONG NTSTATUS;
@@ -230,7 +249,39 @@ static void close_singleton_handle_for_pid(DWORD pid, PSYSTEM_HANDLE_INFORMATION
     CloseHandle(process);
 }
 
-int wmain(void) {
+/* Parse the command-line pids (decimal strings) into requested[], filtered
+ * down to only the ones that are still a real, currently running
+ * RobloxPlayerBeta.exe process - a stale or reused pid passed in by the
+ * caller is silently ignored rather than acted on.
+ */
+static int resolve_requested_pids(int argc, wchar_t *argv[], DWORD *out_pids, int max_pids) {
+    DWORD running[64];
+    int running_count = find_target_pids(running, 64);
+    if (running_count == 0) {
+        return 0;
+    }
+
+    int count = 0;
+    for (int i = 1; i < argc && count < max_pids; i++) {
+        DWORD requested = (DWORD)_wtoi(argv[i]);
+        if (requested == 0) {
+            continue;
+        }
+        for (int j = 0; j < running_count; j++) {
+            if (running[j] == requested) {
+                out_pids[count++] = requested;
+                break;
+            }
+        }
+    }
+    return count;
+}
+
+int wmain(int argc, wchar_t *argv[]) {
+    if (argc <= 1) {
+        return 0;
+    }
+
     HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
     if (!ntdll) {
         return 0;
@@ -243,7 +294,7 @@ int wmain(void) {
     }
 
     DWORD pids[64];
-    int pid_count = find_target_pids(pids, 64);
+    int pid_count = resolve_requested_pids(argc, argv, pids, 64);
     if (pid_count == 0) {
         return 0;
     }

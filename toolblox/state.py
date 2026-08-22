@@ -43,6 +43,9 @@ DEFAULT_WIDGET_SETTINGS = settings_store.DEFAULTS[WIDGET_SETTINGS_KEY]
 MULTI_INSTANCE_KEY = "multi_instance"
 DEFAULT_MULTI_INSTANCE = settings_store.DEFAULTS[MULTI_INSTANCE_KEY]
 
+AUTO_REJOIN_KEY = "auto_rejoin"
+DEFAULT_AUTO_REJOIN = settings_store.DEFAULTS[AUTO_REJOIN_KEY]
+
 OPEN_ON_LAUNCH_KEY = "open_on_launch"
 DEFAULT_OPEN_ON_LAUNCH = settings_store.DEFAULTS[OPEN_ON_LAUNCH_KEY]
 
@@ -206,6 +209,17 @@ def get_multi_instance(page: ft.Page) -> bool:
 def set_multi_instance(page: ft.Page, value: bool) -> None:
     current = _get_settings(page)
     current[MULTI_INSTANCE_KEY] = value
+    page.session.store.set(_SETTINGS_CACHE_KEY, current)
+    settings_store.save(current)
+
+
+def get_auto_rejoin(page: ft.Page) -> bool:
+    return _get_settings(page).get(AUTO_REJOIN_KEY, DEFAULT_AUTO_REJOIN)
+
+
+def set_auto_rejoin(page: ft.Page, value: bool) -> None:
+    current = _get_settings(page)
+    current[AUTO_REJOIN_KEY] = value
     page.session.store.set(_SETTINGS_CACHE_KEY, current)
     settings_store.save(current)
 

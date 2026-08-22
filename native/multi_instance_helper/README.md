@@ -22,7 +22,11 @@ a one-line change to `TARGET_OBJECT_SUBSTRING` in `helper.c`, not a redesign.
 
 ## How it works
 
-1. Snapshot every running process, find the ones named `RobloxPlayerBeta.exe`.
+1. Take the pids passed on the command line (decimal, space-separated) -
+   `toolblox/roblox/multi_instance.py` passes only the RobloxPlayerBeta.exe
+   pids it hasn't already cleared in an earlier call this run. A pid that
+   isn't currently a real running `RobloxPlayerBeta.exe` process (stale,
+   reused, or garbage) is silently dropped.
 2. Ask the kernel for the full system-wide open-handle table
    (`NtQuerySystemInformation(SystemHandleInformation)`).
 3. For each handle owned by one of those processes, duplicate it locally
@@ -32,6 +36,12 @@ a one-line change to `TARGET_OBJECT_SUBSTRING` in `helper.c`, not a redesign.
 4. If the name contains `ROBLOX_singletonEvent`, close the *original*
    handle in the Roblox process itself (`DuplicateHandle` with
    `DUPLICATE_CLOSE_SOURCE`), which is what actually releases the object.
+
+Each running instance only ever has its singleton handle closed **once**.
+An earlier version had the helper self-discover and act on every running
+`RobloxPlayerBeta.exe` process on every call, re-closing the handle of
+instances that were already cleared by a previous join. See "Known
+limitation" below for why that mattered.
 
 `NtQuerySystemInformation` and `NtQueryObject` are undocumented NT
 internals without a stable public header, so their prototypes and the
@@ -50,6 +60,30 @@ before Toolblox launches a join; a failure here should never block the
 join itself. If it can't find or close anything (including when no Roblox
 process is running at all, which is the common case for the *first*
 account's Join), it just does nothing.
+
+## Known limitation
+
+Reports: closing one open account's Roblox window (often the first one
+opened) sometimes closes all the others too, and separately, an open
+account occasionally just closes on its own with no user action. Roblox's
+client appears to keep its own wait tied to `ROBLOX_singletonEvent` for
+cross-instance signaling beyond the initial startup check, not just a
+one-time check. Force-closing that handle out from under a still-running
+process interrupts whatever that wait is for, and depending on how Roblox
+handles that internally, may be what triggers the cascading/spontaneous
+closes.
+
+The "only touch each pid once" change above (never re-closing an
+already-cleared instance's handle on a later join) is a mitigation aimed at
+reducing how often we do that disruptive close against an already-running
+instance - it should make the failure rarer, not eliminate it, since the
+instance whose handle is closed is still disrupted at the moment it
+happens. Bloxstrap, a much more mature project using this same category of
+technique, has multiple open and unresolved GitHub issues with this exact
+symptom (see e.g. bloxstraplabs/bloxstrap#5329, #5579, and
+pizzaboxer/bloxstrap#1691), which points to the underlying fragility being
+in Roblox's own client rather than something fixable purely from this
+helper's side.
 
 ## What's verified vs. not
 

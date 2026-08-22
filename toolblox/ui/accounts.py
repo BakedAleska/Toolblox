@@ -14,18 +14,21 @@ from toolblox.logs import get_logger
 from toolblox.roblox import status as status_tracker
 from toolblox.roblox.login import LOGIN_ARG
 from toolblox.roblox.process_watch import running_pids
-from toolblox.state import get_compact_mode, get_show_avatars, get_sort_order
+from toolblox.state import get_auto_rejoin, get_compact_mode, get_show_avatars, get_sort_order
 from toolblox.ui.join_action import join_with_account
 from toolblox.ui.layout import build_layout
 from toolblox.ui.style import (
     SPACE_MD,
+    SPACE_SM,
+    SPACE_XS,
     card_border,
     radius_card,
     scroll_padding,
     text_label,
     text_title,
+    thin_button_style,
 )
-from toolblox.ui.toast import show_confirm_toast
+from toolblox.ui.toast import show_confirm_toast, show_toast
 
 logger = get_logger(__name__)
 
@@ -38,6 +41,22 @@ USER_URL = "https://users.roblox.com/v1/users/{user_id}"
 THUMBNAIL_URL = "https://thumbnails.roblox.com/v1/users/avatar-headshot"
 
 _GENERATION_KEY = "_accounts_view_generation"
+_SELECT_MODE_KEY = "_accounts_select_mode"
+_SELECTED_IDS_KEY = "_accounts_selected_ids"
+_AUTO_REJOIN_STATE_KEY = "_auto_rejoin_state"
+
+BATCH_JOIN_STAGGER_SECONDS = 2
+"""Delay between each account's launch in a batch join, giving a launched
+instance time to actually spawn before the next one's singleton-bypass
+runs. See multi_instance.py's own docstring for why that ordering matters.
+"""
+
+AUTO_REJOIN_GRACE_SECONDS = 90
+"""How soon after an auto-rejoin an account has to be seen leaving again
+before auto-rejoin gives up on it. Meant to catch the case where rejoining
+doesn't actually stick (e.g. banned from the place, server full), so it
+doesn't loop forever - see handle_account_left()'s docstring.
+"""
 
 STATUS_COLORS = {
     status_tracker.GREY: ft.Colors.OUTLINE_VARIANT,
@@ -124,7 +143,7 @@ def AccountsView(page: ft.Page) -> ft.View:
         page.update()
 
     search_field = ft.TextField(
-        hint_text="Search",
+        hint_text="Search...",
         prefix_icon=ft.Icons.SEARCH,
         dense=True,
         expand=True,
@@ -165,6 +184,57 @@ def AccountsView(page: ft.Page) -> ft.View:
             accounts_store.save(current)
             refresh()
 
+    def _get_auto_rejoin_entry(user_id: int) -> dict:
+        return (page.session.store.get(_AUTO_REJOIN_STATE_KEY) or {}).get(user_id, {})
+
+    def _set_auto_rejoin_entry(user_id: int, entry: dict) -> None:
+        state = dict(page.session.store.get(_AUTO_REJOIN_STATE_KEY) or {})
+        state[user_id] = entry
+        page.session.store.set(_AUTO_REJOIN_STATE_KEY, state)
+
+    def reset_auto_rejoin_state(user_id: int) -> None:
+        """Clear any auto-rejoin bookkeeping for one account.
+
+        Called before a manual Join, so pressing Join yourself always
+        gives auto-rejoin a clean slate - the built-in fix for forgetting
+        the setting is on and finding it's gone quiet on some account.
+        """
+        state = dict(page.session.store.get(_AUTO_REJOIN_STATE_KEY) or {})
+        if state.pop(user_id, None) is not None:
+            page.session.store.set(_AUTO_REJOIN_STATE_KEY, state)
+
+    def handle_account_left(account: dict):
+        """Auto-rejoin one account after it's detected leaving its place.
+
+        Safety: if this account was already auto-rejoined less than
+        AUTO_REJOIN_GRACE_SECONDS ago and is now leaving again, that
+        rejoin evidently didn't stick (banned, server full, ...) - stop
+        retrying it and leave it suspended until a manual Join resets it,
+        rather than looping forever in the background.
+        """
+        if not get_auto_rejoin(page):
+            return
+
+        user_id = account["id"]
+        entry = _get_auto_rejoin_entry(user_id)
+        if entry.get("suspended"):
+            return
+
+        last_rejoin_at = entry.get("last_rejoin_at")
+        if last_rejoin_at is not None and time.time() - last_rejoin_at < AUTO_REJOIN_GRACE_SECONDS:
+            _set_auto_rejoin_entry(user_id, {"suspended": True})
+            label = account.get("display_name") or account["name"]
+            logger.info("Auto-rejoin suspended for %s (left again right after rejoining)", label)
+            show_toast(
+                page,
+                f"Auto-rejoin paused for {label}. It left again right after rejoining, "
+                "so it won't keep retrying. Join it manually to resume auto-rejoin.",
+            )
+            return
+
+        _set_auto_rejoin_entry(user_id, {"last_rejoin_at": time.time()})
+        page.run_task(do_join, account)
+
     async def poll_status_loop(generation: int):
         """Repeatedly refresh every account's status dot from presence.
 
@@ -181,7 +251,9 @@ def AccountsView(page: ft.Page) -> ft.View:
                 or page.session.store.get(_GENERATION_KEY) != generation
             ):
                 return
-            await status_tracker.poll_presence(page, accounts_store.load(), refresh)
+            await status_tracker.poll_presence(
+                page, accounts_store.load(), refresh, on_left=handle_account_left
+            )
             await asyncio.sleep(status_tracker.AMBIENT_POLL_SECONDS)
 
     async def do_join(account: dict):
@@ -198,6 +270,25 @@ def AccountsView(page: ft.Page) -> ft.View:
             page.run_task(
                 status_tracker.watch_join, page, account["id"], before_pids, cookie, refresh
             )
+
+    def start_manual_join(account: dict):
+        """Reset any auto-rejoin suspension for this account, then join it."""
+        reset_auto_rejoin_state(account["id"])
+        page.run_task(do_join, account)
+
+    async def do_batch_join(accounts: list[dict]):
+        """Join with each of the given accounts, one after another.
+
+        A short stagger runs between launches (see
+        BATCH_JOIN_STAGGER_SECONDS) so each Roblox instance has time to
+        actually spawn before the next account's singleton-bypass looks
+        at the running process list.
+        """
+        for i, account in enumerate(accounts):
+            reset_auto_rejoin_state(account["id"])
+            await do_join(account)
+            if i < len(accounts) - 1:
+                await asyncio.sleep(BATCH_JOIN_STAGGER_SECONDS)
 
     def add_account(payload: dict):
         """Add a newly logged in account, unless it's already tracked."""
@@ -222,6 +313,11 @@ def AccountsView(page: ft.Page) -> ft.View:
         current = accounts_store.load()
         current = [a for a in current if a["id"] != user_id]
         accounts_store.save(current)
+        reset_auto_rejoin_state(user_id)
+        selected = get_selected_ids()
+        if user_id in selected:
+            selected.discard(user_id)
+            page.session.store.set(_SELECTED_IDS_KEY, selected)
         refresh()
 
     def save_notes(user_id: int, notes: str):
@@ -232,6 +328,60 @@ def AccountsView(page: ft.Page) -> ft.View:
                 a["notes"] = notes
                 break
         accounts_store.save(current)
+
+    def is_select_mode() -> bool:
+        return bool(page.session.store.get(_SELECT_MODE_KEY))
+
+    def get_selected_ids() -> set[int]:
+        return set(page.session.store.get(_SELECTED_IDS_KEY) or set())
+
+    def toggle_select_mode(e: ft.Event[ft.IconButton]):
+        """Enter or leave batch-select mode, clearing any selection either way."""
+        page.session.store.set(_SELECT_MODE_KEY, not is_select_mode())
+        page.session.store.set(_SELECTED_IDS_KEY, set())
+        refresh()
+
+    def toggle_selected(user_id: int, value: bool):
+        """Add or remove one account from the current batch selection.
+
+        Only updates the checkbox's own row and the toolbar's selected
+        count/button state directly, rather than rebuilding the whole
+        view, so checking boxes stays snappy.
+        """
+        selected = get_selected_ids()
+        if value:
+            selected.add(user_id)
+        else:
+            selected.discard(user_id)
+        page.session.store.set(_SELECTED_IDS_KEY, selected)
+        selected_count_text.value = f"{len(selected)} selected"
+        selected_count_text.update()
+        join_selected_button.disabled = not selected
+        join_selected_button.update()
+
+    def select_all(e: ft.Event[ft.TextButton]):
+        visible_ids = {a["id"] for a in sort_accounts(accounts_store.load(), sort_order)
+                       if account_matches(a)}
+        page.session.store.set(_SELECTED_IDS_KEY, visible_ids)
+        refresh()
+
+    def clear_selection(e: ft.Event[ft.TextButton]):
+        page.session.store.set(_SELECTED_IDS_KEY, set())
+        refresh()
+
+    async def on_join_selected(e: ft.Event[ft.FilledButton]):
+        selected = get_selected_ids()
+        if not selected:
+            return
+        current = {a["id"]: a for a in accounts_store.load()}
+        targets = [current[uid] for uid in selected if uid in current]
+        join_selected_button.disabled = True
+        join_selected_button.update()
+        try:
+            await do_batch_join(targets)
+        finally:
+            join_selected_button.disabled = not get_selected_ids()
+            join_selected_button.update()
 
     async def open_add_account(e: ft.Event[ft.IconButton]):
         """Run the Roblox login flow and add the resulting account.
@@ -289,9 +439,13 @@ def AccountsView(page: ft.Page) -> ft.View:
 
         The status dot sits below the drag handle, centered on the same
         column as the play/remove buttons and drag handle rather than
-        tucked into the raw corner. When avatars are shown outside
-        compact mode, its vertical center lines up with the bottom edge
-        of the avatar frame instead of the card's bottom edge.
+        tucked into the raw corner. When there's no drag handle (manual
+        sort is off), it centers under the play button's column instead
+        of the remove button's, since remove sits at the same right
+        offset the handle would otherwise occupy. When avatars are shown
+        outside compact mode, its vertical center lines up with the
+        bottom edge of the avatar frame instead of the card's bottom
+        edge.
         """
         username = account["name"]
         display_name = account.get("display_name") or username
@@ -305,6 +459,14 @@ def AccountsView(page: ft.Page) -> ft.View:
         show_avatars = get_show_avatars(page)
 
         row_controls: list[ft.Control] = []
+
+        if is_select_mode():
+            row_controls.append(
+                ft.Checkbox(
+                    value=account["id"] in get_selected_ids(),
+                    on_change=lambda e, uid=account["id"]: toggle_selected(uid, e.control.value),
+                )
+            )
 
         dot_size = 8 if compact else 10
         account_status = status_tracker.get_status(page, account["id"])
@@ -345,7 +507,7 @@ def AccountsView(page: ft.Page) -> ft.View:
                     multiline=True,
                     dense=True,
                     border=ft.InputBorder.NONE,
-                    content_padding=ft.Padding.symmetric(vertical=4, horizontal=0),
+                    content_padding=ft.Padding.symmetric(vertical=SPACE_XS, horizontal=0),
                     text_size=12,
                     hint_style=ft.TextStyle(color=ft.Colors.ON_SURFACE_VARIANT, size=12),
                     on_blur=lambda e, uid=account["id"]: save_notes(uid, e.control.value),
@@ -357,7 +519,7 @@ def AccountsView(page: ft.Page) -> ft.View:
 
         row_controls.append(ft.Column(column_controls, expand=True, spacing=2))
 
-        card_padding = 8 if compact else 12
+        card_padding = SPACE_XS if compact else SPACE_SM
         button_clearance = 100 if compact_row else 64
         card = ft.Container(
             content=ft.Row(
@@ -380,10 +542,14 @@ def AccountsView(page: ft.Page) -> ft.View:
         stack_controls = [card]
 
         handle_icon_size = 18
-        handle_padding = 8
+        handle_padding = SPACE_SM
         handle_box_size = handle_icon_size + handle_padding * 2
 
-        status_dot.right = 2 + (handle_box_size - dot_size) / 2
+        status_dot.right = (
+            2 + (handle_box_size - dot_size) / 2
+            if is_manual
+            else 34 + (handle_box_size - dot_size) / 2
+        )
         if show_avatars and not compact:
             avatar_bottom = card_padding + avatar_size
             status_dot.top = avatar_bottom - dot_size / 2
@@ -420,7 +586,7 @@ def AccountsView(page: ft.Page) -> ft.View:
             icon=ft.Icons.PLAY_CIRCLE_OUTLINE,
             icon_size=18,
             tooltip="Join place",
-            on_click=lambda e, a=account: page.run_task(do_join, a),
+            on_click=lambda e, a=account: start_manual_join(a),
         )
 
         remove_button = ft.IconButton(
@@ -531,21 +697,53 @@ def AccountsView(page: ft.Page) -> ft.View:
         on_click=open_add_account,
     )
 
-    content = ft.Column(
-        [
+    select_mode = is_select_mode()
+    selected_count = len(get_selected_ids())
+
+    select_toggle_button = ft.IconButton(
+        icon=ft.Icons.CHECKLIST if not select_mode else ft.Icons.CLOSE,
+        tooltip="Cancel selecting" if select_mode else "Select accounts to join",
+        on_click=toggle_select_mode,
+    )
+
+    header_controls: list[ft.Control] = [text_title("Accounts"), search_field]
+    if not select_mode:
+        header_controls.append(add_button)
+    header_controls.append(select_toggle_button)
+
+    content_controls: list[ft.Control] = [
+        ft.Row(
+            header_controls,
+            spacing=SPACE_MD,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    ]
+
+    if select_mode:
+        selected_count_text = text_label(f"{selected_count} selected")
+        join_selected_button = ft.FilledButton(
+            "Join Selected",
+            icon=ft.Icons.PLAY_CIRCLE_OUTLINE,
+            on_click=on_join_selected,
+            disabled=selected_count == 0,
+            style=thin_button_style(),
+        )
+        content_controls.append(
             ft.Row(
                 [
-                    text_title("Accounts"),
-                    search_field,
-                    add_button,
+                    ft.TextButton("Select all", on_click=select_all),
+                    ft.TextButton("Select none", on_click=clear_selection),
+                    selected_count_text,
+                    join_selected_button,
                 ],
-                spacing=SPACE_MD,
+                spacing=SPACE_SM,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            account_list,
-        ],
-        expand=True,
-    )
+            )
+        )
+
+    content_controls.append(account_list)
+
+    content = ft.Column(content_controls, expand=True)
 
     page.run_task(backfill_missing_profiles)
 

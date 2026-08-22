@@ -6,16 +6,36 @@
       "name": "Autoclicker",
       "description": "Clicks repeatedly at the cursor, with a configurable interval.",
       "author": "BakedAleska",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "icon": null,
+      "logo": null,
+      "logo_size": 1.0,
       "source": {
         "owner": "BakedAleska",
         "repo": "Toolblox",
-        "ref": "e29faf77ff085cb3c91bc9c8398bae99d1c38a6b",
+        "ref": "e2b8840244d6cae12338a8030b8ee2626eb1741b",
         "path": "widgets/autoclicker"
       },
-      "sha256": "976a4b42642088f7e97dfe140989b79d49ba9028ff3188e49956aca6cd79147d",
+      "sha256": "e9d3ae8727db4979550813dd5360b4044cb3777f89ab5101647d4ede9c210276",
       "homepage": "https://github.com/BakedAleska/Toolblox/tree/main/widgets/autoclicker"
+    },
+    {
+      "id": "rogue_lineage",
+      "name": "Rogue Lineage",
+      "description": "Tracks Rogue Lineage characters, with a mana bar overlay and hotbar keybinds.",
+      "author": "BakedAleska",
+      "version": "1.0",
+      "icon": null,
+      "logo": "https://raw.githubusercontent.com/BakedAleska/Toolblox/e2b8840244d6cae12338a8030b8ee2626eb1741b/widgets/rogue_lineage/assets/RogueLineage.svg",
+      "logo_size": 1.5,
+      "source": {
+        "owner": "BakedAleska",
+        "repo": "Toolblox",
+        "ref": "e2b8840244d6cae12338a8030b8ee2626eb1741b",
+        "path": "widgets/rogue_lineage"
+      },
+      "sha256": "e9d3ae8727db4979550813dd5360b4044cb3777f89ab5101647d4ede9c210276",
+      "homepage": "https://github.com/BakedAleska/Toolblox/tree/main/widgets/rogue_lineage"
     }
   ]
 }

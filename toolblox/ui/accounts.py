@@ -58,6 +58,15 @@ doesn't actually stick (e.g. banned from the place, server full), so it
 doesn't loop forever - see handle_account_left()'s docstring.
 """
 
+SHOW_STATUS_DOT = False
+"""Whether the per-account status dot renders on the avatar/header.
+
+The polling that feeds it (poll_status_loop, status_tracker.poll_presence,
+watch_join) keeps running either way, so this only hides the dot itself -
+flip it back to True to bring the indicator back with no other changes
+needed.
+"""
+
 STATUS_COLORS = {
     status_tracker.GREY: ft.Colors.OUTLINE_VARIANT,
     status_tracker.RED: ft.Colors.ERROR,
@@ -487,27 +496,31 @@ def AccountsView(page: ft.Page) -> ft.View:
                 else ft.Icon(ft.Icons.PERSON, size=avatar_size * 0.6)
             )
 
-            status_dot.bottom = -dot_size / 4
-            status_dot.right = -dot_size / 4
+            avatar_stack_children: list[ft.Control] = [
+                ft.Container(
+                    content=avatar_content,
+                    width=avatar_size,
+                    height=avatar_size,
+                    bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                    alignment=ft.Alignment.CENTER,
+                ),
+            ]
+            if SHOW_STATUS_DOT:
+                status_dot.bottom = -dot_size / 4
+                status_dot.right = -dot_size / 4
+                avatar_stack_children.append(status_dot)
             row_controls.append(
                 ft.Stack(
-                    [
-                        ft.Container(
-                            content=avatar_content,
-                            width=avatar_size,
-                            height=avatar_size,
-                            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
-                            alignment=ft.Alignment.CENTER,
-                        ),
-                        status_dot,
-                    ],
+                    avatar_stack_children,
                     width=avatar_size,
                     height=avatar_size,
                 )
             )
             column_controls: list[ft.Control] = [text_label(header_text)]
-        else:
+        elif SHOW_STATUS_DOT:
             column_controls = [ft.Row([status_dot, text_label(header_text)], spacing=SPACE_XS)]
+        else:
+            column_controls = [text_label(header_text)]
 
         if not compact:
             column_controls.append(

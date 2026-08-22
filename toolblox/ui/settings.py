@@ -63,8 +63,21 @@ _DEV_LOG_VISIBLE_KEY = "_dev_log_visible"
 _UPDATE_CHECKING_KEY = "_update_checking"
 _UPDATE_CHECKED_KEY = "_update_checked"
 _UPDATE_DOWNLOADING_KEY = "_update_downloading"
+_UPDATE_INSTALLING_KEY = "_update_installing"
 _UPDATE_INFO_KEY = "_update_info"
 _UPDATE_ERROR_KEY = "_update_error"
+
+UPDATE_RESTART_DELAY_SECONDS = 1.5
+"""How long on_install_update waits, after handing the update off to
+ToolbloxUpdater.exe, before it actually destroys the window.
+
+apply_update() itself returns almost instantly - it only spawns the
+helper process - so without this pause the "Installing update..." status
+set right before it would never actually get painted to screen before
+the window disappears. The real file-replacing work happens in the
+helper after this process exits, so this delay doesn't slow the update
+down, it just gives the user a moment to see what's happening.
+"""
 
 
 def SettingsView(page: ft.Page) -> ft.View:
@@ -196,6 +209,11 @@ def SettingsView(page: ft.Page) -> ft.View:
         files locked right when the updater goes to replace them. See
         tray.py's _quit() for the same prevent_close-bypassing pattern
         used from the tray menu.
+
+        Goes through a visible "Installing update..." state (see
+        UPDATE_RESTART_DELAY_SECONDS) between handing off to the helper
+        and actually destroying the window, so the app doesn't just
+        vanish with no feedback right after the download finishes.
         """
         info = page.session.store.get(_UPDATE_INFO_KEY)
         if info is None:
@@ -209,13 +227,17 @@ def SettingsView(page: ft.Page) -> ft.View:
             page.session.store.set(_UPDATE_ERROR_KEY, str(err))
             rebuild_settings()
             return
+        page.session.store.set(_UPDATE_DOWNLOADING_KEY, False)
+        page.session.store.set(_UPDATE_INSTALLING_KEY, True)
+        rebuild_settings()
         try:
             apply_update(zip_path)
         except UpdateError as err:
-            page.session.store.set(_UPDATE_DOWNLOADING_KEY, False)
+            page.session.store.set(_UPDATE_INSTALLING_KEY, False)
             page.session.store.set(_UPDATE_ERROR_KEY, str(err))
             rebuild_settings()
             return
+        await asyncio.sleep(UPDATE_RESTART_DELAY_SECONDS)
         tray.hide()
         stop_all_processes(page)
         page.window.prevent_close = False
@@ -252,11 +274,15 @@ def SettingsView(page: ft.Page) -> ft.View:
     update_checking = bool(page.session.store.get(_UPDATE_CHECKING_KEY))
     update_checked = bool(page.session.store.get(_UPDATE_CHECKED_KEY))
     update_downloading = bool(page.session.store.get(_UPDATE_DOWNLOADING_KEY))
+    update_installing = bool(page.session.store.get(_UPDATE_INSTALLING_KEY))
     update_info = page.session.store.get(_UPDATE_INFO_KEY)
     update_error = page.session.store.get(_UPDATE_ERROR_KEY)
+    update_busy = update_checking or update_downloading or update_installing
 
     update_status: ft.Control | None = None
-    if update_downloading:
+    if update_installing:
+        update_status = text_caption("Installing update. Toolblox will restart shortly…")
+    elif update_downloading:
         update_status = text_caption(f"Downloading version {update_info.version}…")
     elif update_checking:
         update_status = text_caption("Checking for updates…")
@@ -273,11 +299,11 @@ def SettingsView(page: ft.Page) -> ft.View:
         ft.OutlinedButton(
             "Check for Updates",
             on_click=on_check_for_updates,
-            disabled=update_checking or update_downloading,
+            disabled=update_busy,
             style=thin_button_style(),
         )
     ]
-    if update_info and not update_downloading:
+    if update_info and not update_downloading and not update_installing:
         update_buttons.append(
             ft.FilledButton(
                 f"Install version {update_info.version}",
@@ -295,6 +321,7 @@ def SettingsView(page: ft.Page) -> ft.View:
                         text_section("Updates"),
                         text_caption(f"You're running version {APP_VERSION}."),
                         *([update_status] if update_status is not None else []),
+                        *([ft.ProgressBar()] if update_downloading or update_installing else []),
                         ft.Row(update_buttons, spacing=SPACE_SM),
                     ],
                     spacing=SPACE_SM,

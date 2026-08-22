@@ -5,10 +5,10 @@ from typing import NamedTuple
 
 import flet as ft
 
-from toolblox.devtools import has_canary_access, is_dev_environment
-from toolblox.state import get_active_theme, get_nav_position, is_named_theme_active
-from toolblox.theme import BACKGROUND_FIT_MAP
-from toolblox.ui.style import SPACE_MD, SPACE_SM, SPACE_XS, radius_card
+from toolblox.devtools import is_dev_environment
+from toolblox.state import get_nav_position
+from toolblox.ui.style import SPACE_MD, SPACE_SM, SPACE_XL, SPACE_XS, radius_card
+from toolblox.version import display_version
 from toolblox.widgets.loader import get_enabled_widgets
 
 GITHUB_BAR_HEIGHT = 48
@@ -116,18 +116,80 @@ def build_layout(page: ft.Page, content: ft.Control) -> ft.Control:
     def on_nav_scroll(e: ft.OnScrollEvent):
         page.session.store.set(_SCROLL_OFFSET_KEY, e.pixels)
 
-    def nav_row(icon: str, label: str, selected: bool, on_click) -> ft.Control:
-        return ft.Container(
+    def nav_row(
+        icon: str,
+        label: str,
+        selected: bool,
+        on_click,
+        logo: str | None = None,
+        logo_size: float = 1.0,
+    ) -> ft.Control:
+        """A single nav rail row.
+
+        `logo` renders in place of `icon` when given, the same
+        icon-or-logo fallback `toolblox/ui/widgets.py::_icon_chip` uses for a
+        widget's square on the Widgets screen - so a widget's own image
+        shows in the nav rail too, not just there. `logo_size` scales that
+        glyph, mirroring Widget.logo_size.
+
+        The glyph sits in a fixed 24x24 box (unclipped) rather than being
+        sized directly, so a `logo_size` above 1.0 makes the image visually
+        bigger without growing the row's own layout size. Without that box,
+        a bigger glyph grew the row's Column - and so the selected-row
+        highlight painted behind it - to match, so a widget with an
+        enlarged logo got a taller/wider blue highlight than every other
+        row. Keeping the box's declared size constant keeps the highlight
+        the same size across every widget regardless of its logo_size.
+
+        The colored chip and the clickable area are two separate
+        containers, not one. `nav_list` is a scrolling `Column`, and
+        Flet stretches a scrolling `Column`'s children to its own full
+        cross-axis width regardless of `horizontal_alignment` - so a
+        bgcolor painted directly on a row's outer container spanned the
+        whole sidebar width instead of hugging the icon/label. The outer
+        container here stays transparent and full width (so the entire
+        row is still clickable, not just the text), while `chip` - the
+        one actually painted `SECONDARY_CONTAINER` when selected - is an
+        inner container with no stretch source of its own, so it shrinks
+        to its icon+label content and `alignment=CENTER` centers that
+        chip within the wide, invisible outer row.
+
+        `glyph_box` is a `Stack`, not a `Container`, for the same reason:
+        a `logo_size` above 1.0 makes `glyph` itself bigger than the
+        24x24 box, and a plain `Container` asked to hold a bigger child
+        without clipping it lets that child's size leak into the
+        Container's own reported width - which was exactly why a widget
+        with an enlarged logo (e.g. Rogue Lineage's 1.5) ended up with a
+        selected-row highlight stretching the full sidebar width instead
+        of hugging its icon/label like every other row. A `Stack` with
+        an explicit width/height reports that fixed size to its parent
+        regardless of an oversized, centered child, so the bigger glyph
+        still paints past the box's edges (unclipped, same visual result
+        as before) without growing the row's own layout size.
+        """
+        glyph_size = round(24 * logo_size)
+        glyph = (
+            ft.Image(src=logo, width=glyph_size, height=glyph_size, fit=ft.BoxFit.CONTAIN)
+            if logo
+            else ft.Icon(icon, size=glyph_size)
+        )
+        glyph_box = ft.Stack(
+            [glyph],
+            width=24,
+            height=24,
+            alignment=ft.Alignment.CENTER,
+        )
+        chip = ft.Container(
             content=ft.Column(
-                [ft.Icon(icon), ft.Text(label, size=12)],
+                [glyph_box, ft.Text(label, size=12)],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=4,
             ),
             padding=ft.Padding.symmetric(vertical=SPACE_SM, horizontal=SPACE_XS),
             border_radius=radius_card(page),
             bgcolor=ft.Colors.SECONDARY_CONTAINER if selected else None,
-            on_click=on_click,
         )
+        return ft.Container(content=chip, alignment=ft.Alignment.CENTER, on_click=on_click)
 
     rows: list[ft.Control] = []
     for dest in CORE_DESTINATIONS:
@@ -160,6 +222,8 @@ def build_layout(page: ft.Page, content: ft.Control) -> ft.Control:
                     widget.name,
                     selected,
                     lambda e, wid=widget.id: page.run_task(go_to_widget, wid),
+                    logo=widget.logo,
+                    logo_size=widget.logo_size,
                 )
             )
     rows.append(ft.Container(height=GITHUB_BAR_HEIGHT))
@@ -200,7 +264,7 @@ def build_layout(page: ft.Page, content: ft.Control) -> ft.Control:
         ]
     )
 
-    content_area = ft.Container(content=content, expand=True, padding=20)
+    content_area = ft.Container(content=content, expand=True, padding=SPACE_XL)
     divider = ft.VerticalDivider(width=1)
 
     if get_nav_position(page) == "right":
@@ -210,55 +274,21 @@ def build_layout(page: ft.Page, content: ft.Control) -> ft.Control:
 
     row = ft.Row(row_controls, expand=True, spacing=0)
 
-    background_image = _background_image(page)
-    root: ft.Control = ft.Stack([background_image, row], expand=True) if background_image else row
-
-    if not is_dev_environment():
-        return root
-
-    dev_badge = ft.Container(
-        content=ft.Container(
-            content=ft.Text(
-                "DEV",
-                size=10,
-                weight=ft.FontWeight.BOLD,
-                color=ft.Colors.ON_ERROR,
-            ),
-            bgcolor=ft.Colors.ERROR,
-            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-            border_radius=6,
+    is_canary = is_dev_environment()
+    version_badge = ft.Container(
+        content=ft.Text(
+            f"v{display_version()}",
+            size=10,
+            color=ft.Colors.ON_SURFACE_VARIANT,
             tooltip=(
                 "Running from a source checkout: widgets and the Catalogue "
                 "load straight from this repo instead of an installed copy."
-                if has_canary_access()
-                else (
-                    "Running from a source checkout. Widgets load straight "
-                    "from this repo."
-                )
+                if is_canary
+                else "The installed, publicly released build."
             ),
         ),
         right=8,
         bottom=8,
     )
 
-    return ft.Stack([root, dev_badge], expand=True)
-
-
-def _background_image(page: ft.Page) -> ft.Control | None:
-    """The active custom theme's background image, or None if it has none."""
-    if not is_named_theme_active(page):
-        return None
-
-    theme = get_active_theme(page)
-    src = theme.get("background_image") if theme else None
-    if not src:
-        return None
-
-    return ft.Container(
-        image=ft.DecorationImage(
-            src=src,
-            fit=BACKGROUND_FIT_MAP.get(theme.get("background_fit"), ft.BoxFit.COVER),
-            opacity=theme.get("background_opacity", 1.0),
-        ),
-        expand=True,
-    )
+    return ft.Stack([row, version_badge], expand=True)

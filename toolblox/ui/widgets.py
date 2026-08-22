@@ -17,6 +17,7 @@ from toolblox.ui.style import (
     SPACE_LG,
     SPACE_MD,
     SPACE_SM,
+    SPACE_XS,
     SWITCH_SCALE,
     card_border,
     radius_card,
@@ -70,7 +71,10 @@ the top. Trimming the forced height by a fixed gap stops the scroll
 short of that, leaving this much breathing room above the installed
 grid at max scroll instead."""
 
-CARD_PADDING = 14
+CARD_PADDING = SPACE_SM
+"""Matches the app-wide card-tier padding used by `section_box()` in
+multitool.ui.style, so the Widgets screen's squares read as the same
+box tier as every other bordered card in the app."""
 ICON_CHIP_SIZE = 56
 BADGE_SIZE = 18
 HOVER_ZONE_SIZE = ICON_CHIP_SIZE + 12
@@ -94,17 +98,29 @@ DESCRIPTION_SCROLL_DURATION = 4000
 a description showcase from top to bottom."""
 
 
-def _icon_chip(icon: object, logo: str | None, *, active: bool, size: int) -> ft.Control:
+def _icon_chip(
+    page: ft.Page,
+    icon: object,
+    logo: str | None,
+    *,
+    active: bool,
+    size: int,
+    logo_size: float = 1.0,
+) -> ft.Control:
     """A rounded, tinted square holding a widget's icon or logo.
 
     `active` drives the tint: the accent-tinted PRIMARY_CONTAINER for an
     installable or enabled widget, a neutral SURFACE_CONTAINER_HIGHEST for
     a disabled one. This is how card state is shown instead of dimming
     the whole card, which made text hard to read.
+
+    `logo_size` scales the glyph within the fixed-size chip (see
+    Widget.logo_size), so a widget can ask for a larger glyph without the
+    chip itself, or the grid it sits in, changing size.
     """
     fg = ft.Colors.ON_PRIMARY_CONTAINER if active else ft.Colors.ON_SURFACE_VARIANT
     bg = ft.Colors.PRIMARY_CONTAINER if active else ft.Colors.SURFACE_CONTAINER_HIGHEST
-    icon_size = round(size * 0.5)
+    icon_size = round(size * 0.5 * logo_size)
     inner = (
         ft.Image(src=logo, width=icon_size, height=icon_size, fit=ft.BoxFit.CONTAIN)
         if logo
@@ -115,7 +131,7 @@ def _icon_chip(icon: object, logo: str | None, *, active: bool, size: int) -> ft
         width=size,
         height=size,
         bgcolor=bg,
-        border_radius=12,
+        border_radius=radius_card(page),
         alignment=ft.Alignment.CENTER,
     )
 
@@ -331,10 +347,17 @@ def WidgetsView(page: ft.Page) -> ft.View:
         card_body = ft.Container(
             content=ft.Column(
                 [
-                    _icon_chip(widget.icon, widget.logo, active=enabled, size=ICON_CHIP_SIZE),
+                    _icon_chip(
+                        page,
+                        widget.icon,
+                        widget.logo,
+                        active=enabled,
+                        size=ICON_CHIP_SIZE,
+                        logo_size=widget.logo_size,
+                    ),
                     ft.Text(
                         widget.name,
-                        size=13,
+                        size=12,
                         weight=ft.FontWeight.W_600,
                         text_align=ft.TextAlign.CENTER,
                         max_lines=1,
@@ -366,7 +389,7 @@ def WidgetsView(page: ft.Page) -> ft.View:
             ),
             width=HOVER_ZONE_SIZE,
             height=HOVER_ZONE_SIZE,
-            padding=4,
+            padding=SPACE_XS,
             alignment=ft.Alignment.TOP_LEFT,
             bgcolor=ft.Colors.TRANSPARENT,
             tooltip="Show description",
@@ -379,10 +402,8 @@ def WidgetsView(page: ft.Page) -> ft.View:
             ref=overlay_ref,
             content=ft.Column(
                 [
-                    ft.Text(
+                    text_caption(
                         widget.description or "No description provided.",
-                        size=12,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
                         text_align=ft.TextAlign.CENTER,
                     ),
                 ],
@@ -407,7 +428,7 @@ def WidgetsView(page: ft.Page) -> ft.View:
         footer_overlay = ft.Container(
             content=ft.Column(
                 [
-                    ft.Divider(height=1, thickness=1, color=ft.Colors.OUTLINE_VARIANT),
+                    ft.Divider(),
                     ft.Row(
                         [
                             ft.Switch(
@@ -482,7 +503,7 @@ def WidgetsView(page: ft.Page) -> ft.View:
         """
         installing = is_installing(page, entry.id)
         icon = (getattr(ft.Icons, entry.icon, None) if entry.icon else None) or ft.Icons.WIDGETS
-        glyph_size = round(CATALOGUE_SIZE * 0.35)
+        glyph_size = round(CATALOGUE_SIZE * 0.35 * entry.logo_size)
 
         logo_fill: ft.Control = ft.Container(
             content=(

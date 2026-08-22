@@ -44,6 +44,7 @@ class CatalogEntry:
     version: str
     icon: Optional[str]
     logo: Optional[str]
+    logo_size: float
     source: WidgetSource
     sha256: str
     homepage: str
@@ -90,6 +91,7 @@ def fetch_registry(local_path: Optional[str] = None) -> tuple[list[CatalogEntry]
                     version=raw.get("version", ""),
                     icon=raw.get("icon"),
                     logo=raw.get("logo"),
+                    logo_size=float(raw.get("logo_size", 1.0)),
                     source=WidgetSource(
                         owner=source_raw.get("owner", ""),
                         repo=source_raw.get("repo", ""),

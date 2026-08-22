@@ -64,6 +64,13 @@ class Widget:
     """Optional image src (a path or URL) shown on the widget's square
     instead of `icon`. Falls back to `icon` if not given."""
 
+    logo_size: float = 1.0
+    """Scale factor applied to `logo` (or `icon`, if no logo is set)
+    wherever this widget's glyph is drawn: its square on the Widgets
+    screen and its row in the sidebar nav rail. 1.0 is the standard
+    size every other widget uses; e.g. 1.5 draws it 50% larger, useful
+    for a logo that reads small at the default size."""
+
     build_settings: Optional[Callable[[ft.Page], ft.Control]] = None
     """Optional: given the page, return this widget's settings content.
 

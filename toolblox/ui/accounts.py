@@ -487,17 +487,27 @@ def AccountsView(page: ft.Page) -> ft.View:
                 else ft.Icon(ft.Icons.PERSON, size=avatar_size * 0.6)
             )
 
+            status_dot.bottom = -dot_size / 4
+            status_dot.right = -dot_size / 4
             row_controls.append(
-                ft.Container(
-                    content=avatar_content,
+                ft.Stack(
+                    [
+                        ft.Container(
+                            content=avatar_content,
+                            width=avatar_size,
+                            height=avatar_size,
+                            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                            alignment=ft.Alignment.CENTER,
+                        ),
+                        status_dot,
+                    ],
                     width=avatar_size,
                     height=avatar_size,
-                    bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
-                    alignment=ft.Alignment.CENTER,
                 )
             )
-
-        column_controls: list[ft.Control] = [text_label(header_text)]
+            column_controls: list[ft.Control] = [text_label(header_text)]
+        else:
+            column_controls = [ft.Row([status_dot, text_label(header_text)], spacing=SPACE_XS)]
 
         if not compact:
             column_controls.append(
@@ -544,17 +554,6 @@ def AccountsView(page: ft.Page) -> ft.View:
         handle_icon_size = 18
         handle_padding = SPACE_SM
         handle_box_size = handle_icon_size + handle_padding * 2
-
-        status_dot.right = (
-            2 + (handle_box_size - dot_size) / 2
-            if is_manual
-            else 34 + (handle_box_size - dot_size) / 2
-        )
-        if show_avatars and not compact:
-            avatar_bottom = card_padding + avatar_size
-            status_dot.top = avatar_bottom - dot_size / 2
-        else:
-            status_dot.bottom = 2
 
         drag_handle_widget = None
 
@@ -629,8 +628,6 @@ def AccountsView(page: ft.Page) -> ft.View:
                 stack_controls.append(
                     ft.Container(content=drag_handle_widget, top=handle_top, right=2)
                 )
-
-        stack_controls.append(status_dot)
 
         return ft.Stack(stack_controls)
 

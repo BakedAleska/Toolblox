@@ -1,4 +1,4 @@
-"""Helpers behind Developer Mode: a small "DEV" badge in the nav rail's
+"""Helpers behind Developer Mode: a version/channel badge in the nav rail's
 corner (see toolblox/ui/layout.py) plus a couple of tools in Settings ->
 General -> Danger Zone, all of it automatic rather than a setting.
 
@@ -10,7 +10,6 @@ this repo and widgets/ and registry.json are read from the repo
 directly; run a packaged build and none of this is present.
 """
 
-import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -18,8 +17,6 @@ from typing import Optional
 from toolblox.logs import LOG_FILE
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CANARY_OPT_IN_NAME = "TOOLBLOX_ENABLE_CANARY"
-CANARY_OPT_IN_VALUE = "i-understand-this-is-unvetted"
 
 
 def is_dev_environment() -> bool:
@@ -35,54 +32,14 @@ def is_dev_environment() -> bool:
     return not getattr(sys, "frozen", False)
 
 
-def _dotenv_value(key: str) -> Optional[str]:
-    """Read a single key from a `.env` file at the repo root, if present.
-
-    A minimal, dependency-free stand-in for python-dotenv - this is the
-    only value this project currently needs from a `.env` file. `.env`
-    is gitignored, so this never reads anything committed to the repo.
-    """
-    env_path = REPO_ROOT / ".env"
-    if not env_path.is_file():
-        return None
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        name, _, value = line.partition("=")
-        if name.strip() == key:
-            return value.strip().strip('"').strip("'")
-    return None
-
-
-def has_canary_access() -> bool:
-    """Whether TOOLBLOX_ENABLE_CANARY is set to its exact opt-in phrase.
-
-    This isn't a real access control - the repo is public, so anyone
-    who reads this check can satisfy it. The point is deliberateness:
-    running from source alone (is_dev_environment()) used to be enough
-    to land on Canary, which meant a plain `git clone` + `python
-    main.py` got you the Catalogue and unvetted widgets by accident.
-    Requiring an exact phrase, rather than any truthy value, means
-    landing on Canary takes finding this check and typing it in on
-    purpose, not just setting some env var on a hunch. Deliberately not
-    documented anywhere outside this module - if someone finds it by
-    reading the source, that's fine.
-    """
-    value = os.environ.get(CANARY_OPT_IN_NAME) or _dotenv_value(CANARY_OPT_IN_NAME)
-    return value == CANARY_OPT_IN_VALUE
-
-
 def release_channel() -> str:
     """The build's release channel: "beta" or "canary".
 
     A packaged build is always "beta" - the curated, publicly
-    advertised release with no Catalogue. Running from a source
-    checkout is "canary" only with a deliberate opt-in (see
-    has_canary_access); otherwise a source checkout is "beta" too, same
-    as a packaged build. There's no separate packaged Canary build.
+    advertised release with no Catalogue. A source checkout is always
+    "canary" - there's no separate packaged Canary build.
     """
-    return "canary" if is_dev_environment() and has_canary_access() else "beta"
+    return "canary" if is_dev_environment() else "beta"
 
 
 def dev_widgets_dir() -> Optional[Path]:

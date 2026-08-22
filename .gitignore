@@ -31,7 +31,7 @@ native/**/*.ilk
 # Local planning/notes — not published
 plan.md
 
-# Local secrets (e.g. TOOLBLOX_CANARY_KEY) — never committed
+# Local secrets — never committed
 .env
 
 # Installer build output

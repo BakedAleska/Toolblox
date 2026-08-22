@@ -17,6 +17,7 @@ is topmost but not click-through; it's kept small and corner-pinned to
 stay out of the way.
 """
 
+import argparse
 import sys
 import tkinter as tk
 
@@ -45,7 +46,16 @@ def main() -> None:
 
     Runs until the parent process kills it; the window itself has no
     close button and no stdout protocol of its own.
+
+    Position defaults to the bottom-right corner, but `--x`/`--y` (the
+    dummy indicator's dragged position, from backend/position_picker.py)
+    override that when both are given.
     """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--x", type=int, default=None)
+    parser.add_argument("--y", type=int, default=None)
+    args = parser.parse_args()
+
     root = tk.Tk()
     root.title(WINDOW_TITLE)
     root.overrideredirect(True)
@@ -58,9 +68,12 @@ def main() -> None:
     screen_width = root.winfo_screenwidth()
     screen_height = root.winfo_screenheight()
     width, height = 170, 36
-    margin = 24
-    x = screen_width - width - margin
-    y = screen_height - height - margin - 40
+    if args.x is not None and args.y is not None:
+        x, y = args.x, args.y
+    else:
+        margin = 24
+        x = screen_width - width - margin
+        y = screen_height - height - margin - 40
     root.geometry(f"{width}x{height}+{x}+{y}")
 
     frame = tk.Frame(root, bg="#1b1b1b")

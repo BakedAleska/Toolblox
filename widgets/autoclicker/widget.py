@@ -22,7 +22,11 @@ way:
   the start and the stop keybind for one Autoclicker instance: pressing
   it then acts like a NOT gate on the running state, on if it was off
   and off if it was on, rather than needing separate keys for each
-  direction.
+  direction. The "Use toggle keybinds" switch, in Settings -> Widgets ->
+  Autoclicker, exposes exactly this, as a single keybind list instead of
+  requiring the same key to be added to both the start and stop lists by
+  hand - every key in that one list is sent to the listener as both a
+  start and a stop hotkey, so each one is a toggle on its own.
 - backend/overlay.py, a small always-on-top tkinter window shown while
   clicking is active, so it's visible even when Toolblox itself is in
   the background.
@@ -31,6 +35,7 @@ To try this widget locally, copy this folder into WIDGETS_DIR (the path
 shown in Settings -> Widgets).
 """
 
+import asyncio
 import json
 import re
 import sys
@@ -42,10 +47,17 @@ from toolblox.state import get_widget_setting, set_widget_setting
 from toolblox.ui.layout import build_layout, widget_route
 from toolblox.ui.style import (
     SPACE_LG,
-    SPACE_MD,
     SPACE_SM,
+    SPACE_XL,
+    SPACE_XS,
+    SWITCH_SCALE,
+    card_border,
+    radius_card,
+    radius_hero,
     scroll_margin,
+    status_dot,
     text_caption,
+    text_heading,
     text_label,
     text_section,
     text_title,
@@ -83,6 +95,19 @@ of the base interval in either direction."""
 
 DEFAULT_SHOW_INDICATOR = True
 DEFAULT_RANDOMIZE_TIMING = True
+DEFAULT_USE_TOGGLE_KEYBINDS = False
+DEFAULT_INDICATOR_POSITION = None
+"""No saved position means the indicator falls back to overlay.py's own
+default corner placement."""
+
+_STATE_COLORS = {
+    "Stopped": ft.Colors.OUTLINE_VARIANT,
+    "Running": ft.Colors.GREEN,
+    "Error": ft.Colors.ERROR,
+}
+"""Semantic color per run state, for the hero card's status dot - the
+same running/stopped/error idiom the Accounts screen's presence dot
+uses, so "is this active" reads the same way across the app."""
 
 DEFAULT_SPEED_UNIT = "cps"
 MS_MIN = round(1000 / CPS_MAX)
@@ -242,20 +267,59 @@ def _keybind_listener_command(start_hotkeys: list[str], stop_hotkeys: list[str])
     ]
 
 
-def _overlay_command() -> list[str]:
-    """The command that starts the on-screen "running" indicator process."""
-    return [sys.executable, str(BACKEND_DIR / "overlay.py")]
+def _overlay_command(position: dict | None) -> list[str]:
+    """The command that starts the on-screen "running" indicator process.
+
+    `position`, if set, is a `{"x", "y"}` dict from the drag-to-position
+    picker; omitted entirely when unset, so overlay.py falls back to its
+    own default corner placement.
+    """
+    command = [sys.executable, str(BACKEND_DIR / "overlay.py")]
+    if position is not None:
+        command += ["--x", str(position["x"]), "--y", str(position["y"])]
+    return command
+
+
+async def _pick_indicator_position() -> dict | None:
+    """Run the drag-to-position picker and return the corner it was left at.
+
+    Same one-shot subprocess pattern as
+    widgets/rogue_lineage/widget.py::_pick_mana_area.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable,
+        str(BACKEND_DIR / "position_picker.py"),
+        stdout=asyncio.subprocess.PIPE,
+    )
+    line = await proc.stdout.readline()
+    await proc.wait()
+    if not line:
+        return None
+    try:
+        data = json.loads(line)
+    except ValueError:
+        return None
+    if "x" not in data:
+        return None
+    return {"x": data["x"], "y": data["y"]}
 
 
 def build_view(page: ft.Page) -> ft.View:
     """The Autoclicker's own screen: speed, button, keybinds, indicator."""
     speed_unit = get_widget_setting(page, WIDGET_ID, "speed_unit", DEFAULT_SPEED_UNIT)
     show_indicator = get_widget_setting(page, WIDGET_ID, "show_indicator", DEFAULT_SHOW_INDICATOR)
+    indicator_position: dict | None = get_widget_setting(
+        page, WIDGET_ID, "indicator_position", DEFAULT_INDICATOR_POSITION
+    )
     randomize_timing = get_widget_setting(
         page, WIDGET_ID, "randomize_timing", DEFAULT_RANDOMIZE_TIMING
     )
     start_keybinds: list[dict] = get_widget_setting(page, WIDGET_ID, "start_keybinds", [])
     stop_keybinds: list[dict] = get_widget_setting(page, WIDGET_ID, "stop_keybinds", [])
+    toggle_keybinds: list[dict] = get_widget_setting(page, WIDGET_ID, "toggle_keybinds", [])
+    use_toggle_keybinds = get_widget_setting(
+        page, WIDGET_ID, "use_toggle_keybinds", DEFAULT_USE_TOGGLE_KEYBINDS
+    )
 
     already_running = page.session.store.get(_CLICK_PROCESS_KEY) is not None
     """Whether a click process is already running when this view builds.
@@ -266,8 +330,15 @@ def build_view(page: ft.Page) -> ft.View:
     for a loop that's actually already running.
     """
 
-    status_text = ft.Text("Running" if already_running else "Stopped", weight=ft.FontWeight.W_600)
+    initial_state = "Running" if already_running else "Stopped"
+    status_dot_widget = status_dot(_STATE_COLORS[initial_state])
+    status_text = text_heading(initial_state)
     count_text = text_caption("Clicks: 0")
+
+    def set_state_visual(state: str):
+        """Update the hero's status dot and label together for one run state."""
+        status_dot_widget.bgcolor = _STATE_COLORS[state]
+        status_text.value = state
     speed_label, speed_helper, speed_value = _speed_field_props(speed_unit, DEFAULT_CPS)
     cps_field = ft.TextField(
         label=speed_label,
@@ -275,6 +346,7 @@ def build_view(page: ft.Page) -> ft.View:
         width=160,
         helper=speed_helper,
         disabled=already_running,
+        dense=True,
     )
     button_group = ft.RadioGroup(
         value=DEFAULT_BUTTON,
@@ -290,32 +362,55 @@ def build_view(page: ft.Page) -> ft.View:
     indicator_checkbox = ft.Checkbox(
         label="Show on-screen indicator while running", value=show_indicator
     )
+
+    def _position_caption_text() -> str:
+        if indicator_position is None:
+            return "Position: default (bottom-right corner)"
+        return f"Position: ({indicator_position['x']}, {indicator_position['y']})"
+
+    position_caption = text_caption(_position_caption_text())
+    pick_position_button = ft.OutlinedButton(
+        "Pick position on screen...",
+        tooltip="Drag the indicator to where you want it, Enter to save, Esc to cancel.",
+        disabled=already_running,
+    )
+    reset_position_button = ft.TextButton(
+        "Reset to default",
+        icon=ft.Icons.UNDO,
+        visible=indicator_position is not None,
+        disabled=already_running,
+    )
+
     randomize_checkbox = ft.Checkbox(
         label=f"Randomize timing slightly (±{RANDOMIZE_PERCENT}%)", value=randomize_timing
     )
-    start_button = ft.FilledButton("Start", disabled=already_running)
-    stop_button = ft.FilledButton("Stop", disabled=not already_running)
+    start_button = ft.FilledButton("Start", icon=ft.Icons.PLAY_ARROW, disabled=already_running)
+    stop_button = ft.OutlinedButton("Stop", icon=ft.Icons.STOP, disabled=not already_running)
 
     start_chips_row = ft.Row(wrap=True, spacing=SPACE_SM)
     stop_chips_row = ft.Row(wrap=True, spacing=SPACE_SM)
+    toggle_chips_row = ft.Row(wrap=True, spacing=SPACE_SM)
     add_start_button = ft.OutlinedButton("Add keybind", icon=ft.Icons.ADD)
     add_stop_button = ft.OutlinedButton("Add keybind", icon=ft.Icons.ADD)
+    add_toggle_button = ft.OutlinedButton("Add keybind", icon=ft.Icons.ADD)
     capture_hint = ft.Text(
         "", size=12, weight=ft.FontWeight.W_600, color=ft.Colors.PRIMARY, visible=False
     )
 
     def set_running(running: bool):
-        status_text.value = "Running" if running else "Stopped"
+        set_state_visual("Running" if running else "Stopped")
         start_button.disabled = running
         stop_button.disabled = not running
         cps_field.disabled = running
         button_group.disabled = running
+        pick_position_button.disabled = running
+        reset_position_button.disabled = running
         page.update()
 
     def on_click_line(data: dict):
         error = data.get("error")
         if error:
-            status_text.value = "Error"
+            set_state_visual("Error")
             count_text.value = error
             page.update()
             return
@@ -353,7 +448,7 @@ def build_view(page: ft.Page) -> ft.View:
         )
         page.session.store.set(_CLICK_PROCESS_KEY, widget_process)
         if indicator_checkbox.value:
-            overlay_process = await start_process(page, *_overlay_command())
+            overlay_process = await start_process(page, *_overlay_command(indicator_position))
             page.session.store.set(_OVERLAY_PROCESS_KEY, overlay_process)
         set_running(True)
 
@@ -424,9 +519,20 @@ def build_view(page: ft.Page) -> ft.View:
         deliberately not tied to this view's own lifecycle beyond that:
         once started, it keeps listening even after navigating away, the
         same way the click process itself is allowed to keep running.
+
+        In toggle-keybind mode, every key in `toggle_keybinds` is sent as
+        both a start and a stop hotkey - the same shared-hotkey NOT gate
+        the listener already applies when a key happens to be bound to
+        both lists (see the module docstring), just driven from one list
+        instead of two.
         """
-        start_hotkeys = [kb["hotkey"] for kb in start_keybinds]
-        stop_hotkeys = [kb["hotkey"] for kb in stop_keybinds]
+        if use_toggle_keybinds:
+            toggle_hotkeys = [kb["hotkey"] for kb in toggle_keybinds]
+            start_hotkeys = toggle_hotkeys
+            stop_hotkeys = toggle_hotkeys
+        else:
+            start_hotkeys = [kb["hotkey"] for kb in start_keybinds]
+            stop_hotkeys = [kb["hotkey"] for kb in stop_keybinds]
         config = json.dumps([start_hotkeys, stop_hotkeys])
 
         existing_process: WidgetProcess | None = page.session.store.get(_LISTENER_PROCESS_KEY)
@@ -478,15 +584,35 @@ def build_view(page: ft.Page) -> ft.View:
                 label = f"{label} (toggle)"
             return ft.Chip(label=label, on_delete=on_delete)
 
-        start_chips_row.controls = [
-            chip_for(kb, start_keybinds, "start_keybinds") for kb in start_keybinds
-        ]
-        stop_chips_row.controls = [
-            chip_for(kb, stop_keybinds, "stop_keybinds") for kb in stop_keybinds
-        ]
+        start_chips_row.controls = (
+            [chip_for(kb, start_keybinds, "start_keybinds") for kb in start_keybinds]
+            if start_keybinds
+            else [text_caption("No keybind set.")]
+        )
+        stop_chips_row.controls = (
+            [chip_for(kb, stop_keybinds, "stop_keybinds") for kb in stop_keybinds]
+            if stop_keybinds
+            else [text_caption("No keybind set.")]
+        )
+
+        def toggle_chip_for(keybind: dict):
+            def on_delete(e: ft.Event[ft.Chip]):
+                toggle_keybinds.remove(keybind)
+                set_widget_setting(page, WIDGET_ID, "toggle_keybinds", toggle_keybinds)
+                render_chips()
+                page.run_task(sync_listener)
+
+            return ft.Chip(label=keybind["label"], on_delete=on_delete)
+
+        toggle_chips_row.controls = (
+            [toggle_chip_for(kb) for kb in toggle_keybinds]
+            if toggle_keybinds
+            else [text_caption("No keybind set.")]
+        )
         if mounted:
             start_chips_row.update()
             stop_chips_row.update()
+            toggle_chips_row.update()
 
     capture: dict = {"keybinds": None, "setting_key": None}
     """Which list a captured key should go into, or both None when no
@@ -496,13 +622,15 @@ def build_view(page: ft.Page) -> ft.View:
     """
 
     def cancel_capture():
-        """Disarm capture and restore both "Add keybind" buttons."""
+        """Disarm capture and restore all "Add keybind" buttons."""
         capture["keybinds"] = None
         capture["setting_key"] = None
         add_start_button.disabled = False
         add_stop_button.disabled = False
+        add_toggle_button.disabled = False
         add_start_button.text = "Add keybind"
         add_stop_button.text = "Add keybind"
+        add_toggle_button.text = "Add keybind"
         capture_hint.value = ""
         capture_hint.visible = False
 
@@ -569,6 +697,7 @@ def build_view(page: ft.Page) -> ft.View:
         capture["setting_key"] = setting_key
         add_start_button.disabled = True
         add_stop_button.disabled = True
+        add_toggle_button.disabled = True
         add_button.text = "Press a key…"
         capture_hint.value = "Press any key… (Esc to cancel)"
         capture_hint.visible = True
@@ -580,9 +709,36 @@ def build_view(page: ft.Page) -> ft.View:
     add_stop_button.on_click = lambda e: start_capture(
         stop_keybinds, "stop_keybinds", add_stop_button
     )
+    add_toggle_button.on_click = lambda e: start_capture(
+        toggle_keybinds, "toggle_keybinds", add_toggle_button
+    )
 
     def on_indicator_change(e: ft.Event[ft.Checkbox]):
         set_widget_setting(page, WIDGET_ID, "show_indicator", e.control.value)
+
+    async def on_pick_position(e: ft.Event[ft.OutlinedButton]):
+        nonlocal indicator_position
+        pick_position_button.disabled = True
+        page.update()
+        picked = await _pick_indicator_position()
+        pick_position_button.disabled = already_running
+        if picked is not None:
+            indicator_position = picked
+            set_widget_setting(page, WIDGET_ID, "indicator_position", indicator_position)
+            position_caption.value = _position_caption_text()
+            reset_position_button.visible = True
+        page.update()
+
+    def on_reset_position(e: ft.Event[ft.TextButton]):
+        nonlocal indicator_position
+        indicator_position = None
+        set_widget_setting(page, WIDGET_ID, "indicator_position", None)
+        position_caption.value = _position_caption_text()
+        reset_position_button.visible = False
+        page.update()
+
+    pick_position_button.on_click = on_pick_position
+    reset_position_button.on_click = on_reset_position
 
     def on_randomize_change(e: ft.Event[ft.Checkbox]):
         set_widget_setting(page, WIDGET_ID, "randomize_timing", e.control.value)
@@ -593,6 +749,98 @@ def build_view(page: ft.Page) -> ft.View:
     render_chips(mounted=False)
     page.run_task(sync_listener)
 
+    hero_card = ft.Container(
+        content=ft.Row(
+            [
+                ft.Column(
+                    [
+                        ft.Row(
+                            [status_dot_widget, status_text],
+                            spacing=SPACE_SM,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        count_text,
+                    ],
+                    spacing=SPACE_XS,
+                    expand=True,
+                ),
+                ft.Row([start_button, stop_button], spacing=SPACE_SM),
+            ],
+            spacing=SPACE_LG,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        padding=SPACE_XL,
+        border=card_border(),
+        border_radius=radius_hero(page),
+    )
+
+    settings_card = ft.Container(
+        content=ft.Column(
+            [
+                text_section("Settings"),
+                ft.Row(
+                    [cps_field, button_group],
+                    spacing=SPACE_LG,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
+                ),
+                ft.Column([indicator_checkbox, randomize_checkbox], spacing=0),
+                ft.Row(
+                    [pick_position_button, reset_position_button],
+                    wrap=True,
+                    spacing=SPACE_SM,
+                ),
+                position_caption,
+            ],
+            spacing=SPACE_SM,
+        ),
+        padding=SPACE_SM,
+        border=card_border(),
+        border_radius=radius_card(page),
+    )
+
+    start_stop_section = ft.Column(
+        [
+            text_label("Turn on with"),
+            ft.Row([start_chips_row, add_start_button], wrap=True, spacing=SPACE_SM),
+            text_label("Turn off with"),
+            ft.Row([stop_chips_row, add_stop_button], wrap=True, spacing=SPACE_SM),
+        ],
+        spacing=SPACE_SM,
+        visible=not use_toggle_keybinds,
+    )
+
+    toggle_section = ft.Column(
+        [
+            text_label("Toggle with"),
+            ft.Row([toggle_chips_row, add_toggle_button], wrap=True, spacing=SPACE_SM),
+        ],
+        spacing=SPACE_SM,
+        visible=use_toggle_keybinds,
+    )
+
+    keybinds_card = ft.Container(
+        content=ft.Column(
+            [
+                text_section("Keybinds"),
+                text_caption(
+                    "Any of these keys works globally, even while another window has focus."
+                ),
+                text_caption(
+                    "Off: separate keys turn clicking on and off. On: each key in one "
+                    "list turns clicking on if it's off, and off if it's on. Change this "
+                    "in Settings -> Widgets -> Autoclicker."
+                ),
+                capture_hint,
+                start_stop_section,
+                toggle_section,
+            ],
+            spacing=SPACE_SM,
+        ),
+        padding=SPACE_SM,
+        border=card_border(),
+        border_radius=radius_card(page),
+    )
+
     content = ft.Column(
         [
             text_title("Autoclicker"),
@@ -601,24 +849,14 @@ def build_view(page: ft.Page) -> ft.View:
                 "loop runs as a separate platform script, not Python. Move "
                 "the cursor to where you want it clicking before pressing Start."
             ),
-            ft.Row([cps_field, button_group], spacing=SPACE_MD),
-            ft.Row([indicator_checkbox, randomize_checkbox], spacing=SPACE_MD),
-            ft.Row([start_button, stop_button], spacing=SPACE_MD),
-            status_text,
-            count_text,
-            ft.Divider(),
-            capture_hint,
-            text_section("Turn on with"),
-            text_caption(
-                "Any of these keys works globally, even while another window has focus."
-            ),
-            ft.Row([start_chips_row, add_start_button], wrap=True, spacing=SPACE_SM),
-            text_section("Turn off with"),
-            ft.Row([stop_chips_row, add_stop_button], wrap=True, spacing=SPACE_SM),
+            hero_card,
+            settings_card,
+            keybinds_card,
         ],
         spacing=SPACE_LG,
         scroll=ft.ScrollMode.AUTO,
         margin=scroll_margin(),
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
     )
 
     return ft.View(
@@ -630,7 +868,7 @@ def build_view(page: ft.Page) -> ft.View:
 
 
 def build_settings(page: ft.Page) -> ft.Control:
-    """The Autoclicker's Settings section: speed unit.
+    """The Autoclicker's Settings section: speed unit and toggle keybinds.
 
     Speed and click button are already fully set on the Autoclicker
     screen itself each time it's used, so neither is a setting worth
@@ -638,13 +876,24 @@ def build_settings(page: ft.Page) -> ft.Control:
     Autoclicker screen has no room to ask about every time it opens, for
     whether its speed field works in clicks-per-second or interval-in-
     milliseconds.
+
+    Whether the keybinds section uses one toggle list instead of separate
+    start/stop lists is also a preference rather than something set per
+    session, so it lives here too, next to speed unit, instead of as a
+    switch on the Autoclicker screen itself.
     """
 
     def on_speed_unit_change(e: ft.Event[ft.RadioGroup]):
         if e.control.value is not None:
             set_widget_setting(page, WIDGET_ID, "speed_unit", e.control.value)
 
+    def on_use_toggle_keybinds_change(e: ft.Event[ft.Switch]):
+        set_widget_setting(page, WIDGET_ID, "use_toggle_keybinds", e.control.value)
+
     speed_unit = get_widget_setting(page, WIDGET_ID, "speed_unit", DEFAULT_SPEED_UNIT)
+    use_toggle_keybinds = get_widget_setting(
+        page, WIDGET_ID, "use_toggle_keybinds", DEFAULT_USE_TOGGLE_KEYBINDS
+    )
 
     return ft.Column(
         [
@@ -662,6 +911,22 @@ def build_settings(page: ft.Page) -> ft.Control:
                         ft.Radio(value="ms", label="Interval (ms)"),
                     ]
                 ),
+            ),
+            text_label("Use toggle keybinds"),
+            ft.Row(
+                [
+                    text_caption(
+                        "Off: separate keys turn clicking on and off. On: each key in "
+                        "one list turns clicking on if it's off, and off if it's on.",
+                        expand=True,
+                    ),
+                    ft.Switch(
+                        value=use_toggle_keybinds,
+                        on_change=on_use_toggle_keybinds_change,
+                        scale=SWITCH_SCALE,
+                    ),
+                ],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
         ],
         spacing=SPACE_SM,

@@ -6,3 +6,4 @@ pywebview>=6.2.1
 pynput>=1.7.7
 pystray>=0.19.5
 Pillow>=11.0.0
+keyboard>=0.13.5

@@ -16,22 +16,6 @@
       },
       "sha256": "976a4b42642088f7e97dfe140989b79d49ba9028ff3188e49956aca6cd79147d",
       "homepage": "https://github.com/BakedAleska/Toolblox/tree/main/widgets/autoclicker"
-    },
-    {
-      "id": "image_overlay",
-      "name": "Image Overlay",
-      "description": "Pins an image on top of everything else on screen.",
-      "author": "BakedAleska",
-      "version": "1.2.0",
-      "icon": null,
-      "source": {
-        "owner": "BakedAleska",
-        "repo": "Toolblox",
-        "ref": "6c1c19d99d3239bd017077aa8a69fa227a73c53a",
-        "path": "widgets/image_overlay"
-      },
-      "sha256": "365a5be4c6fc1e382621c7b048d9041c4576238ec4139f34094ce5adf5c2dfe0",
-      "homepage": "https://github.com/BakedAleska/Toolblox/tree/main/widgets/image_overlay"
     }
   ]
 }

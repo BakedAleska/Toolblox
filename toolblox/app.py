@@ -16,17 +16,17 @@ import flet as ft  # noqa: E402
 from toolblox import tray  # noqa: E402
 from toolblox.logs import get_logger  # noqa: E402
 from toolblox.state import (  # noqa: E402
-    get_active_theme,
     get_run_in_background,
     get_widget_start_on_launch,
     resolve_theme_mode,
 )
-from toolblox.theme import build_theme  # noqa: E402
 from toolblox.ui.accounts import AccountsView  # noqa: E402
 from toolblox.ui.dashboard import DashboardView  # noqa: E402
 from toolblox.ui.layout import restore_nav_scroll  # noqa: E402
 from toolblox.ui.settings import SettingsView  # noqa: E402
+from toolblox.ui.style import app_theme  # noqa: E402
 from toolblox.ui.widgets import WidgetsView  # noqa: E402
+from toolblox.version import display_version  # noqa: E402
 from toolblox.widgets.loader import get_enabled_widgets  # noqa: E402
 from toolblox.widgets.process import stop_all_processes  # noqa: E402
 
@@ -76,9 +76,10 @@ def main(page: ft.Page):
 
     page.window.on_event = on_window_event
 
-    page.title = "Toolblox"
+    page.title = f"Toolblox-v{display_version()}"
+    page.window.icon = "logo.svg"
     page.theme_mode = resolve_theme_mode(page)
-    page.theme = build_theme(get_active_theme(page))
+    page.theme = app_theme()
     page.window.width = 900
     page.window.height = 500
     page.window.resizable = True

@@ -10,10 +10,8 @@ from toolblox.config import WIDGETS_DIR
 from toolblox.devtools import dev_widgets_dir, is_dev_environment, reload_current_view, tail_log
 from toolblox.roblox.join import extract_place_id
 from toolblox.state import (
-    BUILT_IN_THEME_MODES,
-    get_active_theme,
+    get_auto_rejoin,
     get_compact_mode,
-    get_installed_themes,
     get_multi_instance,
     get_nav_position,
     get_open_on_launch,
@@ -23,9 +21,8 @@ from toolblox.state import (
     get_sort_order,
     get_theme_mode,
     get_widget_start_on_launch,
-    install_theme,
-    remove_theme,
     resolve_theme_mode,
+    set_auto_rejoin,
     set_compact_mode,
     set_multi_instance,
     set_nav_position,
@@ -37,10 +34,8 @@ from toolblox.state import (
     set_theme_mode,
     set_widget_start_on_launch,
 )
-from toolblox.theme import build_theme, parse_theme_input
 from toolblox.ui.layout import build_layout
 from toolblox.ui.style import (
-    FORM_FIELD_HEIGHT,
     SPACE_LG,
     SPACE_MD,
     SPACE_SM,
@@ -49,6 +44,7 @@ from toolblox.ui.style import (
     card_border,
     radius_card,
     scroll_padding,
+    section_box,
     text_caption,
     text_label,
     text_section,
@@ -85,11 +81,10 @@ def SettingsView(page: ft.Page) -> ft.View:
         page.update()
 
     def on_theme_mode_change(e: ft.Event[ft.RadioGroup]):
-        """Switch Appearance between System, Light, Dark, or an installed theme."""
+        """Switch Appearance between System, Light, and Dark."""
         if e.control.value is not None:
             set_theme_mode(page, e.control.value)
             page.theme_mode = resolve_theme_mode(page)
-            page.theme = build_theme(get_active_theme(page))
         page.views[-1] = SettingsView(page)
         page.update()
 
@@ -105,6 +100,9 @@ def SettingsView(page: ft.Page) -> ft.View:
 
     def on_multi_instance_change(e: ft.Event[ft.Switch]):
         set_multi_instance(page, e.control.value)
+
+    def on_auto_rejoin_change(e: ft.Event[ft.Switch]):
+        set_auto_rejoin(page, e.control.value)
 
     def on_reload_widgets(e: ft.Event[ft.Button]):
         """Force-rescan and reimport widgets, then rebuild the current view.
@@ -241,94 +239,13 @@ def SettingsView(page: ft.Page) -> ft.View:
         await page.clipboard.set(str(WIDGETS_DIR))
         show_toast(page, "Copied.")
 
-    async def on_install_theme(e: ft.Event[ft.FilledButton]):
-        """Parse the pasted theme or link and install it, using its "name"
-        field, as the active appearance.
-
-        Installing a theme also switches Appearance to it, since pasting
-        one and installing it means the user wants to see it now.
-        """
-        raw_input = (theme_field.value or "").strip()
-        if not raw_input:
-            show_toast(page, "Paste a theme's JSON, or a link to one, before installing.")
-            return
-
-        theme, error = await asyncio.to_thread(parse_theme_input, raw_input)
-        if error:
-            show_toast(page, error)
-            return
-
-        theme_id = install_theme(page, theme, raw_input)
-        set_theme_mode(page, theme_id)
-        page.theme_mode = resolve_theme_mode(page)
-        page.theme = build_theme(theme)
-        page.views[-1] = SettingsView(page)
-        page.update()
-        show_toast(page, f'"{theme["name"]}" installed and applied.')
-
-    def on_remove_theme(theme_id: str):
-        """Build a click handler that removes one installed theme.
-
-        If the removed theme was the active appearance, falls back to
-        resolving the theme mode fresh and rebuilding with no custom
-        theme, so the page never keeps applying a theme that no longer
-        exists.
-        """
-
-        def handler(e: ft.Event[ft.IconButton]):
-            was_active = get_theme_mode(page) == theme_id
-            remove_theme(page, theme_id)
-            if was_active:
-                page.theme_mode = resolve_theme_mode(page)
-                page.theme = build_theme(None)
-            page.views[-1] = SettingsView(page)
-            page.update()
-            show_toast(page, "Theme removed.")
-
-        return handler
-
-    theme_field = ft.TextField(
-        hint_text=(
-            '{"name": "Seafoam", "accent_color": "#7C3AED", '
-            '"secondary_color": "#22D3AA", "corner_radius": 4, '
-            '"brightness": "dark", '
-            '"background_image": "https://example.com/bg.png", '
-            '"background_opacity": 0.4}'
-        ),
-        hint_style=ft.TextStyle(
-            color=ft.Colors.with_opacity(0.4, ft.Colors.ON_SURFACE_VARIANT), italic=True
-        ),
-        multiline=True,
-        height=FORM_FIELD_HEIGHT,
-    )
-
-    installed_themes = get_installed_themes(page)
-
     appearance_options = [
         ft.Radio(value="system", label="System"),
         ft.Radio(value="light", label="Light"),
         ft.Radio(value="dark", label="Dark"),
     ]
-    for theme in installed_themes:
-        appearance_options.append(ft.Radio(value=theme["id"], label=theme["name"]))
 
-    installed_theme_rows: list[ft.Control] = []
-    for theme in installed_themes:
-        installed_theme_rows.append(
-            ft.Row(
-                [
-                    text_label(theme["name"], expand=True),
-                    ft.IconButton(
-                        icon=ft.Icons.DELETE_OUTLINE,
-                        icon_size=18,
-                        tooltip=f'Remove "{theme["name"]}"',
-                        on_click=on_remove_theme(theme["id"]),
-                    ),
-                ]
-            )
-        )
-
-    valid_appearance_values = BUILT_IN_THEME_MODES.keys() | {t["id"] for t in installed_themes}
+    valid_appearance_values = {"system", "light", "dark"}
     appearance_value = get_theme_mode(page) if get_theme_mode(page) in valid_appearance_values \
         else "system"
 
@@ -338,8 +255,9 @@ def SettingsView(page: ft.Page) -> ft.View:
     update_info = page.session.store.get(_UPDATE_INFO_KEY)
     update_error = page.session.store.get(_UPDATE_ERROR_KEY)
 
+    update_status: ft.Control | None = None
     if update_downloading:
-        update_status: ft.Control = text_caption(f"Downloading version {update_info.version}…")
+        update_status = text_caption(f"Downloading version {update_info.version}…")
     elif update_checking:
         update_status = text_caption("Checking for updates…")
     elif update_error:
@@ -350,8 +268,6 @@ def SettingsView(page: ft.Page) -> ft.View:
         )
     elif update_checked:
         update_status = text_caption("You're on the latest version.")
-    else:
-        update_status = ft.Text("", size=12)
 
     update_buttons: list[ft.Control] = [
         ft.OutlinedButton(
@@ -370,15 +286,20 @@ def SettingsView(page: ft.Page) -> ft.View:
             )
         )
 
-    updates_section = (
+    updates_box = (
         [
-            text_section("Updates"),
-            text_caption(f"You're running version {APP_VERSION}."),
-            update_status,
-            ft.Row(update_buttons, spacing=SPACE_SM),
-            ft.Container(height=SPACE_SM),
-            ft.Divider(height=1, thickness=1, color=ft.Colors.OUTLINE_VARIANT),
-            ft.Container(height=SPACE_SM),
+            section_box(
+                page,
+                ft.Column(
+                    [
+                        text_section("Updates"),
+                        text_caption(f"You're running version {APP_VERSION}."),
+                        *([update_status] if update_status is not None else []),
+                        ft.Row(update_buttons, spacing=SPACE_SM),
+                    ],
+                    spacing=SPACE_SM,
+                ),
+            )
         ]
         if sys.platform == "win32"
         else []
@@ -448,136 +369,142 @@ def SettingsView(page: ft.Page) -> ft.View:
             ),
         ]
 
+    startup_boxes: list[ft.Control] = []
+    if startup.is_supported():
+        startup_boxes.append(
+            section_box(
+                page,
+                ft.Column(
+                    [
+                        text_section("Open on launch"),
+                        ft.Row(
+                            [
+                                text_caption(
+                                    "Start Toolblox automatically when you log in.",
+                                    expand=True,
+                                ),
+                                ft.Switch(
+                                    value=get_open_on_launch(page),
+                                    on_change=on_open_on_launch_change,
+                                    scale=SWITCH_SCALE,
+                                ),
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                    ],
+                    spacing=SPACE_SM,
+                ),
+            )
+        )
+    if tray.is_supported():
+        startup_boxes.append(
+            section_box(
+                page,
+                ft.Column(
+                    [
+                        text_section("Run in background"),
+                        ft.Row(
+                            [
+                                text_caption(
+                                    "Closing the window keeps Toolblox running in the "
+                                    + (
+                                        "menu bar"
+                                        if sys.platform == "darwin"
+                                        else "hidden icons section"
+                                    )
+                                    + " instead of closing it. Quit from there to close "
+                                    "it fully.",
+                                    expand=True,
+                                ),
+                                ft.Switch(
+                                    value=get_run_in_background(page),
+                                    on_change=on_run_in_background_change,
+                                    scale=SWITCH_SCALE,
+                                ),
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                    ],
+                    spacing=SPACE_SM,
+                ),
+            )
+        )
+
     general_tab = ft.ListView(
         controls=[
-            text_section("Sidebar position"),
-            ft.RadioGroup(
-                value=get_nav_position(page),
-                on_change=on_position_change,
-                content=ft.Row(
+            section_box(
+                page,
+                ft.Column(
                     [
-                        ft.Radio(value="left", label="Left"),
-                        ft.Radio(value="right", label="Right"),
-                    ]
+                        text_section("Sidebar position"),
+                        ft.RadioGroup(
+                            value=get_nav_position(page),
+                            on_change=on_position_change,
+                            content=ft.Row(
+                                [
+                                    ft.Radio(value="left", label="Left"),
+                                    ft.Radio(value="right", label="Right"),
+                                ]
+                            ),
+                        ),
+                    ],
+                    spacing=SPACE_SM,
                 ),
             ),
-            text_section("Appearance"),
-            ft.RadioGroup(
-                value=appearance_value,
-                on_change=on_theme_mode_change,
-                content=ft.Row(appearance_options, wrap=True),
+            section_box(
+                page,
+                ft.Column(
+                    [
+                        text_section("Appearance"),
+                        ft.RadioGroup(
+                            value=appearance_value,
+                            on_change=on_theme_mode_change,
+                            content=ft.Row(appearance_options, wrap=True),
+                        ),
+                    ],
+                    spacing=SPACE_SM,
+                ),
             ),
+            *startup_boxes,
+            *updates_box,
             *(
                 [
-                    text_section("Installed Themes"),
-                    ft.Column(installed_theme_rows, spacing=SPACE_XS),
-                ]
-                if installed_theme_rows
-                else []
-            ),
-            *(
-                [
-                    text_section("Startup"),
-                    ft.Row(
-                        [
-                            ft.Column(
-                                [
-                                    text_label("Open on launch"),
-                                    text_caption(
-                                        "Start Toolblox automatically when you log in."
-                                    ),
-                                ],
-                                spacing=SPACE_XS,
-                                expand=True,
-                            ),
-                            ft.Switch(
-                                value=get_open_on_launch(page),
-                                on_change=on_open_on_launch_change,
-                                scale=SWITCH_SCALE,
-                            ),
-                        ],
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                ]
-                if startup.is_supported()
-                else []
-            ),
-            *(
-                [
-                    ft.Row(
-                        [
-                            ft.Column(
-                                [
-                                    text_label("Run in background"),
-                                    text_caption(
-                                        "Closing the window keeps Toolblox running in the "
-                                        + (
-                                            "menu bar"
-                                            if sys.platform == "darwin"
-                                            else "hidden icons section"
-                                        )
-                                        + " instead of closing it. Quit from there to close "
-                                        "it fully."
-                                    ),
-                                ],
-                                spacing=SPACE_XS,
-                                expand=True,
-                            ),
-                            ft.Switch(
-                                value=get_run_in_background(page),
-                                on_change=on_run_in_background_change,
-                                scale=SWITCH_SCALE,
-                            ),
-                        ],
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                ]
-                if tray.is_supported()
-                else []
-            ),
-            *updates_section,
-            text_section("Install a Theme"),
-            text_caption(
-                "Paste a theme's JSON, or a link to one, to set a name, colors, "
-                "corner rounding, a font, and a background image. Installing "
-                "adds it to Appearance above."
-            ),
-            theme_field,
-            ft.FilledButton("Install", on_click=on_install_theme, style=thin_button_style()),
-            ft.Container(height=SPACE_SM),
-            ft.Divider(height=1, thickness=1, color=ft.Colors.OUTLINE_VARIANT),
-            ft.Container(height=SPACE_SM),
-            text_section("Danger Zone", color=ft.Colors.ERROR),
-            *(
-                [
-                    ft.Row(
-                        [
-                            ft.Column(
-                                [
-                                    text_label("Allow multiple Roblox instances"),
-                                    text_caption(
-                                        "Lets Join open a second Roblox window "
-                                        "instead of just switching to one that's "
-                                        "already open, so more than one account "
-                                        "can play at once."
-                                    ),
-                                ],
-                                spacing=SPACE_XS,
-                                expand=True,
-                            ),
-                            ft.Switch(
-                                value=get_multi_instance(page),
-                                on_change=on_multi_instance_change,
-                                scale=SWITCH_SCALE,
-                            ),
-                        ],
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
+                    section_box(
+                        page,
+                        ft.Column(
+                            [
+                                text_section("Allow multiple Roblox instances",
+                                             color=ft.Colors.ERROR),
+                                ft.Row(
+                                    [
+                                        text_caption(
+                                            "Lets Join open a second Roblox window "
+                                            "instead of just switching to one that's "
+                                            "already open, so more than one account "
+                                            "can play at once.",
+                                            expand=True,
+                                        ),
+                                        ft.Switch(
+                                            value=get_multi_instance(page),
+                                            on_change=on_multi_instance_change,
+                                            scale=SWITCH_SCALE,
+                                        ),
+                                    ],
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                ),
+                            ],
+                            spacing=SPACE_SM,
+                        ),
+                    )
                 ]
                 if sys.platform == "win32"
                 else []
             ),
-            *dev_mode_controls,
+            *(
+                [section_box(page, ft.Column(dev_mode_controls, spacing=SPACE_SM))]
+                if dev_mode_controls
+                else []
+            ),
         ],
         spacing=SPACE_MD,
         expand=True,
@@ -588,65 +515,117 @@ def SettingsView(page: ft.Page) -> ft.View:
 
     accounts_tab = ft.ListView(
         controls=[
-            ft.Row(
-                [
-                    ft.Column(
-                        [
-                            text_label("Show avatars"),
-                            text_caption("Show each account's avatar in the list."),
-                        ],
-                        spacing=SPACE_XS,
-                        expand=True,
-                    ),
-                    ft.Switch(
-                        value=get_show_avatars(page),
-                        on_change=on_show_avatars_change,
-                        scale=SWITCH_SCALE,
-                    ),
-                ],
-            ),
-            ft.Row(
-                [
-                    ft.Column(
-                        [
-                            text_label("Compact mode"),
-                            text_caption(
-                                "Hide notes in the accounts list for a more compact view."
-                            ),
-                        ],
-                        spacing=SPACE_XS,
-                        expand=True,
-                    ),
-                    ft.Switch(
-                        value=get_compact_mode(page),
-                        on_change=on_compact_mode_change,
-                        scale=SWITCH_SCALE,
-                    ),
-                ],
-            ),
-            text_section("Sort order"),
-            ft.RadioGroup(
-                value=get_sort_order(page),
-                on_change=on_sort_order_change,
-                content=ft.Row(
+            section_box(
+                page,
+                ft.Column(
                     [
-                        ft.Radio(value="last_played", label="Last played"),
-                        ft.Radio(value="alphabetical", label="Alphabetical"),
-                        ft.Radio(value="manual", label="Manual"),
-                    ]
+                        text_section("Show avatars"),
+                        ft.Row(
+                            [
+                                text_caption(
+                                    "Show each account's avatar in the list.", expand=True
+                                ),
+                                ft.Switch(
+                                    value=get_show_avatars(page),
+                                    on_change=on_show_avatars_change,
+                                    scale=SWITCH_SCALE,
+                                ),
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                    ],
+                    spacing=SPACE_SM,
                 ),
             ),
-            text_section("Place ID"),
-            text_caption(
-                "The place that opens when you press Join. Paste a roblox.com game "
-                "link, or just the numeric ID."
+            section_box(
+                page,
+                ft.Column(
+                    [
+                        text_section("Compact mode"),
+                        ft.Row(
+                            [
+                                text_caption(
+                                    "Hide notes in the accounts list for a more "
+                                    "compact view.",
+                                    expand=True,
+                                ),
+                                ft.Switch(
+                                    value=get_compact_mode(page),
+                                    on_change=on_compact_mode_change,
+                                    scale=SWITCH_SCALE,
+                                ),
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                    ],
+                    spacing=SPACE_SM,
+                ),
             ),
-            ft.TextField(
-                value=get_place_id(page),
-                hint_text="https://www.roblox.com/games/1818/... or 1818",
-                on_blur=on_place_id_blur,
-                multiline=True,
-                height=FORM_FIELD_HEIGHT,
+            section_box(
+                page,
+                ft.Column(
+                    [
+                        text_section("Auto-rejoin"),
+                        ft.Row(
+                            [
+                                text_caption(
+                                    "Automatically rejoin an account when it's "
+                                    "detected leaving the place. If an account "
+                                    "leaves again right after being auto-rejoined, "
+                                    "it stops retrying that account until you join "
+                                    "it manually - a safety net in case you forget "
+                                    "this is on.",
+                                    expand=True,
+                                ),
+                                ft.Switch(
+                                    value=get_auto_rejoin(page),
+                                    on_change=on_auto_rejoin_change,
+                                    scale=SWITCH_SCALE,
+                                ),
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                    ],
+                    spacing=SPACE_SM,
+                ),
+            ),
+            section_box(
+                page,
+                ft.Column(
+                    [
+                        text_section("Sort order"),
+                        ft.RadioGroup(
+                            value=get_sort_order(page),
+                            on_change=on_sort_order_change,
+                            content=ft.Row(
+                                [
+                                    ft.Radio(value="last_played", label="Last played"),
+                                    ft.Radio(value="alphabetical", label="Alphabetical"),
+                                    ft.Radio(value="manual", label="Manual"),
+                                ]
+                            ),
+                        ),
+                    ],
+                    spacing=SPACE_SM,
+                ),
+            ),
+            section_box(
+                page,
+                ft.Column(
+                    [
+                        text_section("Place ID"),
+                        text_caption(
+                            "The place that opens when you press Join. Paste a roblox.com "
+                            "game link, or just the numeric ID."
+                        ),
+                        ft.TextField(
+                            value=get_place_id(page),
+                            hint_text="https://www.roblox.com/games/1818/... or 1818",
+                            on_blur=on_place_id_blur,
+                        ),
+                    ],
+                    spacing=SPACE_SM,
+                ),
             ),
         ],
         spacing=SPACE_MD,
@@ -706,7 +685,7 @@ def SettingsView(page: ft.Page) -> ft.View:
         widget_settings_sections.append(
             ft.Container(
                 content=ft.Column(section_controls, spacing=SPACE_MD),
-                padding=SPACE_MD,
+                padding=SPACE_SM,
                 border=(
                     ft.Border.all(2, ft.Colors.PRIMARY)
                     if widget.id == focus_widget_id

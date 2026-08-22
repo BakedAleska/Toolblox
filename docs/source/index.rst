@@ -57,9 +57,8 @@ The rest of the UI and shared app infrastructure.
 * :doc:`api/toolblox.ui.layout`: the shared page shell. Nav rail plus content area, used by every view.
 * :doc:`api/toolblox.ui.dashboard`: the Dashboard. A Roblox-style continue card, an account row, and stats.
 * :doc:`api/toolblox.ui.settings`: the Settings screen.
-* :doc:`api/toolblox.ui.style`: shared visual constants and theme-aware helpers.
+* :doc:`api/toolblox.ui.style`: shared visual constants and helpers.
 * :doc:`api/toolblox.ui.toast`: snackbar-based toast notifications, shared across all views.
-* :doc:`api/toolblox.theme`: parse and apply a user-supplied theme.
 * :doc:`api/toolblox.config`: per-OS data directory and shared URLs.
 * :doc:`api/toolblox.logs`: file-based logging shared by every part of the app.
 

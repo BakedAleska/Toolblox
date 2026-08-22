@@ -12,7 +12,6 @@ Shared app infrastructure and top-level modules.
    Logs <api/toolblox.logs>
    Startup <api/toolblox.startup>
    State <api/toolblox.state>
-   Theme <api/toolblox.theme>
    Tray <api/toolblox.tray>
    Updater <api/toolblox.updater>
    Version <api/toolblox.version>

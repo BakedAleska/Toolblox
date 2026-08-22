@@ -26,7 +26,6 @@ Submodules
    toolblox.logs
    toolblox.startup
    toolblox.state
-   toolblox.theme
    toolblox.tray
    toolblox.updater
    toolblox.version

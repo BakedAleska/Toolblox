@@ -1,10 +1,8 @@
-"""Shared visual constants and theme-aware helpers, so every card and
-container uses the same corner rounding and border style.
+"""Shared visual constants and helpers, so every card and container uses
+the same corner rounding and border style.
 """
 
 import flet as ft
-
-from toolblox.state import get_active_theme
 
 RADIUS_CARD = 12
 """Default radius for bordered cards and list items. Used by account
@@ -20,8 +18,20 @@ Dashboard's hero card.
 RADIUS_PILL = 999
 """Radius for fully rounded chip and pill elements. Flutter clamps this
 to half the container's shorter side, so it always produces a full pill.
-Not affected by a custom theme: pills stay fully round regardless of
-corner_radius.
+"""
+
+RADIUS_MENU = 8
+"""Radius for a floating menu or dropdown, such as a search field's
+autofill suggestions. Deliberately smaller than RADIUS_CARD - a shallow
+row-height panel reads as overly circular at the card radius, the same
+way a small button looks rounder than a large one at the same pixel
+radius.
+"""
+
+DIALOG_WIDTH = 440
+"""Content width for every ft.AlertDialog in the app, so pop-up windows
+read as one consistent size instead of each dialog sizing itself to its
+own content. Reference size is Rogue Lineage's add-character dialog.
 """
 
 SWITCH_SCALE = 0.8
@@ -44,8 +54,10 @@ SPACE_LG = 16
 """Spacing between distinct sections on the same screen."""
 
 SPACE_XL = 24
-"""Spacing for a hero card's internal breathing room. Rare - most
-spacing should use a smaller step."""
+"""Spacing for a hero card's internal breathing room, and the app-wide
+outer padding around every screen's content area (see
+`multitool.ui.layout.build_layout`). Rare - most spacing should use a
+smaller step."""
 
 
 def text_title(value: str, **kwargs: object) -> ft.Text:
@@ -53,6 +65,16 @@ def text_title(value: str, **kwargs: object) -> ft.Text:
     always the first thing on it.
     """
     return ft.Text(value, size=24, weight=ft.FontWeight.BOLD, **kwargs)
+
+
+def text_heading(value: str, **kwargs: object) -> ft.Text:
+    """A widget's own hero/status value, e.g. Autoclicker's "Running" /
+    "Stopped" state or the Mana bar overlay's run state. Sits between
+    text_title and text_section: bigger and heavier than any label so it
+    reads as the one focal point of a hero card, but not screen-title
+    weight, since it's a state word, not the screen's own name.
+    """
+    return ft.Text(value, size=18, weight=ft.FontWeight.W_600, **kwargs)
 
 
 def text_section(value: str, **kwargs: object) -> ft.Text:
@@ -69,20 +91,20 @@ def text_caption(value: str, **kwargs: object) -> ft.Text:
     """Muted helper or secondary text under a label or section."""
     return ft.Text(value, size=12, color=ft.Colors.ON_SURFACE_VARIANT, **kwargs)
 
-FORM_FIELD_HEIGHT = 120
-"""Height for a settings screen's larger text input boxes, such as the
-Install a Theme paste box and the Place ID field, so the two read as
-the same size instead of one dwarfing the other.
-"""
-
 SCROLL_GUTTER = 12
 """Space reserved on the trailing edge of every vertically scrolling
 list or column, so the scrollbar rendered there never sits on top of a
 button, switch, or other edge-aligned control. Paired with the app-wide
-ScrollbarTheme built in toolblox.theme.build_theme, which sets the
-scrollbar's own thickness and color. Applied via scroll_padding() for
-controls with a padding property (ListView, GridView) and
-scroll_margin() for controls that only have margin (Column, Row).
+ScrollbarTheme built by app_theme() below, which sets the scrollbar's
+own thickness and color. Applied via scroll_padding() for controls with
+a padding property (ListView, GridView) and scroll_margin() for
+controls that only have margin (Column, Row).
+"""
+
+SCROLLBAR_THICKNESS = 6
+"""Width of every scrollbar in the app, in logical pixels. Kept slim and
+uniform (see app_theme's scrollbar_theme) so a scrollbar reads as a
+quiet edge detail rather than competing with the content next to it.
 """
 
 
@@ -107,20 +129,29 @@ def thin_button_style() -> ft.ButtonStyle:
     Returns a fresh ButtonStyle on each call, matching card_border's
     no-shared-mutable-property convention.
     """
-    return ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=16, vertical=8))
+    return ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=SPACE_LG, vertical=SPACE_SM))
 
 
 def radius_card(page: ft.Page) -> float:
-    """The card radius, using the active theme's corner_radius if set."""
-    theme = get_active_theme(page)
-    if theme and "corner_radius" in theme:
-        return theme["corner_radius"]
     return RADIUS_CARD
 
 
 def radius_hero(page: ft.Page) -> float:
-    """The hero radius, keeping the same offset above the card radius."""
-    return radius_card(page) + (RADIUS_HERO - RADIUS_CARD)
+    return RADIUS_HERO
+
+
+def radius_menu(page: ft.Page) -> float:
+    return RADIUS_MENU
+
+
+def status_dot(color: str, *, size: int = 8) -> ft.Container:
+    """A small filled circle for an at-a-glance running/stopped/error
+    state, the same visual idiom the Accounts screen uses for each
+    account's presence dot. Pass a semantic color role, e.g.
+    `ft.Colors.GREEN` for running, `ft.Colors.ERROR` for an error state,
+    or `ft.Colors.OUTLINE_VARIANT` for idle/neutral.
+    """
+    return ft.Container(width=size, height=size, bgcolor=color, border_radius=size / 2)
 
 
 def card_border() -> ft.Border:
@@ -130,3 +161,53 @@ def card_border() -> ft.Border:
     one mutable property object.
     """
     return ft.Border.all(1, ft.Colors.OUTLINE_VARIANT)
+
+
+def section_box(page: ft.Page, content: ft.Control) -> ft.Container:
+    """A bordered box grouping one screen section's controls - a
+    Settings section, or a widget's own feature box (e.g. Rogue
+    Lineage's Characters and Mana bar overlay boxes).
+
+    Same visual motif as every other card-tier box in the app: card_border()
+    + radius_card() + SPACE_SM padding. This is the app-wide reference
+    padding for a card-tier box - keep it in sync with any card-tier box
+    built by hand elsewhere rather than picking a new value there. Kept
+    tight deliberately: a box's height should track its content, not
+    generous padding, so boxes stacked on the same screen read close in
+    height to each other.
+    """
+    return ft.Container(
+        content=content,
+        padding=SPACE_SM,
+        border=card_border(),
+        border_radius=radius_card(page),
+    )
+
+
+def app_theme() -> ft.Theme:
+    """The app's single, fixed Theme.
+
+    Page transitions are always disabled: instant view switches are a
+    deliberate choice for this app. The scrollbar is kept thin and
+    uniform across every scrollable list, grid, and column.
+    """
+    return ft.Theme(
+        page_transitions=ft.PageTransitionsTheme(
+            windows=ft.PageTransitionTheme.NONE,
+            macos=ft.PageTransitionTheme.NONE,
+            linux=ft.PageTransitionTheme.NONE,
+            android=ft.PageTransitionTheme.NONE,
+            ios=ft.PageTransitionTheme.NONE,
+        ),
+        scrollbar_theme=ft.ScrollbarTheme(
+            thickness=SCROLLBAR_THICKNESS,
+            radius=SCROLLBAR_THICKNESS / 2,
+            thumb_color=ft.Colors.OUTLINE_VARIANT,
+            track_color=ft.Colors.TRANSPARENT,
+            track_visibility=False,
+            thumb_visibility=False,
+            interactive=True,
+            cross_axis_margin=2,
+            main_axis_margin=2,
+        ),
+    )

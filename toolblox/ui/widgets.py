@@ -1,16 +1,18 @@
 """The Widgets screen: the Catalogue banner and the grid of installed widgets.
 
-The Catalogue only renders on the "canary" release channel (see
-toolblox.devtools.release_channel) - a packaged "beta" build shows just
-the installed-widgets grid, with no shop, no background fetch, and no
-update badges, since those all depend on a fetched Catalogue.
+The Catalogue renders on every release channel, "beta" included - it
+fetches toolblox.config.WIDGET_REGISTRY_URL (the published registry.json)
+the same way regardless of channel. Only the *source* of registry.json
+changes with toolblox.devtools.dev_registry_path: a source checkout
+("canary") reads the repo's own registry.json instead of fetching it, so
+Developer Mode can exercise local: true entries without pushing anything.
 """
 
 import asyncio
 
 import flet as ft
 
-from toolblox.devtools import dev_registry_path, dev_widgets_dir, release_channel
+from toolblox.devtools import dev_registry_path, dev_widgets_dir
 from toolblox.state import get_disabled_widgets, remove_widget_settings, set_widget_enabled
 from toolblox.ui.layout import build_layout, widget_route
 from toolblox.ui.style import (
@@ -139,14 +141,12 @@ def _icon_chip(
 def WidgetsView(page: ft.Page) -> ft.View:
     """The Widgets screen.
 
-    On the "canary" channel, the Catalogue is fetched once per session,
-    on the first build. The fetched flag is read fresh at the top of
-    every build and set inside background_refresh_catalogue itself,
-    before it calls refresh(). This guard matters: refresh() rebuilds
-    this view, so an unconditional fetch here would trigger another
-    fetch on every rebuild, without end. On "beta", none of this runs -
-    the Catalogue section, its background fetch, and the per-widget
-    update badges it feeds are skipped entirely.
+    The Catalogue is fetched once per session, on the first build,
+    regardless of release channel. The fetched flag is read fresh at the
+    top of every build and set inside background_refresh_catalogue
+    itself, before it calls refresh(). This guard matters: refresh()
+    rebuilds this view, so an unconditional fetch here would trigger
+    another fetch on every rebuild, without end.
 
     The installed-widgets section is wrapped in a container held to
     nearly the full window height (see INSTALLED_SECTION_TOP_GAP), even
@@ -230,8 +230,6 @@ def WidgetsView(page: ft.Page) -> ft.View:
         page.session.store.set(_CATALOGUE_FETCHED_KEY, True)
         page.session.store.set(_CATALOGUE_ERROR_KEY, error)
         refresh()
-
-    catalogue_enabled = release_channel() == "canary"
 
     widgets, load_errors = discover_widgets(dev_widgets_dir())
     disabled_ids = set(get_disabled_widgets(page))
@@ -592,40 +590,36 @@ def WidgetsView(page: ft.Page) -> ft.View:
             ),
         )
 
-    registry_by_id: dict[str, CatalogEntry] = {}
-    catalogue_fetched = False
+    catalogue_fetched = page.session.store.get(_CATALOGUE_FETCHED_KEY)
+    catalogue_error = page.session.store.get(_CATALOGUE_ERROR_KEY)
+    all_entries = get_cached_registry(page)
+    registry_by_id: dict[str, CatalogEntry] = {e.id: e for e in all_entries}
+    catalogue_entries = [e for e in all_entries if e.id not in local_ids]
 
-    if catalogue_enabled:
-        catalogue_fetched = page.session.store.get(_CATALOGUE_FETCHED_KEY)
-        catalogue_error = page.session.store.get(_CATALOGUE_ERROR_KEY)
-        all_entries = get_cached_registry(page)
-        registry_by_id = {e.id: e for e in all_entries}
-        catalogue_entries = [e for e in all_entries if e.id not in local_ids]
-
-        if not catalogue_fetched:
-            catalogue_content: ft.Control = text_caption("Loading…", italic=True)
-        elif catalogue_error:
-            catalogue_content = ft.Text(
-                f"Couldn't reach the catalogue. Is your connection working? ({catalogue_error})",
-                size=12,
-                color=ft.Colors.ERROR,
-            )
-        elif catalogue_entries:
-            catalogue_content = ft.Row(
-                [build_catalogue_square(e) for e in catalogue_entries],
-                scroll=ft.ScrollMode.AUTO,
-                spacing=SPACE_MD,
-            )
-        else:
-            catalogue_content = text_caption("No new widgets available.", italic=True)
-
-        catalogue_banner = ft.Column(
-            [
-                text_section("Catalogue"),
-                catalogue_content,
-            ],
-            spacing=SPACE_SM,
+    if not catalogue_fetched:
+        catalogue_content: ft.Control = text_caption("Loading…", italic=True)
+    elif catalogue_error:
+        catalogue_content = ft.Text(
+            f"Couldn't reach the catalogue. Is your connection working? ({catalogue_error})",
+            size=12,
+            color=ft.Colors.ERROR,
         )
+    elif catalogue_entries:
+        catalogue_content = ft.Row(
+            [build_catalogue_square(e) for e in catalogue_entries],
+            scroll=ft.ScrollMode.AUTO,
+            spacing=SPACE_MD,
+        )
+    else:
+        catalogue_content = text_caption("No new widgets available.", italic=True)
+
+    catalogue_banner = ft.Column(
+        [
+            text_section("Catalogue"),
+            catalogue_content,
+        ],
+        spacing=SPACE_SM,
+    )
 
     if widgets:
         installed_content: ft.Control = ft.GridView(
@@ -637,15 +631,10 @@ def WidgetsView(page: ft.Page) -> ft.View:
             expand=True,
             padding=scroll_padding(),
         )
-    elif catalogue_enabled:
+    else:
         installed_content = text_caption(
             "No widgets installed. Install one from the Catalogue above, or add one "
             "manually from Settings.",
-            italic=True,
-        )
-    else:
-        installed_content = text_caption(
-            "No widgets installed. Add one manually from Settings.",
             italic=True,
         )
 
@@ -655,11 +644,7 @@ def WidgetsView(page: ft.Page) -> ft.View:
         alignment=ft.Alignment.TOP_LEFT,
     )
 
-    body: list[ft.Control] = (
-        [catalogue_banner, ft.Divider(), installed_section]
-        if catalogue_enabled
-        else [installed_section]
-    )
+    body: list[ft.Control] = [catalogue_banner, ft.Divider(), installed_section]
 
     if load_errors:
         for folder_name, error in load_errors:
@@ -682,7 +667,7 @@ def WidgetsView(page: ft.Page) -> ft.View:
         margin=scroll_margin(),
     )
 
-    if catalogue_enabled and not catalogue_fetched:
+    if not catalogue_fetched:
         page.run_task(background_refresh_catalogue)
 
     return ft.View(

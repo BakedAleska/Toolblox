@@ -52,32 +52,17 @@ from toolblox.ui.style import (
     thin_button_style,
 )
 from toolblox.ui.toast import show_toast
-from toolblox.updater import UpdateError, apply_update, check_for_update, download_update
+from toolblox.updater import UpdateError, check_for_update
 from toolblox.version import APP_VERSION
 from toolblox.widgets.loader import discover_widgets
-from toolblox.widgets.process import stop_all_processes
 
 _SETTINGS_FOCUS_WIDGET_KEY = "_settings_focus_widget_id"
 _SETTINGS_SCROLL_KEY = "_settings_scroll_offsets"
 _DEV_LOG_VISIBLE_KEY = "_dev_log_visible"
 _UPDATE_CHECKING_KEY = "_update_checking"
 _UPDATE_CHECKED_KEY = "_update_checked"
-_UPDATE_DOWNLOADING_KEY = "_update_downloading"
-_UPDATE_INSTALLING_KEY = "_update_installing"
 _UPDATE_INFO_KEY = "_update_info"
 _UPDATE_ERROR_KEY = "_update_error"
-
-UPDATE_RESTART_DELAY_SECONDS = 1.5
-"""How long on_install_update waits, after handing the update off to
-ToolbloxUpdater.exe, before it actually destroys the window.
-
-apply_update() itself returns almost instantly - it only spawns the
-helper process - so without this pause the "Installing update..." status
-set right before it would never actually get painted to screen before
-the window disappears. The real file-replacing work happens in the
-helper after this process exits, so this delay doesn't slow the update
-down, it just gives the user a moment to see what's happening.
-"""
 
 
 def SettingsView(page: ft.Page) -> ft.View:
@@ -197,52 +182,6 @@ def SettingsView(page: ft.Page) -> ft.View:
             page.session.store.set(_UPDATE_CHECKED_KEY, True)
         rebuild_settings()
 
-    async def on_install_update(e: ft.Event[ft.Button]):
-        """Download the update, hand it to ToolbloxUpdater.exe, then fully exit.
-
-        ToolbloxUpdater.exe (toolblox/updater_helper.py) waits for this
-        process to actually exit before it touches any files, so this
-        must be a real exit, not just page.window.close(): with "Run in
-        background" on, page.window.prevent_close makes close() hide to
-        the tray instead of quitting (see toolblox/app.py's
-        on_window_event), which would leave this process running and its
-        files locked right when the updater goes to replace them. See
-        tray.py's _quit() for the same prevent_close-bypassing pattern
-        used from the tray menu.
-
-        Goes through a visible "Installing update..." state (see
-        UPDATE_RESTART_DELAY_SECONDS) between handing off to the helper
-        and actually destroying the window, so the app doesn't just
-        vanish with no feedback right after the download finishes.
-        """
-        info = page.session.store.get(_UPDATE_INFO_KEY)
-        if info is None:
-            return
-        page.session.store.set(_UPDATE_DOWNLOADING_KEY, True)
-        rebuild_settings()
-        try:
-            zip_path = await asyncio.to_thread(download_update, info)
-        except UpdateError as err:
-            page.session.store.set(_UPDATE_DOWNLOADING_KEY, False)
-            page.session.store.set(_UPDATE_ERROR_KEY, str(err))
-            rebuild_settings()
-            return
-        page.session.store.set(_UPDATE_DOWNLOADING_KEY, False)
-        page.session.store.set(_UPDATE_INSTALLING_KEY, True)
-        rebuild_settings()
-        try:
-            apply_update(zip_path)
-        except UpdateError as err:
-            page.session.store.set(_UPDATE_INSTALLING_KEY, False)
-            page.session.store.set(_UPDATE_ERROR_KEY, str(err))
-            rebuild_settings()
-            return
-        await asyncio.sleep(UPDATE_RESTART_DELAY_SECONDS)
-        tray.hide()
-        stop_all_processes(page)
-        page.window.prevent_close = False
-        await page.window.destroy()
-
     def on_place_id_blur(e: ft.Event[ft.TextField]):
         """Parse a pasted place URL or id, and save the extracted id."""
         place_id = extract_place_id(e.control.value or "")
@@ -273,44 +212,23 @@ def SettingsView(page: ft.Page) -> ft.View:
 
     update_checking = bool(page.session.store.get(_UPDATE_CHECKING_KEY))
     update_checked = bool(page.session.store.get(_UPDATE_CHECKED_KEY))
-    update_downloading = bool(page.session.store.get(_UPDATE_DOWNLOADING_KEY))
-    update_installing = bool(page.session.store.get(_UPDATE_INSTALLING_KEY))
     update_info = page.session.store.get(_UPDATE_INFO_KEY)
     update_error = page.session.store.get(_UPDATE_ERROR_KEY)
-    update_busy = update_checking or update_downloading or update_installing
 
     update_status: ft.Control | None = None
-    if update_installing:
-        update_status = text_caption("Installing update. Toolblox will restart shortly…")
-    elif update_downloading:
-        update_status = text_caption(f"Downloading version {update_info.version}…")
-    elif update_checking:
+    if update_checking:
         update_status = text_caption("Checking for updates…")
     elif update_error:
         update_status = ft.Text(update_error, size=12, color=ft.Colors.ERROR)
     elif update_info:
         update_status = ft.Text(
-            f"Version {update_info.version} is available.", size=12, color=ft.Colors.PRIMARY
+            f"Version {update_info.version} is available. "
+            "It'll install automatically the next time you restart Toolblox.",
+            size=12,
+            color=ft.Colors.PRIMARY,
         )
     elif update_checked:
         update_status = text_caption("You're on the latest version.")
-
-    update_buttons: list[ft.Control] = [
-        ft.OutlinedButton(
-            "Check for Updates",
-            on_click=on_check_for_updates,
-            disabled=update_busy,
-            style=thin_button_style(),
-        )
-    ]
-    if update_info and not update_downloading and not update_installing:
-        update_buttons.append(
-            ft.FilledButton(
-                f"Install version {update_info.version}",
-                on_click=on_install_update,
-                style=thin_button_style(),
-            )
-        )
 
     updates_box = (
         [
@@ -319,10 +237,22 @@ def SettingsView(page: ft.Page) -> ft.View:
                 ft.Column(
                     [
                         text_section("Updates"),
-                        text_caption(f"You're running version {APP_VERSION}."),
+                        text_caption(
+                            f"You're running version {APP_VERSION}. Toolblox checks for "
+                            "updates and installs them automatically each time it starts."
+                        ),
                         *([update_status] if update_status is not None else []),
-                        *([ft.ProgressBar()] if update_downloading or update_installing else []),
-                        ft.Row(update_buttons, spacing=SPACE_SM),
+                        ft.Row(
+                            [
+                                ft.OutlinedButton(
+                                    "Check for Updates",
+                                    on_click=on_check_for_updates,
+                                    disabled=update_checking,
+                                    style=thin_button_style(),
+                                )
+                            ],
+                            spacing=SPACE_SM,
+                        ),
                     ],
                     spacing=SPACE_SM,
                 ),

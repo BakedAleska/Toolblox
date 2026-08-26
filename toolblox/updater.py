@@ -1,34 +1,18 @@
-"""Check GitHub Releases for a newer build and update this install in place.
+"""Check GitHub Releases for a newer build.
 
-Windows only. A first install still goes through installer/Toolblox.iss's
-Inno Setup wizard, but updating a running app no longer does: that used
-to relaunch the same installer, which re-downloaded the build a second
-time and ran its full wizard UI just to replace some files. Instead,
-this downloads the new build's zip directly and hands it to
-ToolbloxUpdater.exe (toolblox/updater_helper.py, bundled alongside
-Toolblox.exe - see release/build.py) - a separate small exe, since a
-running process can't overwrite its own loaded image and DLLs, which is
-also why apply_update() below doesn't wait for that helper to finish;
-it can't start doing its job until *this* process has already exited.
-
-.github/workflows/release.yml publishes a `<zip>.sha256` text file
-alongside every build zip. download_update() fetches that companion file
-and checks the downloaded zip's digest against it before returning, so a
-tampered or corrupted asset never reaches ToolbloxUpdater.exe. This
-doesn't replace code signing (the release itself could still be
-compromised at the source), but it does mean the zip that gets applied
-is byte-for-byte what the release published, not something altered in
-transit or by a bad mirror.
+Windows only. Actually applying an update is no longer this module's job:
+native/launcher (Toolblox.exe, the app's own entry point - see that
+folder's README) checks for and applies updates itself, automatically,
+every time it starts, before ToolbloxApp.exe ever runs. This module now
+only powers the informational "Check for Updates" button in Settings, so
+a curious user can see whether a newer version exists without waiting
+for the next restart - it just reports what it finds, since the actual
+download/verify/apply work happens on the native side.
 """
 
-import hashlib
-import os
 import re
-import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -40,8 +24,6 @@ logger = get_logger(__name__)
 
 GITHUB_RELEASES_API = "https://api.github.com/repos/BakedAleska/Toolblox/releases/latest"
 WINDOWS_ZIP_ASSET_PATTERN = re.compile(r"^Toolblox-.*-windows\.zip$")
-UPDATER_HELPER_NAME = "ToolbloxUpdater.exe"
-MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
 
 
 class UpdateError(Exception):
@@ -55,7 +37,6 @@ class UpdateInfo:
     version: str
     download_url: str
     release_notes: str
-    sha256_url: Optional[str] = None
 
 
 def _version_key(raw: str) -> tuple:
@@ -108,15 +89,10 @@ def check_for_update() -> Optional[UpdateInfo]:
         return None
 
     download_url = None
-    sha256_url = None
     for asset in data.get("assets") or []:
         name = asset.get("name") or ""
         if WINDOWS_ZIP_ASSET_PATTERN.match(name):
             download_url = asset.get("browser_download_url")
-        elif name.endswith(".sha256") and WINDOWS_ZIP_ASSET_PATTERN.match(
-            name[: -len(".sha256")]
-        ):
-            sha256_url = asset.get("browser_download_url")
 
     if not download_url:
         raise UpdateError(f"Version {tag} is out, but its release has no Windows build attached.")
@@ -125,126 +101,4 @@ def check_for_update() -> Optional[UpdateInfo]:
         version=tag.lstrip("vV"),
         download_url=download_url,
         release_notes=str(data.get("body") or ""),
-        sha256_url=sha256_url,
-    )
-
-
-def _fetch_expected_sha256(sha256_url: str) -> str:
-    """Fetch and parse the plain-text sha256 digest published alongside an installer.
-
-    Raises UpdateError with a user-facing message on any failure.
-    """
-    try:
-        response = httpx.get(sha256_url, follow_redirects=True, timeout=15)
-        response.raise_for_status()
-    except httpx.HTTPError as e:
-        logger.warning("Couldn't download update checksum: %s", e)
-        raise UpdateError(f"Couldn't verify the update. Is your connection working? ({e})") from e
-
-    parts = response.text.split()
-    digest = parts[0].lower() if parts else ""
-    if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
-        raise UpdateError("The update's published checksum looks malformed.")
-    return digest
-
-
-def download_update(update: UpdateInfo) -> Path:
-    """Download an update's build zip to a temp file. Blocking.
-
-    Call via asyncio.to_thread. Raises UpdateError with a user-facing
-    message on any failure, including a checksum mismatch against the
-    `<zip>.sha256` file released alongside it - see this module's
-    docstring. If the release has no checksum asset at all (shouldn't
-    happen for a release built by release.yml, but could for a
-    hand-crafted one), the download is rejected rather than silently
-    trusted. The caller owns the returned path and should hand it to
-    apply_update() or clean it up itself.
-    """
-    if not update.sha256_url:
-        raise UpdateError(
-            "This release has no published checksum for its build. "
-            "Refusing to apply it - was it published outside the normal release workflow?"
-        )
-    expected_sha256 = _fetch_expected_sha256(update.sha256_url)
-
-    fd, tmp_name = tempfile.mkstemp(prefix="Toolblox-update-", suffix=".zip")
-    tmp_path = Path(tmp_name)
-
-    try:
-        hasher = hashlib.sha256()
-        with open(fd, "wb") as f:
-            try:
-                with httpx.stream(
-                    "GET", update.download_url, follow_redirects=True, timeout=60
-                ) as response:
-                    response.raise_for_status()
-                    total = 0
-                    for chunk in response.iter_bytes():
-                        total += len(chunk)
-                        if total > MAX_DOWNLOAD_BYTES:
-                            raise UpdateError("The update download exceeded the size limit.")
-                        f.write(chunk)
-                        hasher.update(chunk)
-            except httpx.HTTPError as e:
-                logger.warning("Couldn't download update: %s", e)
-                raise UpdateError(
-                    f"Couldn't download the update. Is your connection working? ({e})"
-                ) from e
-
-        digest = hasher.hexdigest()
-        if digest != expected_sha256:
-            logger.warning(
-                "Update checksum mismatch (expected %s, got %s)",
-                expected_sha256,
-                digest,
-            )
-            raise UpdateError(
-                "The downloaded update didn't match its published checksum. "
-                "Try again, or download it directly from the Releases page."
-            )
-    except Exception:
-        tmp_path.unlink(missing_ok=True)
-        raise
-
-    return tmp_path
-
-
-def apply_update(zip_path: Path) -> None:
-    """Hand the downloaded update zip to ToolbloxUpdater.exe and let it run.
-
-    Spawned detached, as its own process - it has to be, since it's
-    about to wait for *this* process to exit and then overwrite the
-    files this process is currently running from, neither of which a
-    process can do to itself. See toolblox/updater_helper.py's
-    docstring for what happens next. Raises UpdateError if the helper
-    isn't where it's expected to be, which would mean a build that
-    forgot to bundle it rather than anything the user did.
-
-    ToolbloxUpdater.exe is found via sys._MEIPASS, not install_dir: a
-    PyInstaller onedir build (since 6.0) keeps only the main exe next
-    to install_dir - everything else --add-binary bundles lands under
-    _internal/ instead, and sys._MEIPASS always points there. Same
-    pattern toolblox/roblox/multi_instance.py uses for its own bundled
-    helper.
-    """
-    install_dir = Path(sys.executable).resolve().parent
-    resources_dir = Path(getattr(sys, "_MEIPASS", install_dir))
-    helper_path = resources_dir / UPDATER_HELPER_NAME
-    if not helper_path.is_file():
-        raise UpdateError(
-            f"This install is missing {UPDATER_HELPER_NAME}. "
-            "Reinstall from the Releases page to fix it."
-        )
-
-    subprocess.Popen(
-        [
-            str(helper_path),
-            "--pid",
-            str(os.getpid()),
-            "--install-dir",
-            str(install_dir),
-            "--zip",
-            str(zip_path),
-        ],
-        close_fds=True,
     )

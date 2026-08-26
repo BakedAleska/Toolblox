@@ -1,13 +1,14 @@
 """The app's own version.
 
-Kept manually in sync with `MyAppVersion` in installer/Toolblox.iss for
-each release. toolblox.updater compares this against GitHub's latest
-release tag to decide whether an update is available.
+Kept manually in sync with `MyAppVersion` in installer/Toolblox.nsi for
+each release. native/launcher's Toolblox.exe (the auto-updater) and
+toolblox.updater's manual "Check for Updates" both compare this against
+GitHub's latest release tag to decide whether an update is available.
 """
 
 from toolblox.devtools import release_channel
 
-APP_VERSION = "0.1.7-beta"
+APP_VERSION = "0.1.8-beta"
 
 
 def display_version() -> str:

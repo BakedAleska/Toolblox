@@ -108,16 +108,20 @@ jobs:
           name: dist-windows
           path: dist
 
-      - name: Install Inno Setup
-        run: choco install innosetup --no-progress -y
+      - name: Build native launcher (Toolblox.exe)
+        shell: pwsh
+        run: .\native\launcher\build.ps1
+
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
 
       - name: Compile installer
         shell: bash
         env:
           # Git Bash's MSYS layer mangles any argument starting with "/<letter>"
           # as a POSIX path (e.g. "/DMyAppVersion=..." looks like a drive-letter
-          # path to it), which corrupts ISCC's /D switches before it ever sees
-          # them. This disables that path conversion for this step only.
+          # path to it), which corrupts makensis's /D switches before it ever
+          # sees them. This disables that path conversion for this step only.
           MSYS_NO_PATHCONV: "1"
         run: |
           set -eu
@@ -125,11 +129,11 @@ jobs:
           ZIP_NAME="Toolblox-${VERSION}-windows.zip"
           SHA256=$(sha256sum "dist/${ZIP_NAME}" | cut -d' ' -f1)
           URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${ZIP_NAME}"
-          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
+          "/c/Program Files (x86)/NSIS/makensis.exe" \
             "/DMyAppVersion=${VERSION}" \
             "/DDownloadURL=${URL}" \
             "/DDownloadSHA256=${SHA256}" \
-            installer/Toolblox.iss
+            installer/Toolblox.nsi
 
       - name: Checksum installer
         shell: bash

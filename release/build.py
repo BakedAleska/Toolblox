@@ -2,11 +2,19 @@
 
 Wraps `flet pack` (a PyInstaller-based bundler) with this project's own
 packaging needs: the assets/ folder, the app icon, and, on Windows, the
-native multi-instance helper and ToolbloxUpdater.exe (built separately
-with plain PyInstaller - see _build_updater_helper). Produces a single
-zip in dist/, named to match what installer/Toolblox.iss downloads and
-toolblox/updater.py checks for, and prints its sha256 so both can be
-updated for a release.
+native multi-instance helper. Produces a single zip in dist/, named to
+match what installer/Toolblox.nsi downloads and toolblox/updater.py
+checks for, and prints its sha256 so both can be updated for a release.
+
+The zip's own top-level exe is ToolbloxApp.exe, not Toolblox.exe - the
+app itself is no longer the thing users click. Toolblox.exe
+(native/launcher) is the real entry point, built separately by
+_build_launcher() and embedded straight into the NSIS installer instead
+of shipping inside this zip: it's meant to stay stable across in-place
+updates rather than be replaced by every release (see
+native/launcher/README.md). A plain version.txt is written into the zip
+alongside ToolbloxApp.exe so the launcher can read the installed
+version without parsing a PE resource.
 
 Every packaged build is the "beta" release channel - see
 toolblox.devtools.release_channel. There's no separate packaged build for
@@ -14,7 +22,8 @@ toolblox.devtools.release_channel. There's no separate packaged build for
 
 Usage: ``python release/build.py``. Run this on the platform you're
 building for - it does not cross-compile. Requires `pyinstaller`
-(``pip install -r requirements-dev.txt``).
+(``pip install -r requirements-dev.txt``); Windows also needs the MSVC
+"Desktop development with C++" workload for native/launcher/build.ps1.
 """
 
 import hashlib
@@ -33,11 +42,6 @@ from toolblox.version import APP_VERSION  # noqa: E402
 
 DIST_DIR = REPO_ROOT / "dist"
 BUILD_DIR = REPO_ROOT / "build"
-UPDATER_HELPER_BUILD_DIR = REPO_ROOT / "updater_helper_build"
-"""Scratch dir for _build_updater_helper(), deliberately outside DIST_DIR
-and BUILD_DIR - `flet pack` unconditionally wipes both of those (even
-in non-interactive mode) before it builds, which would delete the
-helper's output right back out from under it if it lived in either."""
 
 
 def _numeric_version() -> str:
@@ -76,57 +80,43 @@ def _run_flet_pack(args: list[str]) -> None:
     )
 
 
-def _build_updater_helper() -> Path:
-    """Build ToolbloxUpdater.exe with plain PyInstaller and return its path.
+def _build_launcher() -> Path:
+    """Build Toolblox.exe (native/launcher) with MSVC and return its path.
 
-    Not `flet pack` - that wrapper always treats its target as a Flet
-    app and pulls in Flet's own runtime, but toolblox/updater_helper.py
-    has no Flet or webview dependency at all, so it goes through
-    PyInstaller directly instead. --onefile since this is one small exe
-    to --add-binary into the main build below, not something that needs
-    its own folder of files.
-
-    Built under UPDATER_HELPER_BUILD_DIR - see that constant for why
-    neither DIST_DIR nor BUILD_DIR is safe to use here.
+    Runs native/launcher/build.ps1 via powershell.exe rather than
+    reimplementing its vcvars64.bat discovery here - see that script and
+    native/launcher/README.md.
     """
-    helper_dist = UPDATER_HELPER_BUILD_DIR / "dist"
+    launcher_dir = REPO_ROOT / "native" / "launcher"
     subprocess.run(
         [
-            sys.executable,
-            "-m",
-            "PyInstaller",
-            "updater_helper.py",
-            "--name",
-            "ToolbloxUpdater",
-            "--onefile",
-            "--noconsole",
-            "--distpath",
-            str(helper_dist),
-            "--workpath",
-            str(UPDATER_HELPER_BUILD_DIR / "work"),
-            "--specpath",
-            str(UPDATER_HELPER_BUILD_DIR / "work"),
-            "-y",
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(launcher_dir / "build.ps1"),
         ],
-        cwd=REPO_ROOT,
+        cwd=launcher_dir,
         check=True,
     )
-    return helper_dist / "ToolbloxUpdater.exe"
+    return launcher_dir / "Toolblox.exe"
 
 
 def _build_windows() -> Path:
     """Pack the Windows build and return its onedir output folder.
 
     --onedir keeps the app as a folder of files rather than a single
-    exe, matching how installer/Toolblox.iss extracts its downloaded
-    zip straight into {app} - a single-file exe would have nowhere to
-    put the native helper, the updater helper, or the assets/ folder
-    alongside it.
+    exe, matching how installer/Toolblox.nsi extracts its downloaded
+    zip straight into $INSTDIR - a single-file exe would have nowhere to
+    put the native multi-instance helper or the assets/ folder alongside
+    it.
 
-    ToolbloxUpdater.exe (see _build_updater_helper) is added at the
-    bundle's own root (--add-binary's "." destination), matching where
-    toolblox/updater.py::apply_update() looks for it - right next to
-    Toolblox.exe itself.
+    The packaged exe is named ToolbloxApp, not Toolblox: Toolblox.exe is
+    now native/launcher's job (built here too, via _build_launcher(), but
+    kept out of this zip - see this module's docstring for why). A plain
+    version.txt is written into the packaged folder afterward so the
+    launcher can read the installed version.
 
     --collect-all pythonnet/clr_loader: pywebview's Windows backend
     loads the .NET runtime through pythonnet and clr_loader.
@@ -155,12 +145,12 @@ def _build_windows() -> Path:
             f"Missing {helper}. Build it first: see native/multi_instance_helper/README.md."
         )
 
-    updater_helper = _build_updater_helper()
+    _build_launcher()
 
     _run_flet_pack(
         [
             "--name",
-            "Toolblox",
+            "ToolbloxApp",
             "--icon",
             "installer/app_icon.ico",
             "--product-name",
@@ -178,15 +168,15 @@ def _build_windows() -> Path:
             "assets:assets",
             "--add-binary",
             f"{helper}:native",
-            "--add-binary",
-            f"{updater_helper}:.",
             "--distpath",
             str(DIST_DIR),
             "--pyinstaller-build-args=--collect-all=pythonnet",
             "--pyinstaller-build-args=--collect-all=clr_loader",
         ]
     )
-    return DIST_DIR / "Toolblox"
+    bundle = DIST_DIR / "ToolbloxApp"
+    (bundle / "version.txt").write_text(APP_VERSION + "\n", encoding="utf-8")
+    return bundle
 
 
 def _build_macos() -> Path:
@@ -219,8 +209,9 @@ def _zip_bundle(bundle: Path, dest: Path, *, flatten: bool) -> None:
     """Zip `bundle` to `dest`.
 
     flatten=True writes paths relative to the bundle itself, so its
-    *contents* land at the zip root (what installer/Toolblox.iss
-    expects to extract straight into {app}). flatten=False keeps the
+    *contents* land at the zip root (what installer/Toolblox.nsi's
+    "Toolblox.exe --extract" step expects to extract straight into
+    $INSTDIR). flatten=False keeps the
     bundle's own folder name as the zip's top-level entry (what a
     macOS .app needs, so unzipping it hands back a real .app to drag
     into Applications instead of loose Contents/ files).
@@ -243,10 +234,8 @@ def main() -> None:
     """Build this platform's package, zip it, and print its sha256.
 
     Dispatches on the host OS rather than cross-compiling. Removes
-    PyInstaller's own build/ scratch directory, and
-    UPDATER_HELPER_BUILD_DIR if _build_updater_helper ran, afterward so
-    neither lingers between runs; dist/ (the zip itself) is left in
-    place.
+    PyInstaller's own build/ scratch directory afterward so it doesn't
+    linger between runs; dist/ (the zip itself) is left in place.
     """
     DIST_DIR.mkdir(exist_ok=True)
     system = platform.system()
@@ -264,8 +253,6 @@ def main() -> None:
 
     if BUILD_DIR.exists():
         shutil.rmtree(BUILD_DIR)
-    if UPDATER_HELPER_BUILD_DIR.exists():
-        shutil.rmtree(UPDATER_HELPER_BUILD_DIR)
 
     with zip_path.open("rb") as f:
         digest = hashlib.file_digest(f, "sha256").hexdigest()

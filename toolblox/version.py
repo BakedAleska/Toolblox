@@ -8,7 +8,7 @@ GitHub's latest release tag to decide whether an update is available.
 
 from toolblox.devtools import release_channel
 
-APP_VERSION = "0.1.8-beta"
+APP_VERSION = "0.1.8.1-beta"
 
 
 def display_version() -> str:

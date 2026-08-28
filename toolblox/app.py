@@ -77,7 +77,7 @@ def main(page: ft.Page):
     page.window.on_event = on_window_event
 
     page.title = f"Toolblox-v{display_version()}"
-    page.window.icon = "logo.svg"
+    page.window.icon = "app_icon.ico"
     page.theme_mode = resolve_theme_mode(page)
     page.theme = app_theme()
     page.window.width = 900

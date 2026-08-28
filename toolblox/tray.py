@@ -9,10 +9,11 @@ loop via `page.run_task`, which is safe to call from another thread
 
 import sys
 import threading
+from pathlib import Path
 from typing import Optional
 
 import flet as ft
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 from toolblox.logs import get_logger
 from toolblox.widgets.process import stop_all_processes
@@ -28,24 +29,21 @@ _icon: Optional["pystray.Icon"] = None
 _icon_lock = threading.Lock()
 
 
-def _build_icon_image() -> Image.Image:
-    """Draw the tray icon: a rounded square with a white "T" on it.
+def _assets_dir() -> Path:
+    """Locate the `assets/` folder in both a source checkout and a frozen build.
 
-    Drawn with PIL instead of loading a bundled .ico file, since a
-    packaged build only ships the `assets/` folder, not the repo's
-    other directories, and this way there's no bundled-path resolution
-    to get wrong across dev vs. packaged runs.
+    A packaged build (see `toolblox/startup.py` and `toolblox/devtools.py`,
+    which use the same `sys.frozen` check) ships `assets/` next to
+    `sys.executable`; running from source, it sits at the repo root.
     """
-    size = 64
-    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((2, 2, size - 2, size - 2), radius=14, fill=(0x62, 0x4C, 0xF5, 255))
-    try:
-        font = ImageFont.truetype("arialbd.ttf", 38)
-    except OSError:
-        font = ImageFont.load_default()
-    draw.text((size / 2, size / 2 + 2), "T", fill="white", font=font, anchor="mm")
-    return image
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent / "assets"
+    return Path(__file__).resolve().parent.parent / "assets"
+
+
+def _build_icon_image() -> Image.Image:
+    """Load the app's own logo (`assets/logo.png`, a rasterized `logo.svg`) for the tray icon."""
+    return Image.open(_assets_dir() / "logo.png").convert("RGBA")
 
 
 def is_supported() -> bool:

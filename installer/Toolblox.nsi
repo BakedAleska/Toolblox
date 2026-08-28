@@ -7,12 +7,17 @@
 ; that's what actually verifies and extracts the downloaded build - see the
 ; "Toolblox.exe --extract" section below for why.
 ;
-; MyAppVersion, DownloadURL, and DownloadSHA256 have no checked-in default -
-; a stale or placeholder value here would compile fine and then fail (or
-; silently point at the wrong release) only later, at install time, which
-; is a much worse place to discover it. Compiling always requires passing
-; all three via makensis's own /D flag:
-;   makensis /DMyAppVersion=1.0.0 /DDownloadURL=https://... /DDownloadSHA256=... Toolblox.nsi
+; MyAppVersion, MyAppVersionNumeric, DownloadURL, and DownloadSHA256 have no
+; checked-in default - a stale or placeholder value here would compile fine
+; and then fail (or silently point at the wrong release) only later, at
+; install time, which is a much worse place to discover it. Compiling always
+; requires passing all four via makensis's own /D flag:
+;   makensis /DMyAppVersion=1.0.0-beta /DMyAppVersionNumeric=1.0.0.0 \
+;     /DDownloadURL=https://... /DDownloadSHA256=... Toolblox.nsi
+; MyAppVersionNumeric exists because VIProductVersion requires a strict
+; "X.X.X.X" numeric format - it can't take MyAppVersion's own "-beta"/
+; "-canary" suffix, the same reason release/build.py has its own
+; _windows_file_version() helper for --file-version.
 ; .github/workflows/release.yml does this automatically for a real release,
 ; computing DownloadSHA256 from the zip `python release/build.py` just
 ; produced, and building native/launcher/Toolblox.exe first so it's ready
@@ -29,6 +34,9 @@
 !define MyAppName "Toolblox"
 !ifndef MyAppVersion
   !error "MyAppVersion is not defined. Compile with /DMyAppVersion=<version>."
+!endif
+!ifndef MyAppVersionNumeric
+  !error "MyAppVersionNumeric is not defined. Compile with /DMyAppVersionNumeric=<X.X.X.X>."
 !endif
 !define MyAppPublisher "BakedAleska"
 !define MyAppExeName "Toolblox.exe"
@@ -55,7 +63,7 @@ InstallDir "$LOCALAPPDATA\Programs\${MyAppName}"
 InstallDirRegKey HKCU "${UninstallRegKey}" "InstallLocation"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
-VIProductVersion "${MyAppVersion}.0"
+VIProductVersion "${MyAppVersionNumeric}"
 VIAddVersionKey "ProductName" "${MyAppName}"
 VIAddVersionKey "CompanyName" "${MyAppPublisher}"
 VIAddVersionKey "FileDescription" "${MyAppName} installer (beta)"

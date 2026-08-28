@@ -129,8 +129,17 @@ jobs:
           ZIP_NAME="Toolblox-${VERSION}-windows.zip"
           SHA256=$(sha256sum "dist/${ZIP_NAME}" | cut -d' ' -f1)
           URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${ZIP_NAME}"
+          # VIProductVersion needs a strict "X.X.X.X" numeric string - strip
+          # any "-beta"/"-canary" suffix and pad to four parts.
+          NUMERIC="${VERSION%%-*}"
+          IFS='.' read -r -a PARTS <<< "$NUMERIC"
+          while [ "${#PARTS[@]}" -lt 4 ]; do
+            PARTS+=("0")
+          done
+          VERSION_NUMERIC="$(IFS=.; echo "${PARTS[*]:0:4}")"
           "/c/Program Files (x86)/NSIS/makensis.exe" \
             "/DMyAppVersion=${VERSION}" \
+            "/DMyAppVersionNumeric=${VERSION_NUMERIC}" \
             "/DDownloadURL=${URL}" \
             "/DDownloadSHA256=${SHA256}" \
             installer/Toolblox.nsi

@@ -1,0 +1,7 @@
+toolblox.ui.join\_action module
+===============================
+
+.. automodule:: toolblox.ui.join_action
+   :members:
+   :show-inheritance:
+   :undoc-members:

@@ -1,0 +1,7 @@
+toolblox.roblox.detect module
+=============================
+
+.. automodule:: toolblox.roblox.detect
+   :members:
+   :show-inheritance:
+   :undoc-members:

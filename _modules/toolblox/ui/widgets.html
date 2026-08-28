@@ -1,0 +1,991 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../../../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><link rel="index" title="Index" href="../../../genindex.html"><link rel="search" title="Search" href="../../../search.html">
+
+    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+        <title>toolblox.ui.widgets - Toolblox</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../../../index.html"><div class="brand">Toolblox</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../../../index.html">
+  
+  <span class="sidebar-brand-text">Toolblox</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../../../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../core.html">Core</a><input aria-label="Toggle navigation of Core" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.app.html">App</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.config.html">Config</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.devtools.html">Devtools</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.logs.html">Logs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.startup.html">Startup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.state.html">State</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.tray.html">Tray</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.updater.html">Updater</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.version.html">Version</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../data.html">Data</a><input aria-label="Toggle navigation of Data" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.data.accounts.html">Accounts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.data.crypto.html">Crypto</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.data.settings.html">Settings</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../roblox.html">Roblox</a><input aria-label="Toggle navigation of Roblox" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.roblox.detect.html">Detect</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.roblox.join.html">Join</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.roblox.login.html">Login</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.roblox.multi_instance.html">Multi instance</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.roblox.presence.html">Presence</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.roblox.process_watch.html">Process watch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.roblox.status.html">Status</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../ui.html">UI</a><input aria-label="Toggle navigation of UI" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.accounts.html">Accounts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.dashboard.html">Dashboard</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.join_action.html">Join action</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.layout.html">Layout</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.settings.html">Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.style.html">Style</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.toast.html">Toast</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.widgets.html">Widgets</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../widgets.html">Widgets</a><input aria-label="Toggle navigation of Widgets" class="toctree-checkbox" id="toctree-checkbox-5" name="toctree-checkbox-5" role="switch" type="checkbox"/><label for="toctree-checkbox-5"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.widgets.api.html">API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.widgets.catalog.html">Catalog</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.widgets.installer.html">Installer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.widgets.loader.html">Loader</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.widgets.process.html">Process</a></li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <h1>Source code for toolblox.ui.widgets</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""The Widgets screen: the Catalogue banner and the grid of installed widgets.</span>
+
+<span class="sd">The Catalogue renders on every release channel, "beta" included - it</span>
+<span class="sd">fetches toolblox.config.WIDGET_REGISTRY_URL (the published registry.json)</span>
+<span class="sd">the same way regardless of channel. Only the *source* of registry.json</span>
+<span class="sd">changes with toolblox.devtools.dev_registry_path: a source checkout</span>
+<span class="sd">("canary") reads the repo's own registry.json instead of fetching it, so</span>
+<span class="sd">Developer Mode can exercise local: true entries without pushing anything.</span>
+<span class="sd">"""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">flet</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ft</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.devtools</span><span class="w"> </span><span class="kn">import</span> <span class="n">dev_registry_path</span><span class="p">,</span> <span class="n">dev_widgets_dir</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_disabled_widgets</span><span class="p">,</span> <span class="n">remove_widget_settings</span><span class="p">,</span> <span class="n">set_widget_enabled</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.ui.layout</span><span class="w"> </span><span class="kn">import</span> <span class="n">build_layout</span><span class="p">,</span> <span class="n">widget_route</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.ui.style</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">SPACE_LG</span><span class="p">,</span>
+    <span class="n">SPACE_MD</span><span class="p">,</span>
+    <span class="n">SPACE_SM</span><span class="p">,</span>
+    <span class="n">SPACE_XS</span><span class="p">,</span>
+    <span class="n">SWITCH_SCALE</span><span class="p">,</span>
+    <span class="n">card_border</span><span class="p">,</span>
+    <span class="n">radius_card</span><span class="p">,</span>
+    <span class="n">scroll_margin</span><span class="p">,</span>
+    <span class="n">scroll_padding</span><span class="p">,</span>
+    <span class="n">text_caption</span><span class="p">,</span>
+    <span class="n">text_section</span><span class="p">,</span>
+    <span class="n">text_title</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.ui.toast</span><span class="w"> </span><span class="kn">import</span> <span class="n">show_confirm_toast</span><span class="p">,</span> <span class="n">show_toast</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.widgets.catalog</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">CatalogEntry</span><span class="p">,</span>
+    <span class="n">fetch_registry</span><span class="p">,</span>
+    <span class="n">get_cached_registry</span><span class="p">,</span>
+    <span class="n">set_cached_registry</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.widgets.installer</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">WidgetInstallError</span><span class="p">,</span>
+    <span class="n">has_update</span><span class="p">,</span>
+    <span class="n">install_widget</span><span class="p">,</span>
+    <span class="n">is_installing</span><span class="p">,</span>
+    <span class="n">mark_installing</span><span class="p">,</span>
+    <span class="n">uninstall_widget</span><span class="p">,</span>
+    <span class="n">unmark_installing</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.widgets.loader</span><span class="w"> </span><span class="kn">import</span> <span class="n">discover_widgets</span>
+
+<span class="n">_CATALOGUE_FETCHED_KEY</span> <span class="o">=</span> <span class="s2">"_widget_catalogue_fetched"</span>
+<span class="n">_CATALOGUE_ERROR_KEY</span> <span class="o">=</span> <span class="s2">"_widget_catalogue_error"</span>
+<span class="n">_SETTINGS_FOCUS_WIDGET_KEY</span> <span class="o">=</span> <span class="s2">"_settings_focus_widget_id"</span>
+
+<span class="n">INSTALLED_PER_ROW</span> <span class="o">=</span> <span class="mi">4</span>
+<span class="sd">"""Installed widgets are laid out in a GridView with this many columns, so</span>
+<span class="sd">each card's size is however wide 1/4 of the available row is, rather than a</span>
+<span class="sd">fixed pixel size. That keeps the grid flush against both edges with even</span>
+<span class="sd">gaps, instead of leaving leftover space before the row wraps when there</span>
+<span class="sd">aren't enough widgets installed to fill a fixed-size row exactly."""</span>
+
+<span class="n">CATALOGUE_SIZE</span> <span class="o">=</span> <span class="mi">104</span>
+<span class="sd">"""Catalogue tiles are app-icon-style: tap to install, no controls, so</span>
+<span class="sd">they read like a smaller, denser shop shelf next to the installed grid."""</span>
+
+<span class="n">INSTALLED_SECTION_TOP_GAP</span> <span class="o">=</span> <span class="mi">64</span>
+<span class="sd">"""Shrinks the installed-widgets section's forced height below the full</span>
+<span class="sd">window height, by this much. installed_section is held to a fixed</span>
+<span class="sd">height so scrolling can carry the Catalogue completely out of view (see</span>
+<span class="sd">WidgetsView's docstring) - but sizing it to the *entire* window let the</span>
+<span class="sd">scroll go one step further than that, past the point the Catalogue was</span>
+<span class="sd">already gone, and start eating into the installed grid's own rows from</span>
+<span class="sd">the top. Trimming the forced height by a fixed gap stops the scroll</span>
+<span class="sd">short of that, leaving this much breathing room above the installed</span>
+<span class="sd">grid at max scroll instead."""</span>
+
+<span class="n">CARD_PADDING</span> <span class="o">=</span> <span class="n">SPACE_SM</span>
+<span class="sd">"""Matches the app-wide card-tier padding used by `section_box()` in</span>
+<span class="sd">multitool.ui.style, so the Widgets screen's squares read as the same</span>
+<span class="sd">box tier as every other bordered card in the app."""</span>
+<span class="n">ICON_CHIP_SIZE</span> <span class="o">=</span> <span class="mi">56</span>
+<span class="n">BADGE_SIZE</span> <span class="o">=</span> <span class="mi">18</span>
+<span class="n">HOVER_ZONE_SIZE</span> <span class="o">=</span> <span class="n">ICON_CHIP_SIZE</span> <span class="o">+</span> <span class="mi">12</span>
+<span class="sd">"""Size of the invisible hit box, pinned to a card's top-left corner,</span>
+<span class="sd">that triggers its description showcase. A little bigger than the icon</span>
+<span class="sd">chip itself so it's forgiving to aim for, but still small enough that</span>
+<span class="sd">the rest of the card (including the switch/settings/delete row) keeps</span>
+<span class="sd">its normal click and tooltip behavior."""</span>
+
+<span class="n">HOVER_HINT_SIZE</span> <span class="o">=</span> <span class="mi">20</span>
+<span class="sd">"""Size of the small badge drawn in a card's top-left corner to hint</span>
+<span class="sd">that hovering there shows the widget's description."""</span>
+<span class="n">DESCRIPTION_HOVER_DELAY</span> <span class="o">=</span> <span class="mf">1.0</span>
+<span class="sd">"""Seconds a description showcase waits, once shown, before it starts</span>
+<span class="sd">auto-scrolling - gives the reader a moment to start reading the top of</span>
+<span class="sd">the description before it moves, the same pattern long tooltips and</span>
+<span class="sd">now-playing marquees use."""</span>
+
+<span class="n">DESCRIPTION_SCROLL_DURATION</span> <span class="o">=</span> <span class="mi">4000</span>
+<span class="sd">"""Duration, in milliseconds, of the auto-scroll animation that carries</span>
+<span class="sd">a description showcase from top to bottom."""</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_icon_chip</span><span class="p">(</span>
+    <span class="n">page</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Page</span><span class="p">,</span>
+    <span class="n">icon</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="n">logo</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">active</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+    <span class="n">size</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">logo_size</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ft</span><span class="o">.</span><span class="n">Control</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""A rounded, tinted square holding a widget's icon or logo.</span>
+
+<span class="sd">    `active` drives the tint: the accent-tinted PRIMARY_CONTAINER for an</span>
+<span class="sd">    installable or enabled widget, a neutral SURFACE_CONTAINER_HIGHEST for</span>
+<span class="sd">    a disabled one. This is how card state is shown instead of dimming</span>
+<span class="sd">    the whole card, which made text hard to read.</span>
+
+<span class="sd">    `logo_size` scales the glyph within the fixed-size chip (see</span>
+<span class="sd">    Widget.logo_size), so a widget can ask for a larger glyph without the</span>
+<span class="sd">    chip itself, or the grid it sits in, changing size.</span>
+<span class="sd">    """</span>
+    <span class="n">fg</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">ON_PRIMARY_CONTAINER</span> <span class="k">if</span> <span class="n">active</span> <span class="k">else</span> <span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">ON_SURFACE_VARIANT</span>
+    <span class="n">bg</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">PRIMARY_CONTAINER</span> <span class="k">if</span> <span class="n">active</span> <span class="k">else</span> <span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">SURFACE_CONTAINER_HIGHEST</span>
+    <span class="n">icon_size</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">size</span> <span class="o">*</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">logo_size</span><span class="p">)</span>
+    <span class="n">inner</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="n">ft</span><span class="o">.</span><span class="n">Image</span><span class="p">(</span><span class="n">src</span><span class="o">=</span><span class="n">logo</span><span class="p">,</span> <span class="n">width</span><span class="o">=</span><span class="n">icon_size</span><span class="p">,</span> <span class="n">height</span><span class="o">=</span><span class="n">icon_size</span><span class="p">,</span> <span class="n">fit</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">BoxFit</span><span class="o">.</span><span class="n">CONTAIN</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">logo</span>
+        <span class="k">else</span> <span class="n">ft</span><span class="o">.</span><span class="n">Icon</span><span class="p">(</span><span class="n">icon</span> <span class="ow">or</span> <span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">EXTENSION</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">icon_size</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">fg</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+        <span class="n">content</span><span class="o">=</span><span class="n">inner</span><span class="p">,</span>
+        <span class="n">width</span><span class="o">=</span><span class="n">size</span><span class="p">,</span>
+        <span class="n">height</span><span class="o">=</span><span class="n">size</span><span class="p">,</span>
+        <span class="n">bgcolor</span><span class="o">=</span><span class="n">bg</span><span class="p">,</span>
+        <span class="n">border_radius</span><span class="o">=</span><span class="n">radius_card</span><span class="p">(</span><span class="n">page</span><span class="p">),</span>
+        <span class="n">alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Alignment</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<div class="viewcode-block" id="WidgetsView">
+<a class="viewcode-back" href="../../../api/toolblox.ui.widgets.html#toolblox.ui.widgets.WidgetsView">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">WidgetsView</span><span class="p">(</span><span class="n">page</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Page</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ft</span><span class="o">.</span><span class="n">View</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""The Widgets screen.</span>
+
+<span class="sd">    The Catalogue is fetched once per session, on the first build,</span>
+<span class="sd">    regardless of release channel. The fetched flag is read fresh at the</span>
+<span class="sd">    top of every build and set inside background_refresh_catalogue</span>
+<span class="sd">    itself, before it calls refresh(). This guard matters: refresh()</span>
+<span class="sd">    rebuilds this view, so an unconditional fetch here would trigger</span>
+<span class="sd">    another fetch on every rebuild, without end.</span>
+
+<span class="sd">    The installed-widgets section is wrapped in a container held to</span>
+<span class="sd">    nearly the full window height (see INSTALLED_SECTION_TOP_GAP), even</span>
+<span class="sd">    when it only has one short row of widgets in it. That's deliberate:</span>
+<span class="sd">    it guarantees there's always enough room to scroll the Catalogue</span>
+<span class="sd">    completely out of view above it, so the first row of installed</span>
+<span class="sd">    widgets can reach near the top of the screen, rather than the page</span>
+<span class="sd">    only scrolling as far as its actual content.</span>
+<span class="sd">    """</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">refresh</span><span class="p">():</span>
+<span class="w">        </span><span class="sd">"""Rebuild this view in place, if it's still the one on screen."""</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">page</span><span class="o">.</span><span class="n">views</span> <span class="ow">or</span> <span class="n">page</span><span class="o">.</span><span class="n">views</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">route</span> <span class="o">!=</span> <span class="s2">"/widgets"</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">views</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">WidgetsView</span><span class="p">(</span><span class="n">page</span><span class="p">)</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">on_toggle</span><span class="p">(</span><span class="n">widget_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">enable</span><span class="p">:</span> <span class="nb">bool</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Enable or disable one installed widget."""</span>
+        <span class="n">set_widget_enabled</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">widget_id</span><span class="p">,</span> <span class="n">enable</span><span class="p">)</span>
+        <span class="n">refresh</span><span class="p">()</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">open_widget_settings</span><span class="p">(</span><span class="n">widget_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Jump to Settings -&gt; Widgets, focused on one widget's section."""</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">_SETTINGS_FOCUS_WIDGET_KEY</span><span class="p">,</span> <span class="n">widget_id</span><span class="p">)</span>
+        <span class="k">await</span> <span class="n">page</span><span class="o">.</span><span class="n">push_route</span><span class="p">(</span><span class="s2">"/settings"</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">go_to_widget</span><span class="p">(</span><span class="n">widget_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Open an installed widget's own view, same as clicking it in the nav rail."""</span>
+        <span class="k">await</span> <span class="n">page</span><span class="o">.</span><span class="n">push_route</span><span class="p">(</span><span class="n">widget_route</span><span class="p">(</span><span class="n">widget_id</span><span class="p">))</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">on_install</span><span class="p">(</span><span class="n">entry</span><span class="p">:</span> <span class="n">CatalogEntry</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Download and install one Catalogue entry."""</span>
+        <span class="n">mark_installing</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">entry</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        <span class="n">refresh</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">install_widget</span><span class="p">,</span> <span class="n">entry</span><span class="p">)</span>
+            <span class="n">set_widget_enabled</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">entry</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">WidgetInstallError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">show_toast</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">unmark_installing</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">entry</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+            <span class="n">refresh</span><span class="p">()</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">on_uninstall</span><span class="p">(</span><span class="n">widget_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Remove an installed widget's folder and its stored settings."""</span>
+        <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">uninstall_widget</span><span class="p">,</span> <span class="n">widget_id</span><span class="p">)</span>
+        <span class="n">remove_widget_settings</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">widget_id</span><span class="p">)</span>
+        <span class="n">refresh</span><span class="p">()</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">on_update</span><span class="p">(</span><span class="n">entry</span><span class="p">:</span> <span class="n">CatalogEntry</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Reinstall a Catalogue entry over its currently installed copy.</span>
+
+<span class="sd">        Unlike on_install, this leaves the widget's enabled state alone -</span>
+<span class="sd">        updating a disabled widget shouldn't silently re-enable it.</span>
+<span class="sd">        """</span>
+        <span class="n">mark_installing</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">entry</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        <span class="n">refresh</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">install_widget</span><span class="p">,</span> <span class="n">entry</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">WidgetInstallError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">show_toast</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">unmark_installing</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">entry</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+            <span class="n">refresh</span><span class="p">()</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">background_refresh_catalogue</span><span class="p">():</span>
+<span class="w">        </span><span class="sd">"""Fetch the Catalogue, then refresh this view.</span>
+
+<span class="sd">        See WidgetsView's docstring for the guard that keeps this from</span>
+<span class="sd">        running more than once per session. Running from a source</span>
+<span class="sd">        checkout, reads the repo's own registry.json instead of</span>
+<span class="sd">        WIDGET_REGISTRY_URL - see toolblox.devtools.dev_registry_path.</span>
+<span class="sd">        """</span>
+        <span class="n">local_path</span> <span class="o">=</span> <span class="n">dev_registry_path</span><span class="p">()</span>
+        <span class="n">entries</span><span class="p">,</span> <span class="n">error</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span>
+            <span class="n">fetch_registry</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">local_path</span><span class="p">)</span> <span class="k">if</span> <span class="n">local_path</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">error</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">set_cached_registry</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">entries</span><span class="p">)</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">_CATALOGUE_FETCHED_KEY</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">_CATALOGUE_ERROR_KEY</span><span class="p">,</span> <span class="n">error</span><span class="p">)</span>
+        <span class="n">refresh</span><span class="p">()</span>
+
+    <span class="n">widgets</span><span class="p">,</span> <span class="n">load_errors</span> <span class="o">=</span> <span class="n">discover_widgets</span><span class="p">(</span><span class="n">dev_widgets_dir</span><span class="p">())</span>
+    <span class="n">disabled_ids</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">get_disabled_widgets</span><span class="p">(</span><span class="n">page</span><span class="p">))</span>
+    <span class="n">local_ids</span> <span class="o">=</span> <span class="p">{</span><span class="n">w</span><span class="o">.</span><span class="n">id</span> <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="n">widgets</span><span class="p">}</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">build_installed_square</span><span class="p">(</span><span class="n">widget</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ft</span><span class="o">.</span><span class="n">Control</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Build one installed widget's card.</span>
+
+<span class="sd">        Clicking anywhere on the card opens the widget's own view, same as</span>
+<span class="sd">        clicking it in the nav rail. The Switch, settings button, and</span>
+<span class="sd">        delete button sit in a separate overlay layer on top (a sibling in</span>
+<span class="sd">        the Stack, not a descendant of the clickable card) so their own</span>
+<span class="sd">        clicks are handled by them instead of by the card's on_click -</span>
+<span class="sd">        the same layering trick this file already used for the old</span>
+<span class="sd">        settings-button overlay.</span>
+
+<span class="sd">        The icon chip's tint mirrors the enabled state instead of dimming</span>
+<span class="sd">        the whole card, so the name and description stay legible either</span>
+<span class="sd">        way. A widget with `build_settings` set also gets a settings</span>
+<span class="sd">        button that jumps to its section under Settings -&gt; Widgets. The</span>
+<span class="sd">        delete button uninstalls it after a confirmation prompt, removing</span>
+<span class="sd">        its folder from disk.</span>
+
+<span class="sd">        hover_zone is one control pinned to the card's actual top-left</span>
+<span class="sd">        corner (HOVER_ZONE_SIZE, independent of wherever the centered</span>
+<span class="sd">        icon chip renders): a slightly bigger, otherwise invisible hit</span>
+<span class="sd">        box with a small hint badge (HOVER_HINT_SIZE) drawn inside it.</span>
+<span class="sd">        The hover handler lives on that outer box rather than the badge</span>
+<span class="sd">        itself - Flet Stacks hit-test top to bottom and stop at the</span>
+<span class="sd">        first hit, so a sibling badge sitting on top of a separate</span>
+<span class="sd">        hover control would swallow the pointer and the control</span>
+<span class="sd">        underneath would never see it. Hovering the zone swaps the</span>
+<span class="sd">        whole card for a description showcase: a full-card overlay, on</span>
+<span class="sd">        top of everything else including the footer's</span>
+<span class="sd">        switch/settings/delete row, that shows nothing but the widget's</span>
+<span class="sd">        description. If the description is long enough to need it, the</span>
+<span class="sd">        overlay waits</span>
+<span class="sd">        DESCRIPTION_HOVER_DELAY seconds and then auto-scrolls itself</span>
+<span class="sd">        top to bottom over DESCRIPTION_SCROLL_DURATION ms, the same</span>
+<span class="sd">        pattern other apps use for descriptions too long to fit in</span>
+<span class="sd">        place. The overlay stays out of the hit-test tree</span>
+<span class="sd">        (`ignore_interactions`) while hidden, so it never steals clicks</span>
+<span class="sd">        from the card or its footer buttons when the widget isn't</span>
+<span class="sd">        being hovered.</span>
+
+<span class="sd">        A widget whose Catalogue entry has a different sha256 than the</span>
+<span class="sd">        one recorded at install time gets an update badge in the card's</span>
+<span class="sd">        top-right corner, swapped for a progress ring while the update</span>
+<span class="sd">        is running - see has_update() and on_update(). It's a separate</span>
+<span class="sd">        Stack overlay rather than part of the settings/uninstall row so</span>
+<span class="sd">        it doesn't push those buttons outward when it appears.</span>
+<span class="sd">        """</span>
+        <span class="n">enabled</span> <span class="o">=</span> <span class="n">widget</span><span class="o">.</span><span class="n">id</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">disabled_ids</span>
+        <span class="n">registry_entry</span> <span class="o">=</span> <span class="n">registry_by_id</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">widget</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        <span class="n">updatable</span> <span class="o">=</span> <span class="n">registry_entry</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">has_update</span><span class="p">(</span><span class="n">registry_entry</span><span class="p">)</span>
+        <span class="n">updating</span> <span class="o">=</span> <span class="n">is_installing</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">widget</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+
+        <span class="n">overlay_ref</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Ref</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">]</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Ref</span><span class="p">()</span>
+        <span class="n">description_ref</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Ref</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">Column</span><span class="p">]</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Ref</span><span class="p">()</span>
+        <span class="n">hover_state</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"token"</span><span class="p">:</span> <span class="mi">0</span><span class="p">}</span>
+
+        <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">auto_scroll_description</span><span class="p">(</span><span class="n">token</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+            <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">DESCRIPTION_HOVER_DELAY</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">hover_state</span><span class="p">[</span><span class="s2">"token"</span><span class="p">]</span> <span class="o">!=</span> <span class="n">token</span> <span class="ow">or</span> <span class="n">description_ref</span><span class="o">.</span><span class="n">current</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">return</span>
+            <span class="k">await</span> <span class="n">description_ref</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">scroll_to</span><span class="p">(</span>
+                <span class="n">offset</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="n">DESCRIPTION_SCROLL_DURATION</span>
+            <span class="p">)</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">show_description</span><span class="p">(</span><span class="n">e</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Event</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">]):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">e</span><span class="o">.</span><span class="n">data</span> <span class="ow">or</span> <span class="n">overlay_ref</span><span class="o">.</span><span class="n">current</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">return</span>
+            <span class="n">hover_state</span><span class="p">[</span><span class="s2">"token"</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">overlay_ref</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">opacity</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="n">overlay_ref</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">ignore_interactions</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="n">overlay_ref</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
+            <span class="n">page</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">auto_scroll_description</span><span class="p">,</span> <span class="n">hover_state</span><span class="p">[</span><span class="s2">"token"</span><span class="p">])</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">hide_description</span><span class="p">(</span><span class="n">e</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Event</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">]):</span>
+            <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">data</span> <span class="ow">or</span> <span class="n">overlay_ref</span><span class="o">.</span><span class="n">current</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">return</span>
+            <span class="n">hover_state</span><span class="p">[</span><span class="s2">"token"</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">overlay_ref</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">opacity</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">overlay_ref</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">ignore_interactions</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="n">overlay_ref</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">description_ref</span><span class="o">.</span><span class="n">current</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">page</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">description_ref</span><span class="o">.</span><span class="n">current</span><span class="o">.</span><span class="n">scroll_to</span><span class="p">,</span> <span class="n">offset</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">duration</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+
+        <span class="n">trailing_actions</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">Control</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="n">widget</span><span class="o">.</span><span class="n">build_settings</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">trailing_actions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">ft</span><span class="o">.</span><span class="n">IconButton</span><span class="p">(</span>
+                    <span class="n">icon</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">SETTINGS_OUTLINED</span><span class="p">,</span>
+                    <span class="n">icon_size</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+                    <span class="n">tooltip</span><span class="o">=</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">widget</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> settings"</span><span class="p">,</span>
+                    <span class="n">on_click</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">,</span> <span class="n">wid</span><span class="o">=</span><span class="n">widget</span><span class="o">.</span><span class="n">id</span><span class="p">:</span> <span class="n">page</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">open_widget_settings</span><span class="p">,</span> <span class="n">wid</span><span class="p">),</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="n">trailing_actions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="n">ft</span><span class="o">.</span><span class="n">IconButton</span><span class="p">(</span>
+                <span class="n">icon</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">DELETE_OUTLINE</span><span class="p">,</span>
+                <span class="n">icon_size</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+                <span class="n">tooltip</span><span class="o">=</span><span class="sa">f</span><span class="s2">"Uninstall </span><span class="si">{</span><span class="n">widget</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+                <span class="n">on_click</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">,</span> <span class="n">wid</span><span class="o">=</span><span class="n">widget</span><span class="o">.</span><span class="n">id</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="n">widget</span><span class="o">.</span><span class="n">name</span><span class="p">:</span> <span class="n">show_confirm_toast</span><span class="p">(</span>
+                    <span class="n">page</span><span class="p">,</span>
+                    <span class="sa">f</span><span class="s2">"Uninstall </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">? This removes it from your computer."</span><span class="p">,</span>
+                    <span class="k">lambda</span> <span class="n">wid</span><span class="o">=</span><span class="n">wid</span><span class="p">:</span> <span class="n">page</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">on_uninstall</span><span class="p">,</span> <span class="n">wid</span><span class="p">),</span>
+                    <span class="n">confirm_label</span><span class="o">=</span><span class="s2">"Uninstall"</span><span class="p">,</span>
+                <span class="p">),</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="n">card_body</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+            <span class="n">content</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span>
+                <span class="p">[</span>
+                    <span class="n">_icon_chip</span><span class="p">(</span>
+                        <span class="n">page</span><span class="p">,</span>
+                        <span class="n">widget</span><span class="o">.</span><span class="n">icon</span><span class="p">,</span>
+                        <span class="n">widget</span><span class="o">.</span><span class="n">logo</span><span class="p">,</span>
+                        <span class="n">active</span><span class="o">=</span><span class="n">enabled</span><span class="p">,</span>
+                        <span class="n">size</span><span class="o">=</span><span class="n">ICON_CHIP_SIZE</span><span class="p">,</span>
+                        <span class="n">logo_size</span><span class="o">=</span><span class="n">widget</span><span class="o">.</span><span class="n">logo_size</span><span class="p">,</span>
+                    <span class="p">),</span>
+                    <span class="n">ft</span><span class="o">.</span><span class="n">Text</span><span class="p">(</span>
+                        <span class="n">widget</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                        <span class="n">size</span><span class="o">=</span><span class="mi">12</span><span class="p">,</span>
+                        <span class="n">weight</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">FontWeight</span><span class="o">.</span><span class="n">W_600</span><span class="p">,</span>
+                        <span class="n">text_align</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">TextAlign</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+                        <span class="n">max_lines</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                        <span class="n">overflow</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">TextOverflow</span><span class="o">.</span><span class="n">ELLIPSIS</span><span class="p">,</span>
+                    <span class="p">),</span>
+                    <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span><span class="n">height</span><span class="o">=</span><span class="mi">42</span><span class="p">),</span>
+                <span class="p">],</span>
+                <span class="n">horizontal_alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">CrossAxisAlignment</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+                <span class="n">spacing</span><span class="o">=</span><span class="n">SPACE_SM</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="n">expand</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">padding</span><span class="o">=</span><span class="n">CARD_PADDING</span><span class="p">,</span>
+            <span class="n">border</span><span class="o">=</span><span class="n">card_border</span><span class="p">(),</span>
+            <span class="n">border_radius</span><span class="o">=</span><span class="n">radius_card</span><span class="p">(</span><span class="n">page</span><span class="p">),</span>
+            <span class="n">tooltip</span><span class="o">=</span><span class="sa">f</span><span class="s2">"Open </span><span class="si">{</span><span class="n">widget</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+            <span class="n">on_click</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">,</span> <span class="n">wid</span><span class="o">=</span><span class="n">widget</span><span class="o">.</span><span class="n">id</span><span class="p">:</span> <span class="n">page</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">go_to_widget</span><span class="p">,</span> <span class="n">wid</span><span class="p">),</span>
+        <span class="p">)</span>
+
+        <span class="n">hover_zone</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+            <span class="n">content</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+                <span class="n">content</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Icon</span><span class="p">(</span>
+                    <span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">INFO_OUTLINE_ROUNDED</span><span class="p">,</span>
+                    <span class="n">size</span><span class="o">=</span><span class="nb">round</span><span class="p">(</span><span class="n">HOVER_HINT_SIZE</span> <span class="o">*</span> <span class="mf">0.6</span><span class="p">),</span>
+                    <span class="n">color</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">ON_SURFACE_VARIANT</span><span class="p">,</span>
+                <span class="p">),</span>
+                <span class="n">width</span><span class="o">=</span><span class="n">HOVER_HINT_SIZE</span><span class="p">,</span>
+                <span class="n">height</span><span class="o">=</span><span class="n">HOVER_HINT_SIZE</span><span class="p">,</span>
+                <span class="n">alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Alignment</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="n">width</span><span class="o">=</span><span class="n">HOVER_ZONE_SIZE</span><span class="p">,</span>
+            <span class="n">height</span><span class="o">=</span><span class="n">HOVER_ZONE_SIZE</span><span class="p">,</span>
+            <span class="n">padding</span><span class="o">=</span><span class="n">SPACE_XS</span><span class="p">,</span>
+            <span class="n">alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Alignment</span><span class="o">.</span><span class="n">TOP_LEFT</span><span class="p">,</span>
+            <span class="n">bgcolor</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">TRANSPARENT</span><span class="p">,</span>
+            <span class="n">tooltip</span><span class="o">=</span><span class="s2">"Show description"</span><span class="p">,</span>
+            <span class="n">top</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">left</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">on_hover</span><span class="o">=</span><span class="n">show_description</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">description_overlay</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+            <span class="n">ref</span><span class="o">=</span><span class="n">overlay_ref</span><span class="p">,</span>
+            <span class="n">content</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span>
+                <span class="p">[</span>
+                    <span class="n">text_caption</span><span class="p">(</span>
+                        <span class="n">widget</span><span class="o">.</span><span class="n">description</span> <span class="ow">or</span> <span class="s2">"No description provided."</span><span class="p">,</span>
+                        <span class="n">text_align</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">TextAlign</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+                    <span class="p">),</span>
+                <span class="p">],</span>
+                <span class="n">ref</span><span class="o">=</span><span class="n">description_ref</span><span class="p">,</span>
+                <span class="n">scroll</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">ScrollMode</span><span class="o">.</span><span class="n">HIDDEN</span><span class="p">,</span>
+                <span class="n">horizontal_alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">CrossAxisAlignment</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+                <span class="n">alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">MainAxisAlignment</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+                <span class="n">expand</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="n">bgcolor</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">SURFACE_CONTAINER_LOW</span><span class="p">,</span>
+            <span class="n">border</span><span class="o">=</span><span class="n">card_border</span><span class="p">(),</span>
+            <span class="n">border_radius</span><span class="o">=</span><span class="n">radius_card</span><span class="p">(</span><span class="n">page</span><span class="p">),</span>
+            <span class="n">padding</span><span class="o">=</span><span class="n">CARD_PADDING</span><span class="p">,</span>
+            <span class="n">alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Alignment</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+            <span class="n">opacity</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">animate_opacity</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span>
+            <span class="n">ignore_interactions</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">on_hover</span><span class="o">=</span><span class="n">hide_description</span><span class="p">,</span>
+            <span class="n">expand</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">footer_overlay</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+            <span class="n">content</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span>
+                <span class="p">[</span>
+                    <span class="n">ft</span><span class="o">.</span><span class="n">Divider</span><span class="p">(),</span>
+                    <span class="n">ft</span><span class="o">.</span><span class="n">Row</span><span class="p">(</span>
+                        <span class="p">[</span>
+                            <span class="n">ft</span><span class="o">.</span><span class="n">Switch</span><span class="p">(</span>
+                                <span class="n">value</span><span class="o">=</span><span class="n">enabled</span><span class="p">,</span>
+                                <span class="n">scale</span><span class="o">=</span><span class="n">SWITCH_SCALE</span><span class="p">,</span>
+                                <span class="n">tooltip</span><span class="o">=</span><span class="s2">"Enabled"</span> <span class="k">if</span> <span class="n">enabled</span> <span class="k">else</span> <span class="s2">"Disabled"</span><span class="p">,</span>
+                                <span class="n">on_change</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">,</span> <span class="n">wid</span><span class="o">=</span><span class="n">widget</span><span class="o">.</span><span class="n">id</span><span class="p">:</span> <span class="n">on_toggle</span><span class="p">(</span>
+                                    <span class="n">wid</span><span class="p">,</span> <span class="n">e</span><span class="o">.</span><span class="n">control</span><span class="o">.</span><span class="n">value</span>
+                                <span class="p">),</span>
+                            <span class="p">),</span>
+                            <span class="n">ft</span><span class="o">.</span><span class="n">Row</span><span class="p">(</span><span class="n">trailing_actions</span><span class="p">,</span> <span class="n">spacing</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
+                        <span class="p">],</span>
+                        <span class="n">alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">MainAxisAlignment</span><span class="o">.</span><span class="n">SPACE_BETWEEN</span><span class="p">,</span>
+                    <span class="p">),</span>
+                <span class="p">],</span>
+                <span class="n">spacing</span><span class="o">=</span><span class="n">SPACE_SM</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="n">left</span><span class="o">=</span><span class="n">CARD_PADDING</span><span class="p">,</span>
+            <span class="n">right</span><span class="o">=</span><span class="n">CARD_PADDING</span><span class="p">,</span>
+            <span class="n">bottom</span><span class="o">=</span><span class="n">CARD_PADDING</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">stack_children</span> <span class="o">=</span> <span class="p">[</span><span class="n">card_body</span><span class="p">,</span> <span class="n">hover_zone</span><span class="p">,</span> <span class="n">footer_overlay</span><span class="p">,</span> <span class="n">description_overlay</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">updating</span><span class="p">:</span>
+            <span class="n">stack_children</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+                    <span class="n">content</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">ProgressRing</span><span class="p">(</span><span class="n">width</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span> <span class="n">height</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span> <span class="n">stroke_width</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span>
+                    <span class="n">top</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span>
+                    <span class="n">right</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="n">updatable</span><span class="p">:</span>
+            <span class="n">stack_children</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+                    <span class="n">content</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">IconButton</span><span class="p">(</span>
+                        <span class="n">icon</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">SYSTEM_UPDATE_ALT</span><span class="p">,</span>
+                        <span class="n">icon_size</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>
+                        <span class="n">icon_color</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">PRIMARY</span><span class="p">,</span>
+                        <span class="n">tooltip</span><span class="o">=</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">"Update </span><span class="si">{</span><span class="n">widget</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> to version </span><span class="si">{</span><span class="n">registry_entry</span><span class="o">.</span><span class="n">version</span><span class="si">}</span><span class="s2">"</span>
+                            <span class="k">if</span> <span class="n">registry_entry</span><span class="o">.</span><span class="n">version</span>
+                            <span class="k">else</span> <span class="sa">f</span><span class="s2">"Update </span><span class="si">{</span><span class="n">widget</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">"</span>
+                        <span class="p">),</span>
+                        <span class="n">on_click</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">,</span> <span class="n">ent</span><span class="o">=</span><span class="n">registry_entry</span><span class="p">:</span> <span class="n">page</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">on_update</span><span class="p">,</span> <span class="n">ent</span><span class="p">),</span>
+                    <span class="p">),</span>
+                    <span class="n">top</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                    <span class="n">right</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">ft</span><span class="o">.</span><span class="n">Stack</span><span class="p">(</span><span class="n">stack_children</span><span class="p">,</span> <span class="n">expand</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">build_catalogue_square</span><span class="p">(</span><span class="n">entry</span><span class="p">:</span> <span class="n">CatalogEntry</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ft</span><span class="o">.</span><span class="n">Control</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Build one Catalogue entry's tile.</span>
+
+<span class="sd">        The logo (or, absent one, a placeholder Material icon) sits at a</span>
+<span class="sd">        fixed glyph size on a neutral background, the same area either</span>
+<span class="sd">        way, so a tile with a real logo and one still on the placeholder</span>
+<span class="sd">        look consistent side by side instead of the real ones jumping out</span>
+<span class="sd">        as bigger. A single tap anywhere installs it. The name sits at</span>
+<span class="sd">        the bottom in plain black text, and an "add" badge sits in the</span>
+<span class="sd">        top-right corner. No separate button or description on the tile</span>
+<span class="sd">        itself - that detail lives in the tooltip instead.</span>
+
+<span class="sd">        The clip and the border live on two separate, nested containers</span>
+<span class="sd">        rather than one: putting `clip_behavior` and `border` on the</span>
+<span class="sd">        same container clips the border itself away at the rounded</span>
+<span class="sd">        corners, leaving the tile looking square and borderless. The</span>
+<span class="sd">        inner container clips the logo/icon content to the rounded</span>
+<span class="sd">        shape; the outer one, unclipped, is what actually draws the</span>
+<span class="sd">        visible border.</span>
+<span class="sd">        """</span>
+        <span class="n">installing</span> <span class="o">=</span> <span class="n">is_installing</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">entry</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        <span class="n">icon</span> <span class="o">=</span> <span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="p">,</span> <span class="n">entry</span><span class="o">.</span><span class="n">icon</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">icon</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">or</span> <span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">WIDGETS</span>
+        <span class="n">glyph_size</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">CATALOGUE_SIZE</span> <span class="o">*</span> <span class="mf">0.35</span> <span class="o">*</span> <span class="n">entry</span><span class="o">.</span><span class="n">logo_size</span><span class="p">)</span>
+
+        <span class="n">logo_fill</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Control</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+            <span class="n">content</span><span class="o">=</span><span class="p">(</span>
+                <span class="n">ft</span><span class="o">.</span><span class="n">Image</span><span class="p">(</span>
+                    <span class="n">src</span><span class="o">=</span><span class="n">entry</span><span class="o">.</span><span class="n">logo</span><span class="p">,</span>
+                    <span class="n">width</span><span class="o">=</span><span class="n">glyph_size</span><span class="p">,</span>
+                    <span class="n">height</span><span class="o">=</span><span class="n">glyph_size</span><span class="p">,</span>
+                    <span class="n">fit</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">BoxFit</span><span class="o">.</span><span class="n">CONTAIN</span><span class="p">,</span>
+                <span class="p">)</span>
+                <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">logo</span>
+                <span class="k">else</span> <span class="n">ft</span><span class="o">.</span><span class="n">Icon</span><span class="p">(</span><span class="n">icon</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">glyph_size</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">ON_SURFACE_VARIANT</span><span class="p">)</span>
+            <span class="p">),</span>
+            <span class="n">width</span><span class="o">=</span><span class="n">CATALOGUE_SIZE</span><span class="p">,</span>
+            <span class="n">height</span><span class="o">=</span><span class="n">CATALOGUE_SIZE</span><span class="p">,</span>
+            <span class="n">bgcolor</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">SURFACE_CONTAINER_LOW</span><span class="p">,</span>
+            <span class="n">alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Alignment</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">badge</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+            <span class="n">content</span><span class="o">=</span><span class="p">(</span>
+                <span class="n">ft</span><span class="o">.</span><span class="n">ProgressRing</span><span class="p">(</span><span class="n">width</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">height</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">stroke_width</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">ON_PRIMARY</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">installing</span>
+                <span class="k">else</span> <span class="n">ft</span><span class="o">.</span><span class="n">Icon</span><span class="p">(</span><span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">ADD</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="mi">14</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">ON_PRIMARY</span><span class="p">)</span>
+            <span class="p">),</span>
+            <span class="n">width</span><span class="o">=</span><span class="n">BADGE_SIZE</span><span class="p">,</span>
+            <span class="n">height</span><span class="o">=</span><span class="n">BADGE_SIZE</span><span class="p">,</span>
+            <span class="n">bgcolor</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">PRIMARY</span><span class="p">,</span>
+            <span class="n">border</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Border</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">SURFACE_CONTAINER_LOW</span><span class="p">),</span>
+            <span class="n">border_radius</span><span class="o">=</span><span class="n">BADGE_SIZE</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span>
+            <span class="n">alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Alignment</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">name_overlay</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+            <span class="n">content</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Text</span><span class="p">(</span>
+                <span class="n">entry</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                <span class="n">size</span><span class="o">=</span><span class="mi">12</span><span class="p">,</span>
+                <span class="n">weight</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">FontWeight</span><span class="o">.</span><span class="n">W_600</span><span class="p">,</span>
+                <span class="n">color</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">WHITE</span><span class="p">,</span>
+                <span class="n">text_align</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">TextAlign</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+                <span class="n">max_lines</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                <span class="n">overflow</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">TextOverflow</span><span class="o">.</span><span class="n">ELLIPSIS</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="n">gradient</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">LinearGradient</span><span class="p">(</span>
+                <span class="n">begin</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Alignment</span><span class="o">.</span><span class="n">TOP_CENTER</span><span class="p">,</span>
+                <span class="n">end</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Alignment</span><span class="o">.</span><span class="n">BOTTOM_CENTER</span><span class="p">,</span>
+                <span class="n">colors</span><span class="o">=</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">TRANSPARENT</span><span class="p">,</span> <span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">with_opacity</span><span class="p">(</span><span class="mf">0.75</span><span class="p">,</span> <span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">BLACK</span><span class="p">)],</span>
+            <span class="p">),</span>
+            <span class="n">padding</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Padding</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">8</span><span class="p">),</span>
+            <span class="n">left</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">right</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="n">bottom</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">tooltip</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">name</span>
+        <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">description</span><span class="p">:</span>
+            <span class="n">tooltip</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">entry</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">entry</span><span class="o">.</span><span class="n">description</span><span class="si">}</span><span class="s2">"</span>
+        <span class="k">if</span> <span class="n">installing</span><span class="p">:</span>
+            <span class="n">tooltip</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"Installing </span><span class="si">{</span><span class="n">entry</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">…"</span>
+
+        <span class="n">clipped_content</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+            <span class="n">content</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Stack</span><span class="p">(</span>
+                <span class="p">[</span>
+                    <span class="n">logo_fill</span><span class="p">,</span>
+                    <span class="n">name_overlay</span><span class="p">,</span>
+                    <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="n">badge</span><span class="p">,</span> <span class="n">top</span><span class="o">=</span><span class="mi">6</span><span class="p">,</span> <span class="n">right</span><span class="o">=</span><span class="mi">6</span><span class="p">),</span>
+                <span class="p">],</span>
+                <span class="n">width</span><span class="o">=</span><span class="n">CATALOGUE_SIZE</span><span class="p">,</span>
+                <span class="n">height</span><span class="o">=</span><span class="n">CATALOGUE_SIZE</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="n">width</span><span class="o">=</span><span class="n">CATALOGUE_SIZE</span><span class="p">,</span>
+            <span class="n">height</span><span class="o">=</span><span class="n">CATALOGUE_SIZE</span><span class="p">,</span>
+            <span class="n">border_radius</span><span class="o">=</span><span class="n">radius_card</span><span class="p">(</span><span class="n">page</span><span class="p">),</span>
+            <span class="n">clip_behavior</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">ClipBehavior</span><span class="o">.</span><span class="n">ANTI_ALIAS</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+            <span class="n">content</span><span class="o">=</span><span class="n">clipped_content</span><span class="p">,</span>
+            <span class="n">width</span><span class="o">=</span><span class="n">CATALOGUE_SIZE</span><span class="p">,</span>
+            <span class="n">height</span><span class="o">=</span><span class="n">CATALOGUE_SIZE</span><span class="p">,</span>
+            <span class="n">border</span><span class="o">=</span><span class="n">card_border</span><span class="p">(),</span>
+            <span class="n">border_radius</span><span class="o">=</span><span class="n">radius_card</span><span class="p">(</span><span class="n">page</span><span class="p">),</span>
+            <span class="n">opacity</span><span class="o">=</span><span class="mf">0.7</span> <span class="k">if</span> <span class="n">installing</span> <span class="k">else</span> <span class="mf">1.0</span><span class="p">,</span>
+            <span class="n">tooltip</span><span class="o">=</span><span class="n">tooltip</span><span class="p">,</span>
+            <span class="n">on_click</span><span class="o">=</span><span class="p">(</span>
+                <span class="kc">None</span> <span class="k">if</span> <span class="n">installing</span> <span class="k">else</span> <span class="p">(</span><span class="k">lambda</span> <span class="n">e</span><span class="p">,</span> <span class="n">ent</span><span class="o">=</span><span class="n">entry</span><span class="p">:</span> <span class="n">page</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">on_install</span><span class="p">,</span> <span class="n">ent</span><span class="p">))</span>
+            <span class="p">),</span>
+        <span class="p">)</span>
+
+    <span class="n">catalogue_fetched</span> <span class="o">=</span> <span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_CATALOGUE_FETCHED_KEY</span><span class="p">)</span>
+    <span class="n">catalogue_error</span> <span class="o">=</span> <span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_CATALOGUE_ERROR_KEY</span><span class="p">)</span>
+    <span class="n">all_entries</span> <span class="o">=</span> <span class="n">get_cached_registry</span><span class="p">(</span><span class="n">page</span><span class="p">)</span>
+    <span class="n">registry_by_id</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">CatalogEntry</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="n">e</span><span class="o">.</span><span class="n">id</span><span class="p">:</span> <span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">all_entries</span><span class="p">}</span>
+    <span class="n">catalogue_entries</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">all_entries</span> <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">id</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">local_ids</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">catalogue_fetched</span><span class="p">:</span>
+        <span class="n">catalogue_content</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Control</span> <span class="o">=</span> <span class="n">text_caption</span><span class="p">(</span><span class="s2">"Loading…"</span><span class="p">,</span> <span class="n">italic</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">catalogue_error</span><span class="p">:</span>
+        <span class="n">catalogue_content</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Text</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"Couldn't reach the catalogue. Is your connection working? (</span><span class="si">{</span><span class="n">catalogue_error</span><span class="si">}</span><span class="s2">)"</span><span class="p">,</span>
+            <span class="n">size</span><span class="o">=</span><span class="mi">12</span><span class="p">,</span>
+            <span class="n">color</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">ERROR</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">elif</span> <span class="n">catalogue_entries</span><span class="p">:</span>
+        <span class="n">catalogue_content</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Row</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">build_catalogue_square</span><span class="p">(</span><span class="n">e</span><span class="p">)</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">catalogue_entries</span><span class="p">],</span>
+            <span class="n">scroll</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">ScrollMode</span><span class="o">.</span><span class="n">AUTO</span><span class="p">,</span>
+            <span class="n">spacing</span><span class="o">=</span><span class="n">SPACE_MD</span><span class="p">,</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">catalogue_content</span> <span class="o">=</span> <span class="n">text_caption</span><span class="p">(</span><span class="s2">"No new widgets available."</span><span class="p">,</span> <span class="n">italic</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="n">catalogue_banner</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="n">text_section</span><span class="p">(</span><span class="s2">"Catalogue"</span><span class="p">),</span>
+            <span class="n">catalogue_content</span><span class="p">,</span>
+        <span class="p">],</span>
+        <span class="n">spacing</span><span class="o">=</span><span class="n">SPACE_SM</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">widgets</span><span class="p">:</span>
+        <span class="n">installed_content</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Control</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">GridView</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">build_installed_square</span><span class="p">(</span><span class="n">w</span><span class="p">)</span> <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="n">widgets</span><span class="p">],</span>
+            <span class="n">runs_count</span><span class="o">=</span><span class="n">INSTALLED_PER_ROW</span><span class="p">,</span>
+            <span class="n">child_aspect_ratio</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+            <span class="n">spacing</span><span class="o">=</span><span class="n">SPACE_MD</span><span class="p">,</span>
+            <span class="n">run_spacing</span><span class="o">=</span><span class="n">SPACE_MD</span><span class="p">,</span>
+            <span class="n">expand</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">padding</span><span class="o">=</span><span class="n">scroll_padding</span><span class="p">(),</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">installed_content</span> <span class="o">=</span> <span class="n">text_caption</span><span class="p">(</span>
+            <span class="s2">"No widgets installed. Install one from the Catalogue above, or add one "</span>
+            <span class="s2">"manually from Settings."</span><span class="p">,</span>
+            <span class="n">italic</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="n">installed_section</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+        <span class="n">content</span><span class="o">=</span><span class="n">installed_content</span><span class="p">,</span>
+        <span class="n">height</span><span class="o">=</span><span class="nb">max</span><span class="p">((</span><span class="n">page</span><span class="o">.</span><span class="n">height</span> <span class="ow">or</span> <span class="mi">600</span><span class="p">)</span> <span class="o">-</span> <span class="n">INSTALLED_SECTION_TOP_GAP</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+        <span class="n">alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Alignment</span><span class="o">.</span><span class="n">TOP_LEFT</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">body</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">Control</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">catalogue_banner</span><span class="p">,</span> <span class="n">ft</span><span class="o">.</span><span class="n">Divider</span><span class="p">(),</span> <span class="n">installed_section</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">load_errors</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">folder_name</span><span class="p">,</span> <span class="n">error</span> <span class="ow">in</span> <span class="n">load_errors</span><span class="p">:</span>
+            <span class="n">body</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">ft</span><span class="o">.</span><span class="n">Text</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">folder_name</span><span class="si">}</span><span class="s2"> failed to load. Did you edit its widget.py recently? (</span><span class="si">{</span><span class="n">error</span><span class="si">}</span><span class="s2">)"</span><span class="p">,</span>
+                    <span class="n">size</span><span class="o">=</span><span class="mi">12</span><span class="p">,</span>
+                    <span class="n">color</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">ERROR</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+    <span class="n">content</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="n">text_title</span><span class="p">(</span><span class="s2">"Widgets"</span><span class="p">),</span>
+            <span class="o">*</span><span class="n">body</span><span class="p">,</span>
+        <span class="p">],</span>
+        <span class="n">spacing</span><span class="o">=</span><span class="n">SPACE_LG</span><span class="p">,</span>
+        <span class="n">expand</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">scroll</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">ScrollMode</span><span class="o">.</span><span class="n">AUTO</span><span class="p">,</span>
+        <span class="n">margin</span><span class="o">=</span><span class="n">scroll_margin</span><span class="p">(),</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">catalogue_fetched</span><span class="p">:</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">background_refresh_catalogue</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">ft</span><span class="o">.</span><span class="n">View</span><span class="p">(</span>
+        <span class="n">route</span><span class="o">=</span><span class="s2">"/widgets"</span><span class="p">,</span>
+        <span class="n">padding</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+        <span class="n">horizontal_alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">CrossAxisAlignment</span><span class="o">.</span><span class="n">STRETCH</span><span class="p">,</span>
+        <span class="n">controls</span><span class="o">=</span><span class="p">[</span><span class="n">build_layout</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">content</span><span class="p">)],</span>
+    <span class="p">)</span></div>
+
+</pre></div>
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          
+          
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; BakedAleska
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer no-toc">
+      
+      
+      
+    </aside>
+  </div>
+</div><script src="../../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/scripts/furo.js?v=46bd48cc"></script>
+    </body>
+</html>

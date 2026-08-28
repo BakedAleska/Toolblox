@@ -1,0 +1,1088 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../../../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><link rel="index" title="Index" href="../../../genindex.html"><link rel="search" title="Search" href="../../../search.html">
+
+    <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
+        <title>toolblox.ui.accounts - Toolblox</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/styles/furo.css?v=7bdb33bb" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../../../index.html"><div class="brand">Toolblox</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="../../../index.html">
+  
+  <span class="sidebar-brand-text">Toolblox</span>
+  
+</a><form class="sidebar-search-container" method="get" action="../../../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-scroll"><div class="sidebar-tree">
+  <ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../core.html">Core</a><input aria-label="Toggle navigation of Core" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.app.html">App</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.config.html">Config</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.devtools.html">Devtools</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.logs.html">Logs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.startup.html">Startup</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.state.html">State</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.tray.html">Tray</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.updater.html">Updater</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.version.html">Version</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../data.html">Data</a><input aria-label="Toggle navigation of Data" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" role="switch" type="checkbox"/><label for="toctree-checkbox-2"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.data.accounts.html">Accounts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.data.crypto.html">Crypto</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.data.settings.html">Settings</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../roblox.html">Roblox</a><input aria-label="Toggle navigation of Roblox" class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" role="switch" type="checkbox"/><label for="toctree-checkbox-3"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.roblox.detect.html">Detect</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.roblox.join.html">Join</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.roblox.login.html">Login</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.roblox.multi_instance.html">Multi instance</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.roblox.presence.html">Presence</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.roblox.process_watch.html">Process watch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.roblox.status.html">Status</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../ui.html">UI</a><input aria-label="Toggle navigation of UI" class="toctree-checkbox" id="toctree-checkbox-4" name="toctree-checkbox-4" role="switch" type="checkbox"/><label for="toctree-checkbox-4"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.accounts.html">Accounts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.dashboard.html">Dashboard</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.join_action.html">Join action</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.layout.html">Layout</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.settings.html">Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.style.html">Style</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.toast.html">Toast</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.ui.widgets.html">Widgets</a></li>
+</ul>
+</li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../../widgets.html">Widgets</a><input aria-label="Toggle navigation of Widgets" class="toctree-checkbox" id="toctree-checkbox-5" name="toctree-checkbox-5" role="switch" type="checkbox"/><label for="toctree-checkbox-5"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.widgets.api.html">API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.widgets.catalog.html">Catalog</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.widgets.installer.html">Installer</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.widgets.loader.html">Loader</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../api/toolblox.widgets.process.html">Process</a></li>
+</ul>
+</li>
+</ul>
+
+</div>
+</div>
+
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <h1>Source code for toolblox.ui.accounts</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""The Accounts screen: list, add, remove, join, and reorder tracked accounts."""</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">flet</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ft</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">httpx</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.data</span><span class="w"> </span><span class="kn">import</span> <span class="n">accounts</span> <span class="k">as</span> <span class="n">accounts_store</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.logs</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_logger</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.roblox</span><span class="w"> </span><span class="kn">import</span> <span class="n">status</span> <span class="k">as</span> <span class="n">status_tracker</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.roblox.login</span><span class="w"> </span><span class="kn">import</span> <span class="n">LOGIN_ARG</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.roblox.process_watch</span><span class="w"> </span><span class="kn">import</span> <span class="n">running_pids</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.state</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_auto_rejoin</span><span class="p">,</span> <span class="n">get_compact_mode</span><span class="p">,</span> <span class="n">get_show_avatars</span><span class="p">,</span> <span class="n">get_sort_order</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.ui.join_action</span><span class="w"> </span><span class="kn">import</span> <span class="n">join_with_account</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.ui.layout</span><span class="w"> </span><span class="kn">import</span> <span class="n">build_layout</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.ui.style</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">SPACE_MD</span><span class="p">,</span>
+    <span class="n">SPACE_SM</span><span class="p">,</span>
+    <span class="n">SPACE_XS</span><span class="p">,</span>
+    <span class="n">card_border</span><span class="p">,</span>
+    <span class="n">radius_card</span><span class="p">,</span>
+    <span class="n">scroll_padding</span><span class="p">,</span>
+    <span class="n">text_label</span><span class="p">,</span>
+    <span class="n">text_title</span><span class="p">,</span>
+    <span class="n">thin_button_style</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">toolblox.ui.toast</span><span class="w"> </span><span class="kn">import</span> <span class="n">show_confirm_toast</span><span class="p">,</span> <span class="n">show_toast</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">get_logger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="n">PROJECT_ROOT</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parents</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+
+<span class="n">AVATAR_SIZE</span> <span class="o">=</span> <span class="mi">56</span>
+<span class="n">COMPACT_AVATAR_SIZE</span> <span class="o">=</span> <span class="mi">28</span>
+
+<span class="n">USER_URL</span> <span class="o">=</span> <span class="s2">"https://users.roblox.com/v1/users/</span><span class="si">{user_id}</span><span class="s2">"</span>
+<span class="n">THUMBNAIL_URL</span> <span class="o">=</span> <span class="s2">"https://thumbnails.roblox.com/v1/users/avatar-headshot"</span>
+
+<span class="n">_GENERATION_KEY</span> <span class="o">=</span> <span class="s2">"_accounts_view_generation"</span>
+<span class="n">_SELECT_MODE_KEY</span> <span class="o">=</span> <span class="s2">"_accounts_select_mode"</span>
+<span class="n">_SELECTED_IDS_KEY</span> <span class="o">=</span> <span class="s2">"_accounts_selected_ids"</span>
+<span class="n">_AUTO_REJOIN_STATE_KEY</span> <span class="o">=</span> <span class="s2">"_auto_rejoin_state"</span>
+
+<span class="n">BATCH_JOIN_STAGGER_SECONDS</span> <span class="o">=</span> <span class="mi">2</span>
+<span class="sd">"""Delay between each account's launch in a batch join, giving a launched</span>
+<span class="sd">instance time to actually spawn before the next one's singleton-bypass</span>
+<span class="sd">runs. See multi_instance.py's own docstring for why that ordering matters.</span>
+<span class="sd">"""</span>
+
+<span class="n">AUTO_REJOIN_GRACE_SECONDS</span> <span class="o">=</span> <span class="mi">90</span>
+<span class="sd">"""How soon after an auto-rejoin an account has to be seen leaving again</span>
+<span class="sd">before auto-rejoin gives up on it. Meant to catch the case where rejoining</span>
+<span class="sd">doesn't actually stick (e.g. banned from the place, server full), so it</span>
+<span class="sd">doesn't loop forever - see handle_account_left()'s docstring.</span>
+<span class="sd">"""</span>
+
+<span class="n">SHOW_STATUS_DOT</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="sd">"""Whether the per-account status dot renders on the avatar/header.</span>
+
+<span class="sd">The polling that feeds it (poll_status_loop, status_tracker.poll_presence,</span>
+<span class="sd">watch_join) keeps running either way, so this only hides the dot itself -</span>
+<span class="sd">flip it back to True to bring the indicator back with no other changes</span>
+<span class="sd">needed.</span>
+<span class="sd">"""</span>
+
+<span class="n">STATUS_COLORS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">status_tracker</span><span class="o">.</span><span class="n">GREY</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">OUTLINE_VARIANT</span><span class="p">,</span>
+    <span class="n">status_tracker</span><span class="o">.</span><span class="n">RED</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">ERROR</span><span class="p">,</span>
+    <span class="n">status_tracker</span><span class="o">.</span><span class="n">GREEN</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">GREEN</span><span class="p">,</span>
+<span class="p">}</span>
+<span class="n">STATUS_LABELS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="n">status_tracker</span><span class="o">.</span><span class="n">GREY</span><span class="p">:</span> <span class="s2">"Not in a place"</span><span class="p">,</span>
+    <span class="n">status_tracker</span><span class="o">.</span><span class="n">RED</span><span class="p">:</span> <span class="s2">"Roblox may have crashed"</span><span class="p">,</span>
+    <span class="n">status_tracker</span><span class="o">.</span><span class="n">GREEN</span><span class="p">:</span> <span class="s2">"In a place"</span><span class="p">,</span>
+<span class="p">}</span>
+
+
+<div class="viewcode-block" id="fetch_profile">
+<a class="viewcode-back" href="../../../api/toolblox.ui.accounts.html#toolblox.ui.accounts.fetch_profile">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">fetch_profile</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Fetch a user's display name and avatar URL from Roblox's public APIs.</span>
+
+<span class="sd">    Missing pieces are left out of the result instead of raising. Used</span>
+<span class="sd">    to backfill accounts added before these fields were tracked.</span>
+<span class="sd">    """</span>
+    <span class="n">profile</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">httpx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">USER_URL</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">user_id</span><span class="o">=</span><span class="n">user_id</span><span class="p">),</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+        <span class="n">response</span><span class="o">.</span><span class="n">raise_for_status</span><span class="p">()</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+        <span class="n">profile</span><span class="p">[</span><span class="s2">"display_name"</span><span class="p">]</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"displayName"</span><span class="p">)</span> <span class="ow">or</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"name"</span><span class="p">)</span>
+    <span class="k">except</span> <span class="p">(</span><span class="n">httpx</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">"Couldn't fetch display name for user </span><span class="si">%s</span><span class="s2">: </span><span class="si">%s</span><span class="s2">"</span><span class="p">,</span> <span class="n">user_id</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">httpx</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
+            <span class="n">THUMBNAIL_URL</span><span class="p">,</span>
+            <span class="n">params</span><span class="o">=</span><span class="p">{</span>
+                <span class="s2">"userIds"</span><span class="p">:</span> <span class="n">user_id</span><span class="p">,</span>
+                <span class="s2">"size"</span><span class="p">:</span> <span class="s2">"150x150"</span><span class="p">,</span>
+                <span class="s2">"format"</span><span class="p">:</span> <span class="s2">"Png"</span><span class="p">,</span>
+                <span class="s2">"isCircular"</span><span class="p">:</span> <span class="s2">"false"</span><span class="p">,</span>
+            <span class="p">},</span>
+            <span class="n">timeout</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">response</span><span class="o">.</span><span class="n">raise_for_status</span><span class="p">()</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"data"</span><span class="p">)</span> <span class="ow">or</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="n">data</span><span class="p">:</span>
+            <span class="n">profile</span><span class="p">[</span><span class="s2">"avatar_url"</span><span class="p">]</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s2">"imageUrl"</span><span class="p">]</span>
+    <span class="k">except</span> <span class="p">(</span><span class="n">httpx</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">,</span> <span class="ne">KeyError</span><span class="p">,</span> <span class="ne">IndexError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">"Couldn't fetch avatar for user </span><span class="si">%s</span><span class="s2">: </span><span class="si">%s</span><span class="s2">"</span><span class="p">,</span> <span class="n">user_id</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">profile</span></div>
+
+
+
+<div class="viewcode-block" id="sort_accounts">
+<a class="viewcode-back" href="../../../api/toolblox.ui.accounts.html#toolblox.ui.accounts.sort_accounts">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">sort_accounts</span><span class="p">(</span><span class="n">accounts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">],</span> <span class="n">sort_order</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Sort accounts for display, according to the given sort order.</span>
+
+<span class="sd">    "manual" returns the list as stored. Drag reordering writes the new</span>
+<span class="sd">    order to disk directly, so no sorting is needed here for that case.</span>
+<span class="sd">    "last_played" puts the most recently played account first, falling</span>
+<span class="sd">    back to an account's added_at if it's never been played.</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="n">sort_order</span> <span class="o">==</span> <span class="s2">"alphabetical"</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">accounts</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">a</span><span class="p">:</span> <span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"display_name"</span><span class="p">)</span> <span class="ow">or</span> <span class="n">a</span><span class="p">[</span><span class="s2">"name"</span><span class="p">])</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+    <span class="k">if</span> <span class="n">sort_order</span> <span class="o">==</span> <span class="s2">"manual"</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="n">accounts</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span>
+        <span class="n">accounts</span><span class="p">,</span>
+        <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">a</span><span class="p">:</span> <span class="n">a</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"last_played_at"</span><span class="p">)</span> <span class="ow">or</span> <span class="n">a</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"added_at"</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+        <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="AccountsView">
+<a class="viewcode-back" href="../../../api/toolblox.ui.accounts.html#toolblox.ui.accounts.AccountsView">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">AccountsView</span><span class="p">(</span><span class="n">page</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Page</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ft</span><span class="o">.</span><span class="n">View</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""The Accounts screen.</span>
+
+<span class="sd">    Every mutation, such as add, remove, reorder, or edit notes, reads</span>
+<span class="sd">    the current list from disk with accounts_store.load(), applies the</span>
+<span class="sd">    change, writes it back, and calls refresh() to rebuild the view.</span>
+<span class="sd">    There is no in-memory account store beyond that load and save pair.</span>
+<span class="sd">    """</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">refresh</span><span class="p">():</span>
+<span class="w">        </span><span class="sd">"""Rebuild this view in place, if it's still the one on screen."""</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">page</span><span class="o">.</span><span class="n">views</span> <span class="ow">or</span> <span class="n">page</span><span class="o">.</span><span class="n">views</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">route</span> <span class="o">!=</span> <span class="s2">"/accounts"</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">views</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">AccountsView</span><span class="p">(</span><span class="n">page</span><span class="p">)</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
+
+    <span class="n">search_field</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">TextField</span><span class="p">(</span>
+        <span class="n">hint_text</span><span class="o">=</span><span class="s2">"Search..."</span><span class="p">,</span>
+        <span class="n">prefix_icon</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">SEARCH</span><span class="p">,</span>
+        <span class="n">dense</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">expand</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">on_change</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">:</span> <span class="n">render_account_list</span><span class="p">(),</span>
+    <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">account_matches</span><span class="p">(</span><span class="n">account</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="n">query</span> <span class="o">=</span> <span class="p">(</span><span class="n">search_field</span><span class="o">.</span><span class="n">value</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">query</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">True</span>
+        <span class="n">haystack</span> <span class="o">=</span> <span class="s2">" "</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">account</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"name"</span><span class="p">,</span> <span class="s2">""</span><span class="p">),</span> <span class="n">account</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"display_name"</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">,</span> <span class="n">account</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"notes"</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">]</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">query</span> <span class="ow">in</span> <span class="n">haystack</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">backfill_missing_profiles</span><span class="p">():</span>
+<span class="w">        </span><span class="sd">"""Fill in display_name and avatar_url for older accounts.</span>
+
+<span class="sd">        Runs once per view build and calls refresh() only if something</span>
+<span class="sd">        changed.</span>
+<span class="sd">        """</span>
+        <span class="n">current</span> <span class="o">=</span> <span class="n">accounts_store</span><span class="o">.</span><span class="n">load</span><span class="p">()</span>
+        <span class="n">missing</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">current</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">a</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"avatar_url"</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">a</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"display_name"</span><span class="p">)]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">missing</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="n">changed</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">for</span> <span class="n">account</span> <span class="ow">in</span> <span class="n">missing</span><span class="p">:</span>
+            <span class="n">profile</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">fetch_profile</span><span class="p">,</span> <span class="n">account</span><span class="p">[</span><span class="s2">"id"</span><span class="p">])</span>
+            <span class="k">if</span> <span class="n">profile</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"display_name"</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">account</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"display_name"</span><span class="p">):</span>
+                <span class="n">account</span><span class="p">[</span><span class="s2">"display_name"</span><span class="p">]</span> <span class="o">=</span> <span class="n">profile</span><span class="p">[</span><span class="s2">"display_name"</span><span class="p">]</span>
+                <span class="n">changed</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="k">if</span> <span class="n">profile</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"avatar_url"</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">account</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"avatar_url"</span><span class="p">):</span>
+                <span class="n">account</span><span class="p">[</span><span class="s2">"avatar_url"</span><span class="p">]</span> <span class="o">=</span> <span class="n">profile</span><span class="p">[</span><span class="s2">"avatar_url"</span><span class="p">]</span>
+                <span class="n">changed</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="k">if</span> <span class="n">changed</span><span class="p">:</span>
+            <span class="n">accounts_store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">current</span><span class="p">)</span>
+            <span class="n">refresh</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_get_auto_rejoin_entry</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_AUTO_REJOIN_STATE_KEY</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="p">{})</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_set_auto_rejoin_entry</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">entry</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">state</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_AUTO_REJOIN_STATE_KEY</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span>
+        <span class="n">state</span><span class="p">[</span><span class="n">user_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">entry</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">_AUTO_REJOIN_STATE_KEY</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">reset_auto_rejoin_state</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Clear any auto-rejoin bookkeeping for one account.</span>
+
+<span class="sd">        Called before a manual Join, so pressing Join yourself always</span>
+<span class="sd">        gives auto-rejoin a clean slate - the built-in fix for forgetting</span>
+<span class="sd">        the setting is on and finding it's gone quiet on some account.</span>
+<span class="sd">        """</span>
+        <span class="n">state</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_AUTO_REJOIN_STATE_KEY</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span>
+        <span class="k">if</span> <span class="n">state</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">_AUTO_REJOIN_STATE_KEY</span><span class="p">,</span> <span class="n">state</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">handle_account_left</span><span class="p">(</span><span class="n">account</span><span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Auto-rejoin one account after it's detected leaving its place.</span>
+
+<span class="sd">        Safety: if this account was already auto-rejoined less than</span>
+<span class="sd">        AUTO_REJOIN_GRACE_SECONDS ago and is now leaving again, that</span>
+<span class="sd">        rejoin evidently didn't stick (banned, server full, ...) - stop</span>
+<span class="sd">        retrying it and leave it suspended until a manual Join resets it,</span>
+<span class="sd">        rather than looping forever in the background.</span>
+<span class="sd">        """</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">get_auto_rejoin</span><span class="p">(</span><span class="n">page</span><span class="p">):</span>
+            <span class="k">return</span>
+
+        <span class="n">user_id</span> <span class="o">=</span> <span class="n">account</span><span class="p">[</span><span class="s2">"id"</span><span class="p">]</span>
+        <span class="n">entry</span> <span class="o">=</span> <span class="n">_get_auto_rejoin_entry</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"suspended"</span><span class="p">):</span>
+            <span class="k">return</span>
+
+        <span class="n">last_rejoin_at</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"last_rejoin_at"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">last_rejoin_at</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">last_rejoin_at</span> <span class="o">&lt;</span> <span class="n">AUTO_REJOIN_GRACE_SECONDS</span><span class="p">:</span>
+            <span class="n">_set_auto_rejoin_entry</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="p">{</span><span class="s2">"suspended"</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
+            <span class="n">label</span> <span class="o">=</span> <span class="n">account</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"display_name"</span><span class="p">)</span> <span class="ow">or</span> <span class="n">account</span><span class="p">[</span><span class="s2">"name"</span><span class="p">]</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">"Auto-rejoin suspended for </span><span class="si">%s</span><span class="s2"> (left again right after rejoining)"</span><span class="p">,</span> <span class="n">label</span><span class="p">)</span>
+            <span class="n">show_toast</span><span class="p">(</span>
+                <span class="n">page</span><span class="p">,</span>
+                <span class="sa">f</span><span class="s2">"Auto-rejoin paused for </span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">. It left again right after rejoining, "</span>
+                <span class="s2">"so it won't keep retrying. Join it manually to resume auto-rejoin."</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="n">_set_auto_rejoin_entry</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="p">{</span><span class="s2">"last_rejoin_at"</span><span class="p">:</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()})</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">do_join</span><span class="p">,</span> <span class="n">account</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">poll_status_loop</span><span class="p">(</span><span class="n">generation</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Repeatedly refresh every account's status dot from presence.</span>
+
+<span class="sd">        Runs on a timer for as long as this exact view build is the one</span>
+<span class="sd">        on screen, tracked by generation rather than route alone - a</span>
+<span class="sd">        route match isn't enough, since refresh() replaces this view</span>
+<span class="sd">        with a new build (and a new loop) that would otherwise run</span>
+<span class="sd">        alongside this one, doubling up forever.</span>
+<span class="sd">        """</span>
+        <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+            <span class="k">if</span> <span class="p">(</span>
+                <span class="ow">not</span> <span class="n">page</span><span class="o">.</span><span class="n">views</span>
+                <span class="ow">or</span> <span class="n">page</span><span class="o">.</span><span class="n">views</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">route</span> <span class="o">!=</span> <span class="s2">"/accounts"</span>
+                <span class="ow">or</span> <span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_GENERATION_KEY</span><span class="p">)</span> <span class="o">!=</span> <span class="n">generation</span>
+            <span class="p">):</span>
+                <span class="k">return</span>
+            <span class="k">await</span> <span class="n">status_tracker</span><span class="o">.</span><span class="n">poll_presence</span><span class="p">(</span>
+                <span class="n">page</span><span class="p">,</span> <span class="n">accounts_store</span><span class="o">.</span><span class="n">load</span><span class="p">(),</span> <span class="n">refresh</span><span class="p">,</span> <span class="n">on_left</span><span class="o">=</span><span class="n">handle_account_left</span>
+            <span class="p">)</span>
+            <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">status_tracker</span><span class="o">.</span><span class="n">AMBIENT_POLL_SECONDS</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">do_join</span><span class="p">(</span><span class="n">account</span><span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Join with one account, then watch for a crash or an in-place status.</span>
+
+<span class="sd">        Snapshots running Roblox processes before the join dispatches, so</span>
+<span class="sd">        watch_join can tell a newly launched process apart from one that</span>
+<span class="sd">        was already open for another account.</span>
+<span class="sd">        """</span>
+        <span class="n">before_pids</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">to_thread</span><span class="p">(</span><span class="n">running_pids</span><span class="p">)</span>
+        <span class="n">cookie</span> <span class="o">=</span> <span class="n">account</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"security_cookie"</span><span class="p">)</span>
+        <span class="n">launched</span> <span class="o">=</span> <span class="k">await</span> <span class="n">join_with_account</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">account</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">launched</span> <span class="ow">and</span> <span class="n">cookie</span><span class="p">:</span>
+            <span class="n">page</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span>
+                <span class="n">status_tracker</span><span class="o">.</span><span class="n">watch_join</span><span class="p">,</span> <span class="n">page</span><span class="p">,</span> <span class="n">account</span><span class="p">[</span><span class="s2">"id"</span><span class="p">],</span> <span class="n">before_pids</span><span class="p">,</span> <span class="n">cookie</span><span class="p">,</span> <span class="n">refresh</span>
+            <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">start_manual_join</span><span class="p">(</span><span class="n">account</span><span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Reset any auto-rejoin suspension for this account, then join it."""</span>
+        <span class="n">reset_auto_rejoin_state</span><span class="p">(</span><span class="n">account</span><span class="p">[</span><span class="s2">"id"</span><span class="p">])</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">do_join</span><span class="p">,</span> <span class="n">account</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">do_batch_join</span><span class="p">(</span><span class="n">accounts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]):</span>
+<span class="w">        </span><span class="sd">"""Join with each of the given accounts, one after another.</span>
+
+<span class="sd">        A short stagger runs between launches (see</span>
+<span class="sd">        BATCH_JOIN_STAGGER_SECONDS) so each Roblox instance has time to</span>
+<span class="sd">        actually spawn before the next account's singleton-bypass looks</span>
+<span class="sd">        at the running process list.</span>
+<span class="sd">        """</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">account</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">accounts</span><span class="p">):</span>
+            <span class="n">reset_auto_rejoin_state</span><span class="p">(</span><span class="n">account</span><span class="p">[</span><span class="s2">"id"</span><span class="p">])</span>
+            <span class="k">await</span> <span class="n">do_join</span><span class="p">(</span><span class="n">account</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">accounts</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">BATCH_JOIN_STAGGER_SECONDS</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">add_account</span><span class="p">(</span><span class="n">payload</span><span class="p">:</span> <span class="nb">dict</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Add a newly logged in account, unless it's already tracked."""</span>
+        <span class="n">current</span> <span class="o">=</span> <span class="n">accounts_store</span><span class="o">.</span><span class="n">load</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">any</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="s2">"id"</span><span class="p">]</span> <span class="o">==</span> <span class="n">payload</span><span class="p">[</span><span class="s2">"id"</span><span class="p">]</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">current</span><span class="p">):</span>
+            <span class="n">current</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="p">{</span>
+                    <span class="s2">"id"</span><span class="p">:</span> <span class="n">payload</span><span class="p">[</span><span class="s2">"id"</span><span class="p">],</span>
+                    <span class="s2">"name"</span><span class="p">:</span> <span class="n">payload</span><span class="p">[</span><span class="s2">"name"</span><span class="p">],</span>
+                    <span class="s2">"display_name"</span><span class="p">:</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"display_name"</span><span class="p">)</span> <span class="ow">or</span> <span class="n">payload</span><span class="p">[</span><span class="s2">"name"</span><span class="p">],</span>
+                    <span class="s2">"avatar_url"</span><span class="p">:</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"avatar_url"</span><span class="p">),</span>
+                    <span class="s2">"notes"</span><span class="p">:</span> <span class="s2">""</span><span class="p">,</span>
+                    <span class="s2">"added_at"</span><span class="p">:</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">(),</span>
+                    <span class="s2">"security_cookie"</span><span class="p">:</span> <span class="n">payload</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"security_cookie"</span><span class="p">),</span>
+                <span class="p">}</span>
+            <span class="p">)</span>
+            <span class="n">accounts_store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">current</span><span class="p">)</span>
+        <span class="n">refresh</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">remove_account</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Remove one account by id."""</span>
+        <span class="n">current</span> <span class="o">=</span> <span class="n">accounts_store</span><span class="o">.</span><span class="n">load</span><span class="p">()</span>
+        <span class="n">current</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">current</span> <span class="k">if</span> <span class="n">a</span><span class="p">[</span><span class="s2">"id"</span><span class="p">]</span> <span class="o">!=</span> <span class="n">user_id</span><span class="p">]</span>
+        <span class="n">accounts_store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">current</span><span class="p">)</span>
+        <span class="n">reset_auto_rejoin_state</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+        <span class="n">selected</span> <span class="o">=</span> <span class="n">get_selected_ids</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">user_id</span> <span class="ow">in</span> <span class="n">selected</span><span class="p">:</span>
+            <span class="n">selected</span><span class="o">.</span><span class="n">discard</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+            <span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">_SELECTED_IDS_KEY</span><span class="p">,</span> <span class="n">selected</span><span class="p">)</span>
+        <span class="n">refresh</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">save_notes</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">notes</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Save an edited notes field for one account."""</span>
+        <span class="n">current</span> <span class="o">=</span> <span class="n">accounts_store</span><span class="o">.</span><span class="n">load</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">current</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">a</span><span class="p">[</span><span class="s2">"id"</span><span class="p">]</span> <span class="o">==</span> <span class="n">user_id</span><span class="p">:</span>
+                <span class="n">a</span><span class="p">[</span><span class="s2">"notes"</span><span class="p">]</span> <span class="o">=</span> <span class="n">notes</span>
+                <span class="k">break</span>
+        <span class="n">accounts_store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">current</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_select_mode</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_SELECT_MODE_KEY</span><span class="p">))</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_selected_ids</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+        <span class="k">return</span> <span class="nb">set</span><span class="p">(</span><span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_SELECTED_IDS_KEY</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">set</span><span class="p">())</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">toggle_select_mode</span><span class="p">(</span><span class="n">e</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Event</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">IconButton</span><span class="p">]):</span>
+<span class="w">        </span><span class="sd">"""Enter or leave batch-select mode, clearing any selection either way."""</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">_SELECT_MODE_KEY</span><span class="p">,</span> <span class="ow">not</span> <span class="n">is_select_mode</span><span class="p">())</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">_SELECTED_IDS_KEY</span><span class="p">,</span> <span class="nb">set</span><span class="p">())</span>
+        <span class="n">refresh</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">toggle_selected</span><span class="p">(</span><span class="n">user_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">bool</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Add or remove one account from the current batch selection.</span>
+
+<span class="sd">        Only updates the checkbox's own row and the toolbar's selected</span>
+<span class="sd">        count/button state directly, rather than rebuilding the whole</span>
+<span class="sd">        view, so checking boxes stays snappy.</span>
+<span class="sd">        """</span>
+        <span class="n">selected</span> <span class="o">=</span> <span class="n">get_selected_ids</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">value</span><span class="p">:</span>
+            <span class="n">selected</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">selected</span><span class="o">.</span><span class="n">discard</span><span class="p">(</span><span class="n">user_id</span><span class="p">)</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">_SELECTED_IDS_KEY</span><span class="p">,</span> <span class="n">selected</span><span class="p">)</span>
+        <span class="n">selected_count_text</span><span class="o">.</span><span class="n">value</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">selected</span><span class="p">)</span><span class="si">}</span><span class="s2"> selected"</span>
+        <span class="n">selected_count_text</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
+        <span class="n">join_selected_button</span><span class="o">.</span><span class="n">disabled</span> <span class="o">=</span> <span class="ow">not</span> <span class="n">selected</span>
+        <span class="n">join_selected_button</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">select_all</span><span class="p">(</span><span class="n">e</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Event</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">TextButton</span><span class="p">]):</span>
+        <span class="n">visible_ids</span> <span class="o">=</span> <span class="p">{</span><span class="n">a</span><span class="p">[</span><span class="s2">"id"</span><span class="p">]</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">sort_accounts</span><span class="p">(</span><span class="n">accounts_store</span><span class="o">.</span><span class="n">load</span><span class="p">(),</span> <span class="n">sort_order</span><span class="p">)</span>
+                       <span class="k">if</span> <span class="n">account_matches</span><span class="p">(</span><span class="n">a</span><span class="p">)}</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">_SELECTED_IDS_KEY</span><span class="p">,</span> <span class="n">visible_ids</span><span class="p">)</span>
+        <span class="n">refresh</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">clear_selection</span><span class="p">(</span><span class="n">e</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Event</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">TextButton</span><span class="p">]):</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">_SELECTED_IDS_KEY</span><span class="p">,</span> <span class="nb">set</span><span class="p">())</span>
+        <span class="n">refresh</span><span class="p">()</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">on_join_selected</span><span class="p">(</span><span class="n">e</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Event</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">FilledButton</span><span class="p">]):</span>
+        <span class="n">selected</span> <span class="o">=</span> <span class="n">get_selected_ids</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">selected</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">current</span> <span class="o">=</span> <span class="p">{</span><span class="n">a</span><span class="p">[</span><span class="s2">"id"</span><span class="p">]:</span> <span class="n">a</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">accounts_store</span><span class="o">.</span><span class="n">load</span><span class="p">()}</span>
+        <span class="n">targets</span> <span class="o">=</span> <span class="p">[</span><span class="n">current</span><span class="p">[</span><span class="n">uid</span><span class="p">]</span> <span class="k">for</span> <span class="n">uid</span> <span class="ow">in</span> <span class="n">selected</span> <span class="k">if</span> <span class="n">uid</span> <span class="ow">in</span> <span class="n">current</span><span class="p">]</span>
+        <span class="n">join_selected_button</span><span class="o">.</span><span class="n">disabled</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="n">join_selected_button</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">await</span> <span class="n">do_batch_join</span><span class="p">(</span><span class="n">targets</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">join_selected_button</span><span class="o">.</span><span class="n">disabled</span> <span class="o">=</span> <span class="ow">not</span> <span class="n">get_selected_ids</span><span class="p">()</span>
+            <span class="n">join_selected_button</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">open_add_account</span><span class="p">(</span><span class="n">e</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Event</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">IconButton</span><span class="p">]):</span>
+<span class="w">        </span><span class="sd">"""Run the Roblox login flow and add the resulting account.</span>
+
+<span class="sd">        Spawns ``python -m toolblox.roblox.login`` as a subprocess (or, for</span>
+<span class="sd">        a frozen build, this same exe relaunched with LOGIN_ARG - see that</span>
+<span class="sd">        module's docstring) and reads the JSON line it prints to stdout on</span>
+<span class="sd">        success.</span>
+<span class="sd">        """</span>
+        <span class="n">add_button</span><span class="o">.</span><span class="n">disabled</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="n">page</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">sys</span><span class="p">,</span> <span class="s2">"frozen"</span><span class="p">,</span> <span class="kc">False</span><span class="p">):</span>
+            <span class="n">command</span> <span class="o">=</span> <span class="p">[</span><span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="p">,</span> <span class="n">LOGIN_ARG</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">command</span> <span class="o">=</span> <span class="p">[</span><span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="p">,</span> <span class="s2">"-m"</span><span class="p">,</span> <span class="s2">"toolblox.roblox.login"</span><span class="p">]</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">proc</span> <span class="o">=</span> <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">create_subprocess_exec</span><span class="p">(</span>
+                <span class="o">*</span><span class="n">command</span><span class="p">,</span>
+                <span class="n">cwd</span><span class="o">=</span><span class="n">PROJECT_ROOT</span><span class="p">,</span>
+                <span class="n">stdout</span><span class="o">=</span><span class="n">asyncio</span><span class="o">.</span><span class="n">subprocess</span><span class="o">.</span><span class="n">PIPE</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="k">await</span> <span class="n">proc</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>
+            <span class="k">await</span> <span class="n">proc</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">add_button</span><span class="o">.</span><span class="n">disabled</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="n">page</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">payload</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">json</span><span class="o">.</span><span class="n">JSONDecodeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s2">"Couldn't parse login subprocess output </span><span class="si">%r</span><span class="s2">: </span><span class="si">%s</span><span class="s2">"</span><span class="p">,</span> <span class="n">line</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="n">add_account</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">build_account_card</span><span class="p">(</span><span class="n">account</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span> <span class="n">sort_order</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ft</span><span class="o">.</span><span class="n">Control</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Build one account row, with its play, remove, and drag controls.</span>
+
+<span class="sd">        The controls are placed as Stack overlays with fixed top and</span>
+<span class="sd">        right offsets. The one exception is compact mode with manual</span>
+<span class="sd">        sort, where play, remove, and the drag handle sit together in a</span>
+<span class="sd">        real Row instead, so Flet can center them against each other's</span>
+<span class="sd">        actual size instead of relying on fixed offsets. In that row the</span>
+<span class="sd">        order is play, remove, then drag handle.</span>
+
+<span class="sd">        Outside compact mode, the drag handle's top offset lines up with</span>
+<span class="sd">        the bottom of the avatar frame. The handle's own padding is set</span>
+<span class="sd">        to match IconButton's default padding, so it sits flush with the</span>
+<span class="sd">        play and remove buttons next to it.</span>
+
+<span class="sd">        The status dot sits below the drag handle, centered on the same</span>
+<span class="sd">        column as the play/remove buttons and drag handle rather than</span>
+<span class="sd">        tucked into the raw corner. When there's no drag handle (manual</span>
+<span class="sd">        sort is off), it centers under the play button's column instead</span>
+<span class="sd">        of the remove button's, since remove sits at the same right</span>
+<span class="sd">        offset the handle would otherwise occupy. When avatars are shown</span>
+<span class="sd">        outside compact mode, its vertical center lines up with the</span>
+<span class="sd">        bottom edge of the avatar frame instead of the card's bottom</span>
+<span class="sd">        edge.</span>
+<span class="sd">        """</span>
+        <span class="n">username</span> <span class="o">=</span> <span class="n">account</span><span class="p">[</span><span class="s2">"name"</span><span class="p">]</span>
+        <span class="n">display_name</span> <span class="o">=</span> <span class="n">account</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"display_name"</span><span class="p">)</span> <span class="ow">or</span> <span class="n">username</span>
+        <span class="k">if</span> <span class="n">display_name</span> <span class="ow">and</span> <span class="n">display_name</span> <span class="o">!=</span> <span class="n">username</span><span class="p">:</span>
+            <span class="n">header_text</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"(</span><span class="si">{</span><span class="n">display_name</span><span class="si">}</span><span class="s2">) </span><span class="si">{</span><span class="n">username</span><span class="si">}</span><span class="s2">"</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">header_text</span> <span class="o">=</span> <span class="n">username</span>
+
+        <span class="n">compact</span> <span class="o">=</span> <span class="n">get_compact_mode</span><span class="p">(</span><span class="n">page</span><span class="p">)</span>
+        <span class="n">avatar_size</span> <span class="o">=</span> <span class="n">COMPACT_AVATAR_SIZE</span> <span class="k">if</span> <span class="n">compact</span> <span class="k">else</span> <span class="n">AVATAR_SIZE</span>
+        <span class="n">show_avatars</span> <span class="o">=</span> <span class="n">get_show_avatars</span><span class="p">(</span><span class="n">page</span><span class="p">)</span>
+
+        <span class="n">row_controls</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">Control</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">if</span> <span class="n">is_select_mode</span><span class="p">():</span>
+            <span class="n">row_controls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">ft</span><span class="o">.</span><span class="n">Checkbox</span><span class="p">(</span>
+                    <span class="n">value</span><span class="o">=</span><span class="n">account</span><span class="p">[</span><span class="s2">"id"</span><span class="p">]</span> <span class="ow">in</span> <span class="n">get_selected_ids</span><span class="p">(),</span>
+                    <span class="n">on_change</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">,</span> <span class="n">uid</span><span class="o">=</span><span class="n">account</span><span class="p">[</span><span class="s2">"id"</span><span class="p">]:</span> <span class="n">toggle_selected</span><span class="p">(</span><span class="n">uid</span><span class="p">,</span> <span class="n">e</span><span class="o">.</span><span class="n">control</span><span class="o">.</span><span class="n">value</span><span class="p">),</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+        <span class="n">dot_size</span> <span class="o">=</span> <span class="mi">8</span> <span class="k">if</span> <span class="n">compact</span> <span class="k">else</span> <span class="mi">10</span>
+        <span class="n">account_status</span> <span class="o">=</span> <span class="n">status_tracker</span><span class="o">.</span><span class="n">get_status</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">account</span><span class="p">[</span><span class="s2">"id"</span><span class="p">])</span>
+        <span class="n">status_dot</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+            <span class="n">width</span><span class="o">=</span><span class="n">dot_size</span><span class="p">,</span>
+            <span class="n">height</span><span class="o">=</span><span class="n">dot_size</span><span class="p">,</span>
+            <span class="n">bgcolor</span><span class="o">=</span><span class="n">STATUS_COLORS</span><span class="p">[</span><span class="n">account_status</span><span class="p">],</span>
+            <span class="n">border</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Border</span><span class="o">.</span><span class="n">all</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">SURFACE</span><span class="p">),</span>
+            <span class="n">border_radius</span><span class="o">=</span><span class="n">dot_size</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span>
+            <span class="n">tooltip</span><span class="o">=</span><span class="n">STATUS_LABELS</span><span class="p">[</span><span class="n">account_status</span><span class="p">],</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">show_avatars</span><span class="p">:</span>
+            <span class="n">avatar_url</span> <span class="o">=</span> <span class="n">account</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"avatar_url"</span><span class="p">)</span>
+            <span class="n">avatar_content</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">ft</span><span class="o">.</span><span class="n">Image</span><span class="p">(</span><span class="n">src</span><span class="o">=</span><span class="n">avatar_url</span><span class="p">,</span> <span class="n">width</span><span class="o">=</span><span class="n">avatar_size</span><span class="p">,</span> <span class="n">height</span><span class="o">=</span><span class="n">avatar_size</span><span class="p">,</span> <span class="n">fit</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">BoxFit</span><span class="o">.</span><span class="n">COVER</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">avatar_url</span>
+                <span class="k">else</span> <span class="n">ft</span><span class="o">.</span><span class="n">Icon</span><span class="p">(</span><span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">PERSON</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">avatar_size</span> <span class="o">*</span> <span class="mf">0.6</span><span class="p">)</span>
+            <span class="p">)</span>
+
+            <span class="n">avatar_stack_children</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">Control</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+                    <span class="n">content</span><span class="o">=</span><span class="n">avatar_content</span><span class="p">,</span>
+                    <span class="n">width</span><span class="o">=</span><span class="n">avatar_size</span><span class="p">,</span>
+                    <span class="n">height</span><span class="o">=</span><span class="n">avatar_size</span><span class="p">,</span>
+                    <span class="n">bgcolor</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">SURFACE_CONTAINER_HIGHEST</span><span class="p">,</span>
+                    <span class="n">alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Alignment</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+                <span class="p">),</span>
+            <span class="p">]</span>
+            <span class="k">if</span> <span class="n">SHOW_STATUS_DOT</span><span class="p">:</span>
+                <span class="n">status_dot</span><span class="o">.</span><span class="n">bottom</span> <span class="o">=</span> <span class="o">-</span><span class="n">dot_size</span> <span class="o">/</span> <span class="mi">4</span>
+                <span class="n">status_dot</span><span class="o">.</span><span class="n">right</span> <span class="o">=</span> <span class="o">-</span><span class="n">dot_size</span> <span class="o">/</span> <span class="mi">4</span>
+                <span class="n">avatar_stack_children</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">status_dot</span><span class="p">)</span>
+            <span class="n">row_controls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">ft</span><span class="o">.</span><span class="n">Stack</span><span class="p">(</span>
+                    <span class="n">avatar_stack_children</span><span class="p">,</span>
+                    <span class="n">width</span><span class="o">=</span><span class="n">avatar_size</span><span class="p">,</span>
+                    <span class="n">height</span><span class="o">=</span><span class="n">avatar_size</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">column_controls</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">Control</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">text_label</span><span class="p">(</span><span class="n">header_text</span><span class="p">)]</span>
+        <span class="k">elif</span> <span class="n">SHOW_STATUS_DOT</span><span class="p">:</span>
+            <span class="n">column_controls</span> <span class="o">=</span> <span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">Row</span><span class="p">([</span><span class="n">status_dot</span><span class="p">,</span> <span class="n">text_label</span><span class="p">(</span><span class="n">header_text</span><span class="p">)],</span> <span class="n">spacing</span><span class="o">=</span><span class="n">SPACE_XS</span><span class="p">)]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">column_controls</span> <span class="o">=</span> <span class="p">[</span><span class="n">text_label</span><span class="p">(</span><span class="n">header_text</span><span class="p">)]</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">compact</span><span class="p">:</span>
+            <span class="n">column_controls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">ft</span><span class="o">.</span><span class="n">TextField</span><span class="p">(</span>
+                    <span class="n">value</span><span class="o">=</span><span class="n">account</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"notes"</span><span class="p">,</span> <span class="s2">""</span><span class="p">),</span>
+                    <span class="n">hint_text</span><span class="o">=</span><span class="s2">"Notes..."</span><span class="p">,</span>
+                    <span class="n">multiline</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                    <span class="n">dense</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                    <span class="n">border</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">InputBorder</span><span class="o">.</span><span class="n">NONE</span><span class="p">,</span>
+                    <span class="n">content_padding</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Padding</span><span class="o">.</span><span class="n">symmetric</span><span class="p">(</span><span class="n">vertical</span><span class="o">=</span><span class="n">SPACE_XS</span><span class="p">,</span> <span class="n">horizontal</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
+                    <span class="n">text_size</span><span class="o">=</span><span class="mi">12</span><span class="p">,</span>
+                    <span class="n">hint_style</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">TextStyle</span><span class="p">(</span><span class="n">color</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">ON_SURFACE_VARIANT</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="mi">12</span><span class="p">),</span>
+                    <span class="n">on_blur</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">,</span> <span class="n">uid</span><span class="o">=</span><span class="n">account</span><span class="p">[</span><span class="s2">"id"</span><span class="p">]:</span> <span class="n">save_notes</span><span class="p">(</span><span class="n">uid</span><span class="p">,</span> <span class="n">e</span><span class="o">.</span><span class="n">control</span><span class="o">.</span><span class="n">value</span><span class="p">),</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+
+        <span class="n">is_manual</span> <span class="o">=</span> <span class="n">sort_order</span> <span class="o">==</span> <span class="s2">"manual"</span> <span class="ow">and</span> <span class="ow">not</span> <span class="p">(</span><span class="n">search_field</span><span class="o">.</span><span class="n">value</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="n">compact_row</span> <span class="o">=</span> <span class="n">compact</span> <span class="ow">and</span> <span class="n">is_manual</span>
+
+        <span class="n">row_controls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ft</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">column_controls</span><span class="p">,</span> <span class="n">expand</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">spacing</span><span class="o">=</span><span class="mi">2</span><span class="p">))</span>
+
+        <span class="n">card_padding</span> <span class="o">=</span> <span class="n">SPACE_XS</span> <span class="k">if</span> <span class="n">compact</span> <span class="k">else</span> <span class="n">SPACE_SM</span>
+        <span class="n">button_clearance</span> <span class="o">=</span> <span class="mi">100</span> <span class="k">if</span> <span class="n">compact_row</span> <span class="k">else</span> <span class="mi">64</span>
+        <span class="n">card</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+            <span class="n">content</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Row</span><span class="p">(</span>
+                <span class="n">row_controls</span><span class="p">,</span>
+                <span class="n">spacing</span><span class="o">=</span><span class="mi">12</span><span class="p">,</span>
+                <span class="n">vertical_alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">CrossAxisAlignment</span><span class="o">.</span><span class="n">CENTER</span>
+                <span class="k">if</span> <span class="n">compact</span>
+                <span class="k">else</span> <span class="n">ft</span><span class="o">.</span><span class="n">CrossAxisAlignment</span><span class="o">.</span><span class="n">START</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="n">padding</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Padding</span><span class="o">.</span><span class="n">only</span><span class="p">(</span>
+                <span class="n">left</span><span class="o">=</span><span class="n">card_padding</span><span class="p">,</span>
+                <span class="n">top</span><span class="o">=</span><span class="n">card_padding</span><span class="p">,</span>
+                <span class="n">bottom</span><span class="o">=</span><span class="n">card_padding</span><span class="p">,</span>
+                <span class="n">right</span><span class="o">=</span><span class="n">card_padding</span> <span class="o">+</span> <span class="n">button_clearance</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="n">border</span><span class="o">=</span><span class="n">card_border</span><span class="p">(),</span>
+            <span class="n">border_radius</span><span class="o">=</span><span class="n">radius_card</span><span class="p">(</span><span class="n">page</span><span class="p">),</span>
+        <span class="p">)</span>
+
+        <span class="n">stack_controls</span> <span class="o">=</span> <span class="p">[</span><span class="n">card</span><span class="p">]</span>
+
+        <span class="n">handle_icon_size</span> <span class="o">=</span> <span class="mi">18</span>
+        <span class="n">handle_padding</span> <span class="o">=</span> <span class="n">SPACE_SM</span>
+        <span class="n">handle_box_size</span> <span class="o">=</span> <span class="n">handle_icon_size</span> <span class="o">+</span> <span class="n">handle_padding</span> <span class="o">*</span> <span class="mi">2</span>
+
+        <span class="n">drag_handle_widget</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="k">if</span> <span class="n">is_manual</span><span class="p">:</span>
+
+            <span class="k">def</span><span class="w"> </span><span class="nf">on_handle_hover</span><span class="p">(</span><span class="n">e</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Event</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">]):</span>
+<span class="w">                </span><span class="sd">"""Fade the drag handle in and out on hover."""</span>
+                <span class="n">e</span><span class="o">.</span><span class="n">control</span><span class="o">.</span><span class="n">opacity</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">data</span> <span class="o">==</span> <span class="s2">"true"</span> <span class="k">else</span> <span class="mf">0.4</span>
+                <span class="n">e</span><span class="o">.</span><span class="n">control</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
+
+            <span class="n">drag_handle_widget</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">ReorderableDragHandle</span><span class="p">(</span>
+                <span class="n">content</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+                    <span class="n">content</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Icon</span><span class="p">(</span>
+                        <span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">DRAG_INDICATOR</span><span class="p">,</span>
+                        <span class="n">size</span><span class="o">=</span><span class="n">handle_icon_size</span><span class="p">,</span>
+                        <span class="n">color</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Colors</span><span class="o">.</span><span class="n">ON_SURFACE_VARIANT</span><span class="p">,</span>
+                    <span class="p">),</span>
+                    <span class="n">alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Alignment</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+                    <span class="n">padding</span><span class="o">=</span><span class="n">handle_padding</span><span class="p">,</span>
+                    <span class="n">border_radius</span><span class="o">=</span><span class="n">handle_box_size</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span>
+                    <span class="n">opacity</span><span class="o">=</span><span class="mf">0.4</span><span class="p">,</span>
+                    <span class="n">animate_opacity</span><span class="o">=</span><span class="mi">150</span><span class="p">,</span>
+                    <span class="n">on_hover</span><span class="o">=</span><span class="n">on_handle_hover</span><span class="p">,</span>
+                <span class="p">),</span>
+                <span class="n">mouse_cursor</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">MouseCursor</span><span class="o">.</span><span class="n">GRAB</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="n">play_button</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">IconButton</span><span class="p">(</span>
+            <span class="n">icon</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">PLAY_CIRCLE_OUTLINE</span><span class="p">,</span>
+            <span class="n">icon_size</span><span class="o">=</span><span class="mi">18</span><span class="p">,</span>
+            <span class="n">tooltip</span><span class="o">=</span><span class="s2">"Join place"</span><span class="p">,</span>
+            <span class="n">on_click</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">,</span> <span class="n">a</span><span class="o">=</span><span class="n">account</span><span class="p">:</span> <span class="n">start_manual_join</span><span class="p">(</span><span class="n">a</span><span class="p">),</span>
+        <span class="p">)</span>
+
+        <span class="n">remove_button</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">IconButton</span><span class="p">(</span>
+            <span class="n">icon</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">REMOVE_CIRCLE_OUTLINE</span><span class="p">,</span>
+            <span class="n">icon_size</span><span class="o">=</span><span class="mi">18</span><span class="p">,</span>
+            <span class="n">tooltip</span><span class="o">=</span><span class="s2">"Remove account"</span><span class="p">,</span>
+            <span class="n">on_click</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">,</span> <span class="n">uid</span><span class="o">=</span><span class="n">account</span><span class="p">[</span><span class="s2">"id"</span><span class="p">],</span> <span class="n">label</span><span class="o">=</span><span class="n">header_text</span><span class="p">:</span> <span class="n">show_confirm_toast</span><span class="p">(</span>
+                <span class="n">page</span><span class="p">,</span> <span class="sa">f</span><span class="s2">"Remove </span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">?"</span><span class="p">,</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">remove_account</span><span class="p">(</span><span class="n">uid</span><span class="p">)</span>
+            <span class="p">),</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">compact_row</span><span class="p">:</span>
+            <span class="n">stack_controls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+                    <span class="n">content</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Row</span><span class="p">(</span>
+                        <span class="p">[</span><span class="n">play_button</span><span class="p">,</span> <span class="n">remove_button</span><span class="p">,</span> <span class="n">drag_handle_widget</span><span class="p">],</span>
+                        <span class="n">spacing</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                        <span class="n">vertical_alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">CrossAxisAlignment</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+                    <span class="p">),</span>
+                    <span class="n">top</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                    <span class="n">bottom</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                    <span class="n">right</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                    <span class="n">alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Alignment</span><span class="o">.</span><span class="n">CENTER_RIGHT</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">play_button</span><span class="o">.</span><span class="n">top</span> <span class="o">=</span> <span class="mi">2</span>
+            <span class="n">play_button</span><span class="o">.</span><span class="n">right</span> <span class="o">=</span> <span class="mi">34</span>
+            <span class="n">remove_button</span><span class="o">.</span><span class="n">top</span> <span class="o">=</span> <span class="mi">2</span>
+            <span class="n">remove_button</span><span class="o">.</span><span class="n">right</span> <span class="o">=</span> <span class="mi">2</span>
+            <span class="n">stack_controls</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="n">play_button</span><span class="p">,</span> <span class="n">remove_button</span><span class="p">])</span>
+
+            <span class="k">if</span> <span class="n">drag_handle_widget</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">compact</span><span class="p">:</span>
+                    <span class="n">handle_top</span> <span class="o">=</span> <span class="mi">2</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">handle_top</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">card_padding</span> <span class="o">+</span> <span class="n">avatar_size</span> <span class="o">-</span> <span class="n">handle_box_size</span> <span class="o">-</span> <span class="mi">4</span> <span class="k">if</span> <span class="n">show_avatars</span> <span class="k">else</span> <span class="mi">2</span>
+                    <span class="p">)</span>
+                <span class="n">stack_controls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                    <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span><span class="n">content</span><span class="o">=</span><span class="n">drag_handle_widget</span><span class="p">,</span> <span class="n">top</span><span class="o">=</span><span class="n">handle_top</span><span class="p">,</span> <span class="n">right</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+                <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">ft</span><span class="o">.</span><span class="n">Stack</span><span class="p">(</span><span class="n">stack_controls</span><span class="p">)</span>
+
+    <span class="n">sort_order</span> <span class="o">=</span> <span class="n">get_sort_order</span><span class="p">(</span><span class="n">page</span><span class="p">)</span>
+    <span class="n">list_spacing</span> <span class="o">=</span> <span class="mi">8</span> <span class="k">if</span> <span class="n">get_compact_mode</span><span class="p">(</span><span class="n">page</span><span class="p">)</span> <span class="k">else</span> <span class="mi">14</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">render_account_list</span><span class="p">(</span><span class="n">mounted</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">"""Recompute the filtered, sorted account list in place.</span>
+
+<span class="sd">        Only the list control's own contents change here - the search</span>
+<span class="sd">        field itself is never rebuilt, so typing doesn't lose focus or</span>
+<span class="sd">        reset what's been typed the way a full AccountsView(page) rebuild</span>
+<span class="sd">        would.</span>
+<span class="sd">        """</span>
+        <span class="n">sorted_accounts</span> <span class="o">=</span> <span class="n">sort_accounts</span><span class="p">(</span><span class="n">accounts_store</span><span class="o">.</span><span class="n">load</span><span class="p">(),</span> <span class="n">sort_order</span><span class="p">)</span>
+        <span class="n">accounts</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">sorted_accounts</span> <span class="k">if</span> <span class="n">account_matches</span><span class="p">(</span><span class="n">a</span><span class="p">)]</span>
+        <span class="k">if</span> <span class="n">sort_order</span> <span class="o">==</span> <span class="s2">"manual"</span><span class="p">:</span>
+            <span class="n">account_list</span><span class="o">.</span><span class="n">controls</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">ft</span><span class="o">.</span><span class="n">Container</span><span class="p">(</span>
+                    <span class="n">content</span><span class="o">=</span><span class="n">build_account_card</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">sort_order</span><span class="p">),</span>
+                    <span class="n">key</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="s2">"id"</span><span class="p">]),</span>
+                    <span class="n">margin</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Margin</span><span class="o">.</span><span class="n">only</span><span class="p">(</span><span class="n">bottom</span><span class="o">=</span><span class="n">list_spacing</span><span class="p">),</span>
+                <span class="p">)</span>
+                <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">accounts</span>
+            <span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">account_list</span><span class="o">.</span><span class="n">controls</span> <span class="o">=</span> <span class="p">[</span><span class="n">build_account_card</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">sort_order</span><span class="p">)</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">accounts</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">mounted</span><span class="p">:</span>
+            <span class="n">account_list</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">sort_order</span> <span class="o">==</span> <span class="s2">"manual"</span><span class="p">:</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">on_reorder</span><span class="p">(</span><span class="n">e</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">OnReorderEvent</span><span class="p">):</span>
+<span class="w">            </span><span class="sd">"""Move one account to its new position and save the order.</span>
+
+<span class="sd">            Only reachable while unfiltered: build_account_card hides the</span>
+<span class="sd">            drag handle whenever a search is active, since the displayed</span>
+<span class="sd">            indices then no longer line up with accounts_store.load()'s</span>
+<span class="sd">            raw order, which this handler assumes.</span>
+<span class="sd">            """</span>
+            <span class="n">current</span> <span class="o">=</span> <span class="n">accounts_store</span><span class="o">.</span><span class="n">load</span><span class="p">()</span>
+            <span class="n">item</span> <span class="o">=</span> <span class="n">current</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">old_index</span><span class="p">)</span>
+            <span class="n">current</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">new_index</span><span class="p">,</span> <span class="n">item</span><span class="p">)</span>
+            <span class="n">accounts_store</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">current</span><span class="p">)</span>
+            <span class="n">refresh</span><span class="p">()</span>
+
+        <span class="n">account_list</span><span class="p">:</span> <span class="n">ft</span><span class="o">.</span><span class="n">Control</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">ReorderableListView</span><span class="p">(</span>
+            <span class="n">controls</span><span class="o">=</span><span class="p">[],</span>
+            <span class="n">expand</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">show_default_drag_handles</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="n">on_reorder</span><span class="o">=</span><span class="n">on_reorder</span><span class="p">,</span>
+            <span class="n">padding</span><span class="o">=</span><span class="n">scroll_padding</span><span class="p">(),</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">account_list</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">ListView</span><span class="p">(</span>
+            <span class="n">controls</span><span class="o">=</span><span class="p">[],</span> <span class="n">expand</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">spacing</span><span class="o">=</span><span class="n">list_spacing</span><span class="p">,</span> <span class="n">padding</span><span class="o">=</span><span class="n">scroll_padding</span><span class="p">()</span>
+        <span class="p">)</span>
+
+    <span class="n">render_account_list</span><span class="p">(</span><span class="n">mounted</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="n">add_button</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">IconButton</span><span class="p">(</span>
+        <span class="n">icon</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">ADD</span><span class="p">,</span>
+        <span class="n">tooltip</span><span class="o">=</span><span class="s2">"Add account"</span><span class="p">,</span>
+        <span class="n">on_click</span><span class="o">=</span><span class="n">open_add_account</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">select_mode</span> <span class="o">=</span> <span class="n">is_select_mode</span><span class="p">()</span>
+    <span class="n">selected_count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">get_selected_ids</span><span class="p">())</span>
+
+    <span class="n">select_toggle_button</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">IconButton</span><span class="p">(</span>
+        <span class="n">icon</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">CHECKLIST</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">select_mode</span> <span class="k">else</span> <span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">CLOSE</span><span class="p">,</span>
+        <span class="n">tooltip</span><span class="o">=</span><span class="s2">"Cancel selecting"</span> <span class="k">if</span> <span class="n">select_mode</span> <span class="k">else</span> <span class="s2">"Select accounts to join"</span><span class="p">,</span>
+        <span class="n">on_click</span><span class="o">=</span><span class="n">toggle_select_mode</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">header_controls</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">Control</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">text_title</span><span class="p">(</span><span class="s2">"Accounts"</span><span class="p">),</span> <span class="n">search_field</span><span class="p">]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">select_mode</span><span class="p">:</span>
+        <span class="n">header_controls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">add_button</span><span class="p">)</span>
+    <span class="n">header_controls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">select_toggle_button</span><span class="p">)</span>
+
+    <span class="n">content_controls</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">ft</span><span class="o">.</span><span class="n">Control</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">ft</span><span class="o">.</span><span class="n">Row</span><span class="p">(</span>
+            <span class="n">header_controls</span><span class="p">,</span>
+            <span class="n">spacing</span><span class="o">=</span><span class="n">SPACE_MD</span><span class="p">,</span>
+            <span class="n">vertical_alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">CrossAxisAlignment</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+        <span class="p">),</span>
+    <span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">select_mode</span><span class="p">:</span>
+        <span class="n">selected_count_text</span> <span class="o">=</span> <span class="n">text_label</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">selected_count</span><span class="si">}</span><span class="s2"> selected"</span><span class="p">)</span>
+        <span class="n">join_selected_button</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">FilledButton</span><span class="p">(</span>
+            <span class="s2">"Join Selected"</span><span class="p">,</span>
+            <span class="n">icon</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">Icons</span><span class="o">.</span><span class="n">PLAY_CIRCLE_OUTLINE</span><span class="p">,</span>
+            <span class="n">on_click</span><span class="o">=</span><span class="n">on_join_selected</span><span class="p">,</span>
+            <span class="n">disabled</span><span class="o">=</span><span class="n">selected_count</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span>
+            <span class="n">style</span><span class="o">=</span><span class="n">thin_button_style</span><span class="p">(),</span>
+        <span class="p">)</span>
+        <span class="n">content_controls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="n">ft</span><span class="o">.</span><span class="n">Row</span><span class="p">(</span>
+                <span class="p">[</span>
+                    <span class="n">ft</span><span class="o">.</span><span class="n">TextButton</span><span class="p">(</span><span class="s2">"Select all"</span><span class="p">,</span> <span class="n">on_click</span><span class="o">=</span><span class="n">select_all</span><span class="p">),</span>
+                    <span class="n">ft</span><span class="o">.</span><span class="n">TextButton</span><span class="p">(</span><span class="s2">"Select none"</span><span class="p">,</span> <span class="n">on_click</span><span class="o">=</span><span class="n">clear_selection</span><span class="p">),</span>
+                    <span class="n">selected_count_text</span><span class="p">,</span>
+                    <span class="n">join_selected_button</span><span class="p">,</span>
+                <span class="p">],</span>
+                <span class="n">spacing</span><span class="o">=</span><span class="n">SPACE_SM</span><span class="p">,</span>
+                <span class="n">vertical_alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">CrossAxisAlignment</span><span class="o">.</span><span class="n">CENTER</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="p">)</span>
+
+    <span class="n">content_controls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">account_list</span><span class="p">)</span>
+
+    <span class="n">content</span> <span class="o">=</span> <span class="n">ft</span><span class="o">.</span><span class="n">Column</span><span class="p">(</span><span class="n">content_controls</span><span class="p">,</span> <span class="n">expand</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="n">page</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">backfill_missing_profiles</span><span class="p">)</span>
+
+    <span class="n">generation</span> <span class="o">=</span> <span class="p">(</span><span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_GENERATION_KEY</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+    <span class="n">page</span><span class="o">.</span><span class="n">session</span><span class="o">.</span><span class="n">store</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">_GENERATION_KEY</span><span class="p">,</span> <span class="n">generation</span><span class="p">)</span>
+    <span class="n">page</span><span class="o">.</span><span class="n">run_task</span><span class="p">(</span><span class="n">poll_status_loop</span><span class="p">,</span> <span class="n">generation</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">ft</span><span class="o">.</span><span class="n">View</span><span class="p">(</span>
+        <span class="n">route</span><span class="o">=</span><span class="s2">"/accounts"</span><span class="p">,</span>
+        <span class="n">padding</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+        <span class="n">horizontal_alignment</span><span class="o">=</span><span class="n">ft</span><span class="o">.</span><span class="n">CrossAxisAlignment</span><span class="o">.</span><span class="n">STRETCH</span><span class="p">,</span>
+        <span class="n">controls</span><span class="o">=</span><span class="p">[</span><span class="n">build_layout</span><span class="p">(</span><span class="n">page</span><span class="p">,</span> <span class="n">content</span><span class="p">)],</span>
+    <span class="p">)</span></div>
+
+</pre></div>
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          
+          
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; BakedAleska
+            </div>
+            Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
+            
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer no-toc">
+      
+      
+      
+    </aside>
+  </div>
+</div><script src="../../../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/scripts/furo.js?v=46bd48cc"></script>
+    </body>
+</html>

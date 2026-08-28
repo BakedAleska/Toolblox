@@ -1,0 +1,7 @@
+toolblox.ui.toast module
+========================
+
+.. automodule:: toolblox.ui.toast
+   :members:
+   :show-inheritance:
+   :undoc-members:

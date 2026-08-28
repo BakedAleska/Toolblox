@@ -137,6 +137,9 @@ jobs:
             PARTS+=("0")
           done
           VERSION_NUMERIC="$(IFS=.; echo "${PARTS[*]:0:4}")"
+          # installer/Output is gitignored, so a fresh checkout doesn't have
+          # it - makensis can't create its own OutFile's parent directory.
+          mkdir -p installer/Output
           "/c/Program Files (x86)/NSIS/makensis.exe" \
             "/DMyAppVersion=${VERSION}" \
             "/DMyAppVersionNumeric=${VERSION_NUMERIC}" \

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Toolblox</title>
+  <meta name="description" content="A local-first desktop app for managing and launching Roblox accounts.">
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
+  <style>
+    :root { color-scheme: light dark; --bg: #fafafa; --fg: #171717; --muted: #737373; --card: #fff; --ring: rgb(0 0 0 / 8%); --button: #171717; --button-fg: #fafafa; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0a0a0a; --fg: #fafafa; --muted: #a3a3a3; --card: #171717; --ring: rgb(255 255 255 / 10%); --button: #fafafa; --button-fg: #171717; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 640px; margin: 0 auto; padding: 64px 16px; display: flex; flex-direction: column; gap: 24px; }
+    header { display: flex; align-items: center; gap: 12px; }
+    header img { width: 40px; height: 40px; }
+    h1 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+    h2 { margin: 0 0 8px; font-size: 16px; }
+    p, ol { margin: 0; }
+    .muted { color: var(--muted); font-size: 14px; }
+    .card { background: var(--card); border-radius: 16px; box-shadow: 0 0 0 1px var(--ring); padding: 24px; display: flex; flex-direction: column; gap: 12px; }
+    .download { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; background: var(--button); color: var(--button-fg); text-decoration: none; font-weight: 600; padding: 12px 16px; border-radius: 8px; }
+    .download:focus-visible, a:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+    ol { padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+    a { color: inherit; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <img src="logo.svg" alt="">
+      <h1>Toolblox</h1>
+    </header>
+    <p>A local-first desktop app for managing and launching Roblox accounts. Sessions stay in the operating system's credential store, and no telemetry is collected.</p>
+
+    <section class="card" aria-labelledby="windows">
+      <h2 id="windows">Windows 10 and 11</h2>
+      <a class="download" href="https://github.com/BakedAleska/Toolblox/releases/latest/download/Toolblox-Setup.exe">Download Toolblox for Windows</a>
+      <ol>
+        <li>Open <strong>Toolblox-Setup.exe</strong> once the download finishes.</li>
+        <li>If Windows shows “Windows protected your PC”, select <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
+        <li>Follow the setup steps. Toolblox keeps itself up to date after that.</li>
+      </ol>
+      <p class="muted">The installer is the only download needed. The source code archives on GitHub are for developers and don't contain the app.</p>
+    </section>
+
+    <section class="card" aria-labelledby="macos">
+      <h2 id="macos">macOS</h2>
+      <p class="muted">A macOS build isn't available yet.</p>
+    </section>
+
+    <p class="muted"><a href="https://github.com/BakedAleska/Toolblox">Source code</a> · <a href="https://github.com/BakedAleska/Toolblox/releases">All releases</a> · <a href="https://github.com/BakedAleska/Toolblox/blob/main/SECURITY.md">Security</a></p>
+  </main>
+</body>
+</html>

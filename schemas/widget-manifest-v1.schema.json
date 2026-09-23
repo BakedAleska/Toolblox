@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://toolblox.dev/schemas/widget-manifest-v1.schema.json",
+  "title": "Toolblox widget manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "name",
+    "version"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]{1,64}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "entry": {
+      "const": "index.html"
+    },
+    "module": {
+      "const": "main.js"
+    },
+    "settingsEntry": {
+      "const": "settings.html"
+    },
+    "dashboardEntry": {
+      "const": "dashboard.html"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "icon": {
+      "type": "string"
+    },
+    "permissions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "accounts.read.basic",
+          "widgetData.read",
+          "widgetData.write",
+          "roblox.status",
+          "roblox.join",
+          "network.fetch",
+          "process.spawn"
+        ]
+      }
+    },
+    "networkOrigins": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "format": "uri"
+      }
+    },
+    "processes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "executable"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "executable": {
+            "type": "string",
+            "pattern": "^optional-bin/"
+          },
+          "allowedArguments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "entry"
+      ]
+    },
+    {
+      "required": [
+        "module"
+      ]
+    }
+  ]
+}

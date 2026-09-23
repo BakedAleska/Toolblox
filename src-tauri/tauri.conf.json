@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Toolblox",
+  "version": "0.2.0-beta",
+  "identifier": "com.bakedaleska.toolblox",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Toolblox",
+        "width": 900,
+        "height": 500,
+        "minWidth": 720,
+        "minHeight": 480,
+        "visible": false,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: https: data: widget: http://widget.localhost; style-src 'self' widget: http://widget.localhost; font-src 'self' data: widget: http://widget.localhost; connect-src ipc: http://ipc.localhost; script-src 'self' widget: http://widget.localhost; frame-src widget: http://widget.localhost",
+      "capabilities": [
+        "default"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "resources": [
+      "resources/multi-instance/multi_instance_helper.exe",
+      "resources/multi-instance/helper.c",
+      "resources/multi-instance/README.md"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwMjU1MzdDMkM1MzA3QTAKUldTZ0IxTXNmRk1sY0ZXS1F1Uk5FUUJGdVJGejJ4cEMyMXNaZnQxL0hGNHFBbnNlT1dIQXFyZTIK",
+      "endpoints": [],
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

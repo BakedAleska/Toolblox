@@ -1,0 +1,64 @@
+name: Docs
+
+# Generates the Rust API docs with rustdoc, replaces the docs branch with a single commit of the
+# output, and redeploys Pages, which serves it under /docs/.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src-tauri/src/**"
+      - "src-tauri/Cargo.toml"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  deployments: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: docs
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci && npm run build
+      - run: cargo doc --no-deps --document-private-items --lib
+        working-directory: src-tauri
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - name: Replace the docs branch
+        run: |
+          out="$RUNNER_TEMP/docs"
+          cp -r src-tauri/target/doc "$out"
+          rm -f "$out/.lock"
+          printf '<!doctype html><meta charset="utf-8"><title>Toolblox API docs</title><meta http-equiv="refresh" content="0; url=toolblox_lib/index.html"><a href="toolblox_lib/index.html">Toolblox API docs</a>\n' > "$out/index.html"
+          touch "$out/.nojekyll"
+          cd "$out"
+          git init -q -b docs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "docs: generate API docs for ${GITHUB_SHA::7}"
+          git push -q --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" docs
+
+  pages:
+    needs: build
+    uses: ./.github/workflows/pages.yml
+    secrets: inherit

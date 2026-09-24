@@ -160,11 +160,6 @@ pub(crate) fn decrypt_legacy_dpapi(stored: &str) -> Result<Secret, CredentialErr
     plaintext.map(Secret)
 }
 
-#[cfg(not(windows))]
-pub(crate) fn decrypt_legacy_dpapi(_stored: &str) -> Result<Secret, CredentialError> {
-    Err(CredentialError::Unsupported)
-}
-
 #[cfg(target_os = "macos")]
 pub(crate) fn lookup_legacy_keychain(account_id: u64) -> Result<Secret, CredentialError> {
     use std::process::Command;

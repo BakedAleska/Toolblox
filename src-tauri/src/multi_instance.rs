@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 use std::path::Path;
+#[cfg(windows)]
 use std::process::Command;
 
 #[cfg(windows)]

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MigrationError"],"fn":["migrate_legacy","migrate_with","resolve_legacy_secret","rollback_credentials"],"struct":["LegacyAccount","MigrationSummary"]};

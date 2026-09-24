@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["StorageError"],"fn":["read_json","replace_file","sync_directory","validate_accounts","write_json_atomic"],"static":["TEMP_SEQUENCE"],"struct":["Storage"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["RECENT_PLACES_LIMIT"],"enum":["PresenceState","SidebarPosition","SortOrder","ThemeMode"],"fn":["is_place_id","validate_widget_id"],"struct":["AccountDto","RecentPlace","Settings","StoredAccount"]};

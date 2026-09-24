@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["SERVICE"],"enum":["CredentialError"],"fn":["decrypt_legacy_dpapi"],"struct":["OsCredentialStore","Secret"],"trait":["CredentialStore"]};

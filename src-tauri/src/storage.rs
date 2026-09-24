@@ -12,13 +12,17 @@ use serde::de::DeserializeOwned;
 
 use crate::models::{Settings, StoredAccount};
 
+/// Distinguishes temporary files written concurrently by this process.
 static TEMP_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Why local data couldn't be read or written.
 #[derive(Debug)]
 pub enum StorageError {
     Io(io::Error),
+    /// The data failed validation. Holds a user-facing message.
     Invalid(String),
     Json(serde_json::Error),
+    /// The storage lock was poisoned by a panic.
     Locked,
 }
 
@@ -64,12 +68,16 @@ impl From<serde_json::Error> for StorageError {
     }
 }
 
+/// Reads and writes `settings.json` and `accounts.json` in the data folder.
+///
+/// One lock serializes every read and write, so read-modify-write updates can't lose changes.
 pub struct Storage {
     root: PathBuf,
     gate: Mutex<()>,
 }
 
 impl Storage {
+    /// Creates storage rooted at `root`. Files are created on first write.
     pub fn new(root: PathBuf) -> Self {
         Self {
             root,
@@ -77,21 +85,26 @@ impl Storage {
         }
     }
 
+    /// Returns the data folder.
     pub fn root(&self) -> &Path {
         &self.root
     }
 
+    /// Loads settings, or the defaults when none are saved.
     pub fn load_settings(&self) -> Result<Settings, StorageError> {
         let _guard = self.gate.lock().map_err(|_| StorageError::Locked)?;
         self.load_settings_unlocked()
     }
 
+    /// Validates and atomically replaces the saved settings.
     pub fn save_settings(&self, settings: &Settings) -> Result<(), StorageError> {
         let _guard = self.gate.lock().map_err(|_| StorageError::Locked)?;
         settings.validate().map_err(StorageError::Invalid)?;
         write_json_atomic(&self.root.join("settings.json"), settings)
     }
 
+    /// Loads, changes, validates, and saves settings under one lock. Nothing is written when
+    /// `update` fails.
     pub fn update_settings<T>(
         &self,
         update: impl FnOnce(&mut Settings) -> Result<T, StorageError>,
@@ -104,17 +117,21 @@ impl Storage {
         Ok(result)
     }
 
+    /// Loads the saved accounts, or none when the file doesn't exist.
     pub fn load_accounts(&self) -> Result<Vec<StoredAccount>, StorageError> {
         let _guard = self.gate.lock().map_err(|_| StorageError::Locked)?;
         self.load_accounts_unlocked()
     }
 
+    /// Validates and atomically replaces the saved accounts.
     pub fn save_accounts(&self, accounts: &[StoredAccount]) -> Result<(), StorageError> {
         let _guard = self.gate.lock().map_err(|_| StorageError::Locked)?;
         validate_accounts(accounts)?;
         write_json_atomic(&self.root.join("accounts.json"), accounts)
     }
 
+    /// Loads, changes, validates, and saves accounts under one lock. Nothing is written when
+    /// `update` fails.
     pub fn update_accounts<T>(
         &self,
         update: impl FnOnce(&mut Vec<StoredAccount>) -> Result<T, StorageError>,
@@ -127,6 +144,7 @@ impl Storage {
         Ok(result)
     }
 
+    /// Loads settings without taking the lock. Callers must hold it.
     fn load_settings_unlocked(&self) -> Result<Settings, StorageError> {
         let path = self.root.join("settings.json");
         if !path.exists() {
@@ -137,6 +155,7 @@ impl Storage {
         Ok(settings)
     }
 
+    /// Loads accounts without taking the lock. Callers must hold it.
     fn load_accounts_unlocked(&self) -> Result<Vec<StoredAccount>, StorageError> {
         let path = self.root.join("accounts.json");
         if !path.exists() {
@@ -148,6 +167,7 @@ impl Storage {
     }
 }
 
+/// Validates each account and rejects duplicate IDs.
 fn validate_accounts(accounts: &[StoredAccount]) -> Result<(), StorageError> {
     let mut ids = HashSet::with_capacity(accounts.len());
     for account in accounts {
@@ -161,10 +181,13 @@ fn validate_accounts(accounts: &[StoredAccount]) -> Result<(), StorageError> {
     Ok(())
 }
 
+/// Parses a JSON file.
 fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T, StorageError> {
     Ok(serde_json::from_reader(File::open(path)?)?)
 }
 
+/// Writes JSON to a temporary file, flushes it, and moves it over `path`, so a crash leaves
+/// either the old or the new file. On Unix the file is readable only by its owner.
 fn write_json_atomic(path: &Path, value: &(impl Serialize + ?Sized)) -> Result<(), StorageError> {
     let parent = path.parent().ok_or_else(|| {
         StorageError::Invalid("The local data path isn't valid. Can you restart the app?".into())
@@ -203,6 +226,7 @@ fn write_json_atomic(path: &Path, value: &(impl Serialize + ?Sized)) -> Result<(
     result
 }
 
+/// Replaces `to` with `from` in one step, flushing the move to disk.
 #[cfg(windows)]
 pub(crate) fn replace_file(from: &Path, to: &Path) -> io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
@@ -226,16 +250,19 @@ pub(crate) fn replace_file(from: &Path, to: &Path) -> io::Result<()> {
     }
 }
 
+/// Replaces `to` with `from` in one step.
 #[cfg(not(windows))]
 pub(crate) fn replace_file(from: &Path, to: &Path) -> io::Result<()> {
     fs::rename(from, to)
 }
 
+/// Flushes a directory entry change to disk.
 #[cfg(unix)]
 fn sync_directory(path: &Path) -> io::Result<()> {
     File::open(path)?.sync_all()
 }
 
+/// Does nothing; this platform doesn't need directory flushes.
 #[cfg(not(unix))]
 fn sync_directory(_path: &Path) -> io::Result<()> {
     Ok(())

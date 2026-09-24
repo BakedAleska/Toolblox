@@ -8,38 +8,54 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Manager, WebviewWindow};
 
+/// Window label of the main app window.
 pub const MAIN_WINDOW_LABEL: &str = "main";
+/// ID of the system tray or menu bar icon.
 pub const TRAY_ID: &str = "toolblox-tray";
+/// Tray menu item that shows the main window.
 const TRAY_OPEN_ID: &str = "toolblox-open";
+/// Tray menu item that quits the app.
 const TRAY_QUIT_ID: &str = "toolblox-quit";
+/// Tray menu item that restarts without widgets.
 const TRAY_SAFE_MODE_ID: &str = "toolblox-safe-mode";
 
+/// Quit and activation requests shared between the tray, window, and single-instance handler.
 #[derive(Default)]
 pub struct LifecycleState {
+    /// Set when the user chose Quit, so closing the window exits instead of hiding.
     quit_requested: AtomicBool,
+    /// Set when a second launch arrived before the main window could be shown.
     pending_activation: AtomicBool,
 }
 
 impl LifecycleState {
+    /// Records that the user chose to quit.
     pub fn mark_quit_requested(&self) {
         self.quit_requested.store(true, Ordering::SeqCst);
     }
 
+    /// Returns whether the user chose to quit.
     pub fn quit_requested(&self) -> bool {
         self.quit_requested.load(Ordering::SeqCst)
     }
 
+    /// Returns and clears a deferred activation request.
     pub fn take_pending_activation(&self) -> bool {
         self.pending_activation.swap(false, Ordering::SeqCst)
     }
 }
 
+/// What closing the main window does.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CloseDecision {
+    /// Hide the window and keep running in the tray or menu bar.
     HideToTray,
+    /// Let the window close and the app exit.
     Exit,
 }
 
+/// Hides to the tray only when background mode is on, the tray exists, and the user didn't
+/// choose Quit.
 pub fn decide_close(
     run_in_background: bool,
     tray_ready: bool,
@@ -52,6 +68,8 @@ pub fn decide_close(
     }
 }
 
+/// Applies the close decision to the main window. If hiding fails, the window is shown again
+/// and an error is returned instead of leaving it invisible.
 pub fn handle_close_request(
     window: &WebviewWindow,
     api: &tauri::CloseRequestApi,
@@ -73,6 +91,7 @@ pub fn handle_close_request(
     Ok(decision)
 }
 
+/// Shows, unminimizes, and focuses the main window and restores its taskbar button.
 pub fn restore_main_window(app: &tauri::AppHandle) -> Result<(), LifecycleError> {
     let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
         return Err(LifecycleError::MissingMainWindow);
@@ -86,12 +105,14 @@ pub fn restore_main_window(app: &tauri::AppHandle) -> Result<(), LifecycleError>
     Ok(())
 }
 
+/// Restores the main window, or remembers the request until the window exists.
 pub fn activate_or_defer(app: &tauri::AppHandle, state: &LifecycleState) {
     if restore_main_window(app).is_err() {
         state.pending_activation.store(true, Ordering::SeqCst);
     }
 }
 
+/// Restores the main window if a second launch asked for it earlier.
 pub fn apply_pending_activation(
     app: &tauri::AppHandle,
     state: &LifecycleState,
@@ -102,6 +123,8 @@ pub fn apply_pending_activation(
     Ok(())
 }
 
+/// Adds the tray icon with Open, Restart without widgets, and Quit items. Does nothing when
+/// the icon already exists.
 pub fn install_tray(
     app: &tauri::AppHandle,
     state: Arc<LifecycleState>,
@@ -154,6 +177,7 @@ pub fn install_tray(
     Ok(())
 }
 
+/// Reads and changes the launch-at-login registration.
 #[cfg(test)]
 pub trait AutostartBackend {
     fn is_enabled(&self) -> Result<bool, String>;
@@ -161,6 +185,7 @@ pub trait AutostartBackend {
     fn disable(&self) -> Result<(), String>;
 }
 
+/// The change `reconcile_autostart` made.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg(test)]
 pub enum AutostartChange {
@@ -169,6 +194,7 @@ pub enum AutostartChange {
     Disabled,
 }
 
+/// Enables or disables launch at login only when it differs from `desired`.
 #[cfg(test)]
 pub fn reconcile_autostart(
     desired: bool,
@@ -190,6 +216,7 @@ pub fn reconcile_autostart(
     }
 }
 
+/// Why a window, tray, or autostart change failed. Displays as a user-facing message.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LifecycleError {
     Tray,

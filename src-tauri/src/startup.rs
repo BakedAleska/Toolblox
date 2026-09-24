@@ -26,22 +26,29 @@ use crate::app_commands::Runtime;
 #[cfg(not(debug_assertions))]
 use crate::update::{HighestSeenStore, ManifestSignatureVerifier, ReleaseDecision};
 
+/// The startup phase shown by the startup screen, serialized with a `phase` tag.
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(debug_assertions, allow(dead_code))]
 #[serde(tag = "phase", rename_all = "snake_case")]
 pub enum StartupView {
+    /// Checking the signed update manifest.
     Checking,
+    /// Downloading and installing a required update.
     Installing { version: String },
+    /// The update check passed and local data is ready.
     Ready,
+    /// Startup stopped. The app stays closed until a retry succeeds.
     Failed { message: String },
 }
 
+/// Shared startup phase, guarded so only one check runs at a time.
 pub struct StartupState {
     view: Mutex<StartupView>,
     in_progress: AtomicBool,
 }
 
 impl StartupState {
+    /// Starts in the checking phase.
     pub fn new() -> Self {
         Self {
             view: Mutex::new(StartupView::Checking),
@@ -49,10 +56,12 @@ impl StartupState {
         }
     }
 
+    /// Replaces the current phase.
     fn set(&self, view: StartupView) {
         *self.view.lock().unwrap_or_else(|error| error.into_inner()) = view;
     }
 
+    /// Returns the current phase.
     pub fn view(&self) -> StartupView {
         self.view
             .lock()
@@ -61,6 +70,7 @@ impl StartupState {
     }
 }
 
+/// Waits until startup reaches the ready phase.
 pub async fn wait_until_ready(app: &AppHandle) {
     loop {
         if matches!(app.state::<StartupState>().view(), StartupView::Ready) {
@@ -70,6 +80,7 @@ pub async fn wait_until_ready(app: &AppHandle) {
     }
 }
 
+/// Verifies detached manifest signatures against the compiled-in public key.
 #[cfg(not(debug_assertions))]
 struct Ed25519Verifier {
     public_key: VerifyingKey,
@@ -77,6 +88,7 @@ struct Ed25519Verifier {
 
 #[cfg(not(debug_assertions))]
 impl Ed25519Verifier {
+    /// Decodes a base64 raw 32-byte Ed25519 public key.
     fn new(encoded: &str) -> Result<Self, String> {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(encoded.trim())
@@ -107,6 +119,7 @@ impl ManifestSignatureVerifier for Ed25519Verifier {
     }
 }
 
+/// Stores the highest verified release version, for rollback protection.
 #[cfg(not(debug_assertions))]
 struct FileHighestSeen(PathBuf);
 
@@ -139,6 +152,7 @@ impl HighestSeenStore for FileHighestSeen {
     }
 }
 
+/// Runs the startup update check unless one is already running, recording the outcome.
 pub async fn run(app: AppHandle) {
     let state = app.state::<StartupState>();
     if state.in_progress.swap(true, Ordering::SeqCst) {
@@ -152,6 +166,11 @@ pub async fn run(app: AppHandle) {
     state.in_progress.store(false, Ordering::SeqCst);
 }
 
+/// Downloads and verifies the signed manifest, then either opens the app or installs the
+/// required update and restarts.
+///
+/// Release builds need the manifest URL and public keys at compile time. The installer must match
+/// the manifest's version, URL, updater signature, and SHA-256. Debug builds skip the check.
 async fn run_inner(app: &AppHandle) -> Result<(), String> {
     #[cfg(debug_assertions)]
     {
@@ -281,6 +300,7 @@ async fn run_inner(app: &AppHandle) -> Result<(), String> {
     }
 }
 
+/// Imports legacy data once, then creates the widget folder.
 fn prepare_local_data(runtime: &crate::app_commands::Runtime) -> Result<(), String> {
     let data_root = runtime.storage.root();
     let migration_marker = data_root.join(".legacy-migration-complete");
@@ -304,16 +324,19 @@ fn prepare_local_data(runtime: &crate::app_commands::Runtime) -> Result<(), Stri
         .map_err(|_| "Toolblox couldn't create the widget folder. Is it writable?".to_string())
 }
 
+/// Returns the current startup phase to the startup screen.
 #[tauri::command]
 pub fn startup_status(state: tauri::State<'_, StartupState>) -> StartupView {
     state.view()
 }
 
+/// Runs the startup check again after a failure.
 #[tauri::command]
 pub async fn retry_startup_update(app: AppHandle) {
     run(app).await;
 }
 
+/// Exits the app from the startup screen.
 #[tauri::command]
 pub fn quit_startup(app: AppHandle) {
     app.exit(0);

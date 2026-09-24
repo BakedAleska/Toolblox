@@ -9,18 +9,24 @@ use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use zeroize::Zeroizing;
 
+/// Window label of the Roblox sign-in webview.
 pub const LOGIN_WINDOW_LABEL: &str = "roblox-login";
+/// Page the sign-in webview opens.
 pub const LOGIN_URL: &str = "https://www.roblox.com/login";
+/// Name of the Roblox session cookie.
 const SECURITY_COOKIE_NAME: &str = ".ROBLOSECURITY";
 
+/// A session cookie read from the sign-in webview. Its memory is zeroed on drop.
 pub struct RobloxCookie(Zeroizing<String>);
 
 impl RobloxCookie {
+    /// Returns the raw cookie value. Callers must not log or return it to JavaScript.
     pub fn expose_secret(&self) -> &str {
         self.0.as_str()
     }
 }
 
+/// The Roblox user a session belongs to.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountIdentity {
@@ -30,15 +36,19 @@ pub struct AccountIdentity {
     pub avatar_url: Option<String>,
 }
 
+/// Progress of a sign-in window.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LoginPhase {
+    /// Waiting for the user to sign in.
     Waiting,
+    /// Reading the session cookie.
     Checking,
     Complete,
     Cancelled,
     Failed,
 }
 
+/// Why a sign-in failed. Displays as a user-facing message.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LoginError {
     AlreadyOpen,
@@ -70,6 +80,7 @@ impl fmt::Display for LoginError {
 
 impl std::error::Error for LoginError {}
 
+/// The outcome of a sign-in, delivered once.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LoginNotice {
     Complete(AccountIdentity),
@@ -77,14 +88,20 @@ pub enum LoginNotice {
     Cancelled,
 }
 
+/// Checks a session with Roblox and returns its user.
 type ValidateSession =
     dyn Fn(&RobloxCookie) -> Result<AccountIdentity, LoginError> + Send + Sync + 'static;
+/// Stores a validated session.
 type StoreSession =
     dyn Fn(&AccountIdentity, &RobloxCookie) -> Result<(), LoginError> + Send + Sync + 'static;
+/// Receives the sign-in outcome.
 type Notify = dyn Fn(LoginNotice) + Send + Sync + 'static;
 
+/// State shared by one sign-in window's callbacks.
 struct LoginRuntime {
+    /// Whether a cookie check is running.
     in_flight: AtomicBool,
+    /// Set once the window closes or the sign-in fails, stopping further checks.
     cancelled: AtomicBool,
     phase: Mutex<LoginPhase>,
     validate: Arc<ValidateSession>,
@@ -93,11 +110,17 @@ struct LoginRuntime {
 }
 
 impl LoginRuntime {
+    /// Replaces the current phase.
     fn set_phase(&self, phase: LoginPhase) {
         *self.phase.lock().unwrap_or_else(|error| error.into_inner()) = phase;
     }
 }
 
+/// Opens an isolated, incognito Roblox sign-in window.
+///
+/// After each page load the window's cookies are polled for the session cookie. When found, the
+/// session is validated, the window's browsing data is cleared, the session is stored, and `notify`
+/// receives the outcome. Navigation is limited to HTTPS Roblox hosts, and new windows are blocked.
 pub fn open_roblox_login<V, S, N>(
     app: &tauri::AppHandle,
     validate: V,
@@ -159,6 +182,7 @@ where
     Ok(())
 }
 
+/// Allows navigation only to `roblox.com` and its subdomains over HTTPS.
 pub fn is_allowed_roblox_navigation(url: &tauri::Url) -> bool {
     url.scheme() == "https"
         && url.host_str().is_some_and(|host| {
@@ -167,6 +191,7 @@ pub fn is_allowed_roblox_navigation(url: &tauri::Url) -> bool {
         })
 }
 
+/// Matches the secure, HTTP-only `.ROBLOSECURITY` cookie on a Roblox domain.
 pub fn is_roblox_security_cookie(
     name: &str,
     domain: Option<&str>,
@@ -182,6 +207,8 @@ pub fn is_roblox_security_cookie(
     })
 }
 
+/// Checks for the session cookie on a background thread, retrying every second until it's
+/// found, the window closes, or the sign-in fails.
 fn schedule_cookie_check(window: WebviewWindow, runtime: Arc<LoginRuntime>) {
     if runtime.cancelled.load(Ordering::SeqCst) || runtime.in_flight.swap(true, Ordering::SeqCst) {
         return;
@@ -205,6 +232,7 @@ fn schedule_cookie_check(window: WebviewWindow, runtime: Arc<LoginRuntime>) {
     });
 }
 
+/// Reads the session cookie from the window, if it's set.
 fn read_security_cookie(window: &WebviewWindow) -> Result<Option<RobloxCookie>, LoginError> {
     let cookies = window.cookies().map_err(|_| LoginError::CookieRead)?;
     Ok(cookies.into_iter().find_map(|cookie| {
@@ -218,6 +246,8 @@ fn read_security_cookie(window: &WebviewWindow) -> Result<Option<RobloxCookie>, 
     }))
 }
 
+/// Validates and stores the session, clearing browsing data before storing it and closing the
+/// window afterwards.
 fn finish_login(window: &WebviewWindow, runtime: &LoginRuntime, cookie: RobloxCookie) {
     if runtime.cancelled.load(Ordering::SeqCst) {
         runtime.in_flight.store(false, Ordering::SeqCst);
@@ -252,6 +282,7 @@ fn finish_login(window: &WebviewWindow, runtime: &LoginRuntime, cookie: RobloxCo
     (runtime.notify)(LoginNotice::Complete(identity));
 }
 
+/// Marks the sign-in failed, clears browsing data, closes the window, and reports the error.
 fn fail_login(window: &WebviewWindow, runtime: &LoginRuntime, error: LoginError) {
     runtime.set_phase(LoginPhase::Failed);
     runtime.cancelled.store(true, Ordering::SeqCst);

@@ -14,10 +14,14 @@ use url::Url;
 use uuid::Uuid;
 use zip::ZipArchive;
 
+/// Largest widget package download, in bytes.
 const MAX_ARCHIVE_BYTES: usize = 20 * 1024 * 1024;
+/// Largest total size of a package's extracted files, in bytes.
 const MAX_EXPANDED_BYTES: u64 = 80 * 1024 * 1024;
+/// Most entries a package may contain.
 const MAX_FILES: usize = 2_000;
 
+/// A widget's `widget.json`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetManifest {
@@ -31,8 +35,10 @@ pub struct WidgetManifest {
     /// ES module loaded into the app window with full access to the host API.
     #[serde(default)]
     pub module: Option<String>,
+    /// Sandboxed settings page, which must be `settings.html`.
     #[serde(default)]
     pub settings_entry: Option<String>,
+    /// Sandboxed dashboard tile page, which must be `dashboard.html`.
     #[serde(default)]
     pub dashboard_entry: Option<String>,
     #[serde(default)]
@@ -41,12 +47,15 @@ pub struct WidgetManifest {
     pub icon: Option<String>,
     #[serde(default)]
     pub permissions: Vec<WidgetPermission>,
+    /// Bare HTTPS origins the widget may fetch. Requires `network.fetch`.
     #[serde(default)]
     pub network_origins: Vec<String>,
+    /// Executables under `optional-bin/` the widget may start. Requires `process.spawn`.
     #[serde(default)]
     pub processes: Vec<WidgetProcess>,
 }
 
+/// An action a widget may be granted, named as in manifests.
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum WidgetPermission {
     #[serde(rename = "accounts.read.basic")]
@@ -78,23 +87,29 @@ impl WidgetPermission {
     ];
 }
 
+/// A process a widget declares.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetProcess {
     pub id: String,
+    /// Path under `optional-bin/` in the package.
     pub executable: String,
+    /// The only arguments the process may be started with.
     #[serde(default)]
     pub allowed_arguments: Vec<String>,
 }
 
+/// The signed list of reviewed widgets.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Catalogue {
     pub schema_version: u32,
+    /// Unix time the catalogue was generated.
     pub generated_at: i64,
     pub entries: Vec<CatalogueEntry>,
 }
 
+/// A widget listed in the catalogue.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogueEntry {
@@ -102,23 +117,29 @@ pub struct CatalogueEntry {
     pub name: String,
     pub version: String,
     pub description: String,
+    /// HTTPS URL of the package ZIP.
     pub archive_url: String,
+    /// Hex SHA-256 the downloaded package must match.
     pub sha256: String,
+    /// Permissions the package's manifest must declare exactly.
     #[serde(default)]
     pub permissions: Vec<WidgetPermission>,
     #[serde(default)]
     pub icon_url: Option<String>,
 }
 
+/// A widget installed on this device.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstalledWidget {
     pub id: String,
     pub version: String,
+    /// SHA-256 of the package it was installed from.
     pub sha256: String,
     pub manifest: WidgetManifest,
 }
 
+/// Install record written to `.installed.json` beside the manifest.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct InstalledMetadata {
@@ -126,10 +147,13 @@ struct InstalledMetadata {
     id: String,
     version: String,
     sha256: String,
+    /// SHA-256 of `widget.json` at install time, to detect later edits.
     manifest_sha256: String,
 }
 
 impl WidgetManifest {
+    /// Checks the schema version, ID, name, SemVer version, fixed entry file names, permissions,
+    /// network origins, and processes.
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1 {
             return Err("This widget uses an unsupported manifest version.".into());
@@ -203,6 +227,8 @@ impl WidgetManifest {
 }
 
 impl Catalogue {
+    /// Verifies the catalogue signature, then parses it and validates each entry's ID, version,
+    /// checksum, permissions, and HTTPS archive URL.
     pub fn parse_verified(
         bytes: &[u8],
         signature_base64: &str,
@@ -246,6 +272,11 @@ impl Catalogue {
     }
 }
 
+/// Installs a widget package, replacing any installed version only after every check passes.
+///
+/// Checks the size and SHA-256, extracts into a staging folder with path, count, size, and
+/// symlink limits, requires the manifest's ID, version, and permissions to match the catalogue,
+/// and requires every declared file to exist. The previous version is restored if the swap fails.
 pub fn install_archive(
     archive: &[u8],
     expected_id: &str,
@@ -323,6 +354,8 @@ pub fn install_archive(
     result
 }
 
+/// Reads every installed widget, sorted by ID. Hidden folders, such as staging folders, are
+/// skipped, and each unreadable widget yields an error.
 pub fn discover_installed(widgets_root: &Path) -> Vec<Result<InstalledWidget, String>> {
     let Ok(entries) = fs::read_dir(widgets_root) else {
         return Vec::new();
@@ -349,6 +382,7 @@ pub fn discover_installed(widgets_root: &Path) -> Vec<Result<InstalledWidget, St
     found
 }
 
+/// Removes an installed widget's folder. A missing widget succeeds.
 pub fn uninstall_widget(widget_id: &str, widgets_root: &Path) -> Result<(), String> {
     validate_widget_id(widget_id)?;
     let target = widgets_root.join(widget_id);
@@ -359,6 +393,8 @@ pub fn uninstall_widget(widget_id: &str, widgets_root: &Path) -> Result<(), Stri
         .map_err(|_| "Couldn't remove the widget. Is a widget process still running?".to_string())
 }
 
+/// Extracts a ZIP into `staging`, rejecting unsafe or duplicate paths, symlinks, too many
+/// entries, and oversized content.
 fn extract_archive(archive: &[u8], staging: &Path) -> Result<(), String> {
     let mut zip = ZipArchive::new(Cursor::new(archive))
         .map_err(|_| "The widget package isn't a valid ZIP archive.".to_string())?;
@@ -419,6 +455,7 @@ fn extract_archive(archive: &[u8], staging: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Reads and validates `widget.json`, which may be at most 128 KB.
 fn read_manifest(root: &Path) -> Result<WidgetManifest, String> {
     let bytes = fs::read(root.join("widget.json"))
         .map_err(|_| "The widget package doesn't contain widget.json.".to_string())?;
@@ -431,6 +468,8 @@ fn read_manifest(root: &Path) -> Result<WidgetManifest, String> {
     Ok(manifest)
 }
 
+/// Reads an installed widget and checks its install record, including that `widget.json`
+/// hasn't changed since install. Debug builds accept widgets without a record.
 fn read_installed(root: &Path) -> Result<InstalledWidget, String> {
     let manifest = read_manifest(root)?;
     let metadata_bytes = match fs::read(root.join(".installed.json")) {
@@ -479,6 +518,7 @@ fn read_installed(root: &Path) -> Result<InstalledWidget, String> {
     })
 }
 
+/// Writes `.installed.json` for a staged widget.
 fn write_installed_metadata(
     root: &Path,
     manifest: &WidgetManifest,
@@ -504,6 +544,8 @@ fn write_installed_metadata(
         .map_err(|_| "Couldn't save widget install metadata.".to_string())
 }
 
+/// Moves `staging` to `destination`, keeping the old folder in `backup` and restoring it if
+/// the move fails.
 fn replace_atomically(staging: &Path, destination: &Path, backup: &Path) -> Result<(), String> {
     if destination.exists() {
         fs::rename(destination, backup)
@@ -518,6 +560,7 @@ fn replace_atomically(staging: &Path, destination: &Path, backup: &Path) -> Resu
     Ok(())
 }
 
+/// Verifies a base64 Ed25519 signature with a base64 raw 32-byte public key.
 fn verify_signature(
     bytes: &[u8],
     signature_base64: &str,
@@ -541,6 +584,7 @@ fn verify_signature(
         .map_err(|_| "The widget catalogue signature couldn't be verified.".to_string())
 }
 
+/// Accepts IDs of 1 to 64 lowercase letters, digits, and underscores.
 fn validate_widget_id(value: &str) -> Result<(), String> {
     if value.is_empty()
         || value.len() > 64
@@ -555,6 +599,7 @@ fn validate_widget_id(value: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Accepts IDs of 1 to 64 ASCII letters, digits, `_`, and `-`.
 fn validate_process_id(value: &str) -> Result<(), String> {
     if value.is_empty()
         || value.len() > 64
@@ -567,6 +612,7 @@ fn validate_process_id(value: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Requires a non-empty relative path that doesn't leave the package.
 fn validate_relative_file(value: &str, label: &str) -> Result<(), String> {
     let path = Path::new(value);
     if value.is_empty()
@@ -583,6 +629,7 @@ fn validate_relative_file(value: &str, label: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Rejects archive paths with parent, root, or drive components.
 fn validate_archive_path(path: &Path) -> Result<(), String> {
     if path.components().any(|part| {
         matches!(
@@ -595,6 +642,8 @@ fn validate_archive_path(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Accepts bare HTTPS origins, such as `https://example.com`, without a path, query, or
+/// credentials.
 fn validate_https_origin(value: &str) -> Result<(), String> {
     let url = Url::parse(value).map_err(|_| "A widget network origin isn't valid.".to_string())?;
     if url.scheme() != "https"
@@ -610,6 +659,7 @@ fn validate_https_origin(value: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Requires 64 hex characters.
 fn validate_sha256(value: &str) -> Result<(), String> {
     if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err("A widget checksum isn't a valid SHA-256 value.".into());

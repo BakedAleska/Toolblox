@@ -12,22 +12,36 @@ use serde_json::json;
 use crate::credentials::Secret;
 use crate::models::PresenceState;
 
+/// Returns the user a session belongs to.
 const AUTH_URL: &str = "https://users.roblox.com/v1/users/authenticated";
+/// Public user profiles, by ID.
 const USERS_URL: &str = "https://users.roblox.com/v1/users";
+/// Avatar headshot images.
 const THUMBNAIL_URL: &str = "https://thumbnails.roblox.com/v1/users/avatar-headshot";
+/// User presence. Requires a signed-in session.
 const PRESENCE_URL: &str = "https://presence.roblox.com/v1/presence/users";
+/// Game details, by universe ID.
 const GAMES_URL: &str = "https://games.roblox.com/v1/games";
+/// The universe a place belongs to.
 const PLACE_UNIVERSE_URL: &str = "https://apis.roblox.com/universes/v1/places";
+/// Issues one-time authentication tickets for launching the Roblox client.
 const TICKET_URL: &str = "https://auth.roblox.com/v1/authentication-ticket";
+/// Roblox place launcher, passed to the client in the launch URI.
 const PLACE_LAUNCHER_URL: &str = "https://assetgame.roblox.com/game/PlaceLauncher.ashx";
 
+/// Keeps browser tracker IDs distinct for joins in the same instant.
 static TRACKER_SEQUENCE: AtomicU32 = AtomicU32::new(0);
 
+/// Why a Roblox request failed. Displays as a user-facing message.
 #[derive(Debug)]
 pub enum RobloxError {
+    /// The place ID or game link isn't valid.
     InvalidPlace,
+    /// Roblox answered with something unexpected.
     InvalidResponse,
+    /// Roblox couldn't be reached.
     Network,
+    /// Roblox refused the request with this HTTP status.
     Rejected(u16),
 }
 
@@ -56,6 +70,7 @@ impl fmt::Display for RobloxError {
 
 impl std::error::Error for RobloxError {}
 
+/// A Roblox user's public profile.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Profile {
     pub id: u64,
@@ -64,6 +79,7 @@ pub struct Profile {
     pub avatar_url: Option<String>,
 }
 
+/// A user from the users API.
 #[derive(Deserialize)]
 struct UserResponse {
     id: u64,
@@ -72,24 +88,28 @@ struct UserResponse {
     display_name: Option<String>,
 }
 
+/// The thumbnails API response.
 #[derive(Deserialize)]
 struct ThumbnailEnvelope {
     #[serde(default)]
     data: Vec<ThumbnailResponse>,
 }
 
+/// One avatar image.
 #[derive(Deserialize)]
 struct ThumbnailResponse {
     #[serde(rename = "imageUrl")]
     image_url: Option<String>,
 }
 
+/// The presence API response.
 #[derive(Deserialize)]
 struct PresenceEnvelope {
     #[serde(rename = "userPresences", default)]
     user_presences: Vec<PresenceResponse>,
 }
 
+/// One user's presence.
 #[derive(Deserialize)]
 struct PresenceResponse {
     #[serde(rename = "userId")]
@@ -111,33 +131,39 @@ pub struct PresenceDetail {
     pub state: PresenceState,
     pub place_id: Option<u64>,
     pub universe_id: Option<u64>,
+    /// Game name reported with the presence, trimmed to 100 characters.
     pub location: Option<String>,
 }
 
 impl PresenceDetail {
+    /// Whether the user is in a game or in Roblox Studio.
     pub fn in_game(&self) -> bool {
         matches!(self.state, PresenceState::InGame | PresenceState::InStudio)
     }
 }
 
+/// The place universe API response.
 #[derive(Deserialize)]
 struct UniverseResponse {
     #[serde(rename = "universeId")]
     universe_id: Option<u64>,
 }
 
+/// The games API response.
 #[derive(Deserialize)]
 struct GamesEnvelope {
     #[serde(default)]
     data: Vec<GameResponse>,
 }
 
+/// One game's details.
 #[derive(Deserialize)]
 struct GameResponse {
     id: u64,
     name: String,
 }
 
+/// Extracts a place ID from digits or an `https://www.roblox.com/games/<id>/â€¦` link.
 pub fn parse_place_id(input: &str) -> Result<String, RobloxError> {
     let input = input.trim();
     if !input.is_empty() && input.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -158,6 +184,7 @@ pub fn parse_place_id(input: &str) -> Result<String, RobloxError> {
     Ok(id.to_owned())
 }
 
+/// Returns the profile of the user a session belongs to, validating the session.
 pub async fn authenticated_profile(
     client: &reqwest::Client,
     session: &Secret,
@@ -178,6 +205,7 @@ pub async fn authenticated_profile(
     profile_with_avatar(client, user).await
 }
 
+/// Returns a user's public profile, rejecting a response for a different user.
 pub async fn public_profile(
     client: &reqwest::Client,
     user_id: u64,
@@ -200,6 +228,7 @@ pub async fn public_profile(
     profile_with_avatar(client, user).await
 }
 
+/// Adds the user's avatar headshot URL. A missing avatar isn't an error.
 async fn profile_with_avatar(
     client: &reqwest::Client,
     user: UserResponse,
@@ -234,6 +263,7 @@ async fn profile_with_avatar(
     })
 }
 
+/// Returns each requested user's presence state.
 pub async fn fetch_presence(
     client: &reqwest::Client,
     session: &Secret,
@@ -246,6 +276,8 @@ pub async fn fetch_presence(
         .collect())
 }
 
+/// Returns each requested user's presence and game, retrying once with the CSRF token Roblox
+/// returns on the first request.
 pub async fn fetch_presence_details(
     client: &reqwest::Client,
     session: &Secret,
@@ -285,6 +317,8 @@ pub async fn fetch_presence_details(
     parse_presence_response(&body, user_ids)
 }
 
+/// Maps each requested user to a presence. Users missing from the response are `Unknown`, and
+/// game details are kept only for users in game.
 fn parse_presence_response(
     body: &str,
     requested: &[u64],
@@ -382,6 +416,7 @@ pub async fn fetch_place_universe(
     Ok(universe.universe_id.filter(|id| *id > 0))
 }
 
+/// Keeps names for requested universes only.
 fn parse_games_response(body: &str, requested: &BTreeSet<u64>) -> BTreeMap<u64, String> {
     serde_json::from_str::<GamesEnvelope>(body)
         .map(|envelope| envelope.data)
@@ -392,6 +427,10 @@ fn parse_games_response(body: &str, requested: &BTreeSet<u64>) -> BTreeMap<u64, 
         .collect()
 }
 
+/// Builds a `roblox-player:` URI that joins the place as the session's user.
+///
+/// Requests an authentication ticket, first obtaining a CSRF token. The URI contains the ticket,
+/// so it must not be logged.
 pub async fn build_join_uri(
     client: &reqwest::Client,
     session: &Secret,
@@ -436,6 +475,7 @@ pub async fn build_join_uri(
     Ok(join_uri(&place_id, ticket))
 }
 
+/// Builds the session cookie header, marked sensitive so it isn't logged.
 fn cookie_header(session: &Secret) -> Result<HeaderValue, RobloxError> {
     let mut value = HeaderValue::from_str(&format!(".ROBLOSECURITY={}", session.expose()))
         .map_err(|_| RobloxError::InvalidResponse)?;
@@ -443,6 +483,7 @@ fn cookie_header(session: &Secret) -> Result<HeaderValue, RobloxError> {
     Ok(value)
 }
 
+/// Formats the launch URI for a ticket and place.
 fn join_uri(place_id: &str, ticket: &str) -> String {
     let elapsed = SystemTime::now()
         .duration_since(UNIX_EPOCH)

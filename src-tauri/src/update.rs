@@ -8,66 +8,90 @@ use std::fmt;
 use semver::Version;
 use serde::Deserialize;
 
+/// Manifest schema version this build understands.
 pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
+/// How far in the future a manifest's `publishedAt` may be, to tolerate slow clocks.
 pub const MAX_CLOCK_SKEW_SECONDS: u64 = 300;
+/// Longest allowed time between a manifest's `publishedAt` and `expiresAt`.
 pub const MAX_MANIFEST_LIFETIME_SECONDS: u64 = 7 * 24 * 60 * 60;
 
+/// The signed release manifest. Unknown fields are rejected.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReleaseManifest {
     pub schema_version: u32,
     pub channel: String,
     pub version: Version,
+    /// Unix time the manifest was signed.
     pub published_at: u64,
+    /// Unix time after which the manifest is refused.
     pub expires_at: u64,
+    /// Installers keyed by Tauri updater target, such as `windows-x86_64`.
     pub platforms: BTreeMap<String, UpdateArtifact>,
 }
 
+/// One platform's installer.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdateArtifact {
+    /// HTTPS download URL.
     pub url: String,
+    /// Lowercase hex SHA-256 of the installer.
     pub sha256: String,
+    /// Tauri updater signature of the installer.
     pub signature: String,
 }
 
+/// A manifest whose signature has been checked. Only `verify_and_parse` creates one.
 pub struct VerifiedManifest(ReleaseManifest);
 
 impl VerifiedManifest {
+    /// Returns the verified manifest.
     pub fn manifest(&self) -> &ReleaseManifest {
         &self.0
     }
 }
 
+/// Checks a detached manifest signature.
 pub trait ManifestSignatureVerifier {
+    /// Fails unless `detached_signature` signs exactly `manifest_bytes`.
     fn verify(&self, manifest_bytes: &[u8], detached_signature: &[u8]) -> Result<(), String>;
 }
 
+/// Persists the highest verified release version.
 pub trait HighestSeenStore {
+    /// Returns the stored version, or `None` when none is stored.
     fn load(&self) -> Result<Option<Version>, String>;
+    /// Replaces the stored version.
     fn store(&self, version: &Version) -> Result<(), String>;
 }
 
+/// The installed app's state, used to judge a manifest.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReleaseContext<'a> {
     pub installed: &'a Version,
     pub channel: &'a str,
+    /// Tauri updater target of this build.
     pub target: &'a str,
+    /// Current Unix time.
     pub now: u64,
+    /// Highest version verified before, which the manifest may not go below.
     pub highest_seen: Option<&'a Version>,
 }
 
+/// What a valid manifest means for this install.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ReleaseDecision {
-    Current {
-        version: Version,
-    },
+    /// The installed version is current; the app may open.
+    Current { version: Version },
+    /// A newer version must be installed before the app opens.
     UpdateRequired {
         version: Version,
         artifact: UpdateArtifact,
     },
 }
 
+/// Why a manifest was refused. Displays as a user-facing message.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ReleaseError {
     BadSignature,
@@ -120,6 +144,7 @@ impl fmt::Display for ReleaseError {
 
 impl std::error::Error for ReleaseError {}
 
+/// Verifies the signature before parsing, so unsigned bytes are never interpreted.
 pub fn verify_and_parse(
     manifest_bytes: &[u8],
     detached_signature: &[u8],
@@ -133,6 +158,10 @@ pub fn verify_and_parse(
     Ok(VerifiedManifest(manifest))
 }
 
+/// Judges a verified manifest: checks the schema, channel, validity window, lifetime, rollback
+/// floor, and this platform's artifact, then compares versions.
+///
+/// Only an exact version match admits the app. An older manifest is a rollback error.
 pub fn decide_release(
     verified: &VerifiedManifest,
     context: &ReleaseContext<'_>,
@@ -195,6 +224,8 @@ pub fn decide_release(
     })
 }
 
+/// Runs `decide_release` with the stored highest version and records a newer verified version,
+/// even when an update is then required.
 pub fn decide_and_record(
     verified: &VerifiedManifest,
     installed: &Version,
@@ -226,6 +257,7 @@ pub fn decide_and_record(
     Ok(decision)
 }
 
+/// Requires an HTTPS URL, a 64-character hex SHA-256, and a non-empty signature.
 fn validate_artifact(artifact: &UpdateArtifact) -> Result<(), ReleaseError> {
     if !artifact.url.starts_with("https://") {
         return Err(ReleaseError::InvalidManifest(

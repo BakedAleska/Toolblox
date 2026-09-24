@@ -16,6 +16,7 @@ use crate::credentials::{CredentialError, CredentialStore, Secret};
 use crate::models::{Settings, StoredAccount};
 use crate::storage::{Storage, StorageError};
 
+/// What a legacy import copied.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct MigrationSummary {
     pub settings_imported: bool,
@@ -23,6 +24,7 @@ pub struct MigrationSummary {
     pub sessions_imported: usize,
 }
 
+/// Why a legacy import failed. Sessions stored by a failed import are rolled back.
 #[derive(Debug)]
 pub enum MigrationError {
     Credentials(CredentialError),
@@ -83,6 +85,7 @@ impl From<StorageError> for MigrationError {
     }
 }
 
+/// An account as the legacy Flet app saved it, including its protected session.
 #[derive(Deserialize)]
 struct LegacyAccount {
     id: u64,
@@ -100,12 +103,18 @@ struct LegacyAccount {
     play_count: u64,
     #[serde(default)]
     widget_data: BTreeMap<String, Value>,
+    /// The session. DPAPI-protected on Windows and plaintext on macOS, where the Keychain is checked first.
     #[serde(default)]
     security_cookie: Option<String>,
+    /// Unknown fields, preserved on the imported account.
     #[serde(flatten)]
     extra: Map<String, Value>,
 }
 
+/// Imports legacy settings, accounts, and sessions into current storage.
+///
+/// Sessions move into the platform credential store and never reach the new JSON files. If saving
+/// the accounts fails, every session written by this import is restored or removed.
 pub fn migrate_legacy(
     legacy_root: &Path,
     storage: &Storage,
@@ -114,6 +123,7 @@ pub fn migrate_legacy(
     migrate_with(legacy_root, storage, credentials, resolve_legacy_secret)
 }
 
+/// Runs the import with an injectable session resolver, for tests.
 fn migrate_with(
     legacy_root: &Path,
     storage: &Storage,
@@ -176,6 +186,7 @@ fn migrate_with(
     Ok(summary)
 }
 
+/// Restores the previous session for each account written by a failed import, newest first.
 fn rollback_credentials(credentials: &dyn CredentialStore, stored: Vec<(u64, Option<Secret>)>) {
     for (account_id, previous) in stored.into_iter().rev() {
         if let Some(secret) = previous {
@@ -186,6 +197,7 @@ fn rollback_credentials(credentials: &dyn CredentialStore, stored: Vec<(u64, Opt
     }
 }
 
+/// Decrypts the account's DPAPI-protected session, if it has one.
 #[cfg(windows)]
 fn resolve_legacy_secret(
     _account_id: u64,
@@ -197,6 +209,7 @@ fn resolve_legacy_secret(
         .transpose()
 }
 
+/// Reads the account's session from the Keychain, falling back to a plaintext legacy value.
 #[cfg(target_os = "macos")]
 fn resolve_legacy_secret(
     account_id: u64,
@@ -211,6 +224,7 @@ fn resolve_legacy_secret(
     }
 }
 
+/// Fails when the account has a session, because this platform has no secure storage.
 #[cfg(not(any(windows, target_os = "macos")))]
 fn resolve_legacy_secret(
     _account_id: u64,

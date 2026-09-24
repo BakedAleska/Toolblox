@@ -12,5 +12,6 @@ authentication tickets, updater keys, or unrestricted filesystem and process acc
 tests when a parser, migration, persistence path, updater decision, archive boundary, or permission
 rule changes.
 
-Follow the verification commands in the README. Windows and macOS must remain supported even when
+Document every Rust function, type, and constant with a plain `///` comment; the API docs are
+generated from them. Follow the verification commands in the README. Windows and macOS must remain supported even when
 a change is developed on only one platform.

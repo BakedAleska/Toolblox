@@ -51,19 +51,19 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
-      - id: started
-        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
       - id: deploy
         uses: actions/deploy-pages@v4
-      # Deletes every other deployment once this run's deployment reports success. Nothing is
-      # deleted if it can't be confirmed, so the deployment serving the site is never removed.
+      # GitHub creates this job's deployment when the job starts and links its statuses to the
+      # run. Every other deployment is deleted once that one reports success. Nothing is deleted
+      # if it can't be confirmed, so the deployment serving the site is never removed.
       - name: Remove older deployments
         run: |
           api="repos/$GITHUB_REPOSITORY/deployments"
           current=""
           for attempt in $(seq 1 30); do
-            for id in $(gh api "$api?environment=github-pages&per_page=20" --jq ".[] | select(.created_at >= \"$STARTED\") | .id"); do
-              if [ "$(gh api "$api/$id/statuses?per_page=1" --jq '.[0].state // ""')" = "success" ]; then
+            for id in $(gh api "$api?environment=github-pages&per_page=20" --jq '.[].id'); do
+              status=$(gh api "$api/$id/statuses?per_page=1" --jq '.[0] | .state + " " + .log_url')
+              if [[ "$status" == "success "*"/actions/runs/$GITHUB_RUN_ID/"* ]]; then
                 current=$id
                 break 2
               fi
@@ -82,7 +82,6 @@ jobs:
           echo "Kept deployment $current."
         env:
           GH_TOKEN: ${{ github.token }}
-          STARTED: ${{ steps.started.outputs.at }}
       # GitHub disables scheduled workflows after 60 days without repository activity, which
       # would let the manifest expire. Re-enabling through the API resets that timer.
       - name: Keep the schedule enabled

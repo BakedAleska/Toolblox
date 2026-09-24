@@ -18,7 +18,7 @@ pub fn clear_new_roblox_instances(
     #[cfg(not(windows))]
     {
         let _ = (helper, cleared);
-        return Ok(());
+        Ok(())
     }
     #[cfg(windows)]
     {

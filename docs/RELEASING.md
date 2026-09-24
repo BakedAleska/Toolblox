@@ -21,13 +21,24 @@ Use Conventional Commits so the notes stay accurate. `scripts/set-version.mjs` a
 Release builds are fail-closed. On every launch they download a signed update manifest and refuse
 to open if it's missing, invalid, or expired. Debug builds skip this check.
 
-The Pages workflow (`.github/workflows/pages.yml`) re-signs the manifest twice a day, after every
+The Pages workflow (`.github/workflows/pages.yml`) re-signs the manifest daily, after every
 release, and on demand. Each manifest is valid for seven days. The workflow re-enables itself on
 every run, because GitHub disables scheduled workflows after 60 days without repository activity.
 GitHub notifies the account that last changed the schedule when a scheduled run fails.
 
 If the manifest ever expires, run **Actions → Pages → Run workflow**. Installed apps open again
 on their next launch.
+
+## Pages deployments
+
+`pages.yml` is the only workflow that deploys GitHub Pages. The Release and Docs workflows call
+it instead of deploying themselves, and only `main` may deploy to the `github-pages` environment.
+Deploys run one at a time. After each one, every deployment except the newest successful one is
+deleted, so the repository keeps a single deployment.
+
+The site contains the download page from `site/`, the update manifest and widget catalogue, and
+the API docs under `/docs/`. The Docs workflow regenerates the API docs with rustdoc whenever Rust
+code changes and replaces the `docs` branch with a single commit of the output.
 
 ## Endpoints and keys
 

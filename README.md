@@ -76,7 +76,9 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [docs/RELEASING.md](docs/RELEASING.md) for releases, and
-[docs/WIDGETS.md](docs/WIDGETS.md) for the widget contract.
+The [API docs](https://bakedaleska.github.io/Toolblox/docs/) are generated from the Rust doc
+comments on every change. See [CONTRIBUTING.md](CONTRIBUTING.md),
+[docs/RELEASING.md](docs/RELEASING.md) for releases, and [docs/WIDGETS.md](docs/WIDGETS.md) for the
+widget contract.
 
 Toolblox is available under the [MIT License](LICENSE).

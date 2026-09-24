@@ -13,6 +13,7 @@ on:
 permissions:
   actions: write
   contents: read
+  deployments: write
   pages: write
   id-token: write
 
@@ -43,6 +44,16 @@ jobs:
         uses: actions/deploy-pages@v4
       # GitHub disables scheduled workflows after 60 days without repository activity, which
       # would let the manifest expire. Re-enabling through the API resets that timer.
+      - name: Remove older deployments
+        run: |
+          current=$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=github-pages&per_page=1" --jq '.[0].id')
+          for id in $(gh api --paginate "repos/$GITHUB_REPOSITORY/deployments?environment=github-pages&per_page=100" --jq '.[].id'); do
+            [ "$id" = "$current" ] && continue
+            gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" -f state=inactive > /dev/null
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/deployments/$id" > /dev/null
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Keep the schedule enabled
         run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/pages.yml/enable"
         env:

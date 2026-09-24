@@ -1,12 +1,14 @@
 name: Pages
 
-# Installed apps refuse to open once the signed update manifest expires (seven days), so this
-# re-signs it twice a day and whenever a release is published.
+# The only workflow that deploys GitHub Pages. It publishes the download page, the signed update
+# manifest and widget catalogue, and the API docs from the docs branch under /docs/.
+#
+# Installed apps refuse to open once the manifest expires (seven days), so it's re-signed daily.
+# Releases and docs builds call this workflow instead of deploying themselves, runs are queued
+# one at a time, and every run leaves exactly one deployment behind.
 on:
   schedule:
-    - cron: "17 */12 * * *"
-  release:
-    types: [published]
+    - cron: "17 6 * * *"
   workflow_call:
   workflow_dispatch:
 
@@ -17,18 +19,23 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
 jobs:
   publish:
     runs-on: ubuntu-latest
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/checkout@v4
+        with:
+          ref: docs
+          path: api-docs
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -37,24 +44,37 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           MANIFEST_PRIVATE_KEY: ${{ secrets.MANIFEST_PRIVATE_KEY }}
           CATALOGUE_PRIVATE_KEY: ${{ secrets.CATALOGUE_PRIVATE_KEY }}
+      - name: Add the API docs
+        run: |
+          rm -rf api-docs/.git
+          mv api-docs _site/docs
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
       - id: deploy
         uses: actions/deploy-pages@v4
-      # GitHub disables scheduled workflows after 60 days without repository activity, which
-      # would let the manifest expire. Re-enabling through the API resets that timer.
+      # Keeps the newest successful deployment, which is the one serving the site, and deletes
+      # the rest, including failed attempts.
       - name: Remove older deployments
+        if: always()
         run: |
-          current=$(gh api "repos/$GITHUB_REPOSITORY/deployments?environment=github-pages&per_page=1" --jq '.[0].id')
+          kept=""
           for id in $(gh api --paginate "repos/$GITHUB_REPOSITORY/deployments?environment=github-pages&per_page=100" --jq '.[].id'); do
-            [ "$id" = "$current" ] && continue
+            state=$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses?per_page=1" --jq '.[0].state // ""')
+            if [ -z "$kept" ] && [ "$state" = "success" ]; then
+              kept=$id
+              continue
+            fi
             gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" -f state=inactive > /dev/null
             gh api -X DELETE "repos/$GITHUB_REPOSITORY/deployments/$id" > /dev/null
           done
+          echo "Kept deployment ${kept:-none}."
         env:
           GH_TOKEN: ${{ github.token }}
+      # GitHub disables scheduled workflows after 60 days without repository activity, which
+      # would let the manifest expire. Re-enabling through the API resets that timer.
       - name: Keep the schedule enabled
-        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/pages.yml/enable"
+        if: always()
+        run: gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/pages.yml/enable"
         env:
           GH_TOKEN: ${{ github.token }}

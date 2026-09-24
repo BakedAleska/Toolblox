@@ -1,0 +1,95 @@
+name: Release
+
+# Sets the version, tests, builds and signs the Windows installer, commits and tags the version,
+# publishes the GitHub release, and deploys the update manifest that moves installed apps to it.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without the leading v, such as 0.3.0-beta"
+        required: true
+      dry_run:
+        description: "Build only; don't commit, tag, or publish"
+        type: boolean
+        default: false
+
+permissions:
+  actions: write
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check the version
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then echo "::error::Run releases from main."; exit 1; fi
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then echo "::error::v$VERSION already exists."; exit 1; fi
+          node scripts/set-version.mjs --check "$VERSION"
+          echo "TOOLBLOX_UPDATER_PUBLIC_KEY=$(node -p 'require("./src-tauri/tauri.conf.json").plugins.updater.pubkey')" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: node scripts/set-version.mjs "$VERSION"
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: cargo test
+        working-directory: src-tauri
+      - name: Build the installer
+        run: npm run tauri build -- --bundles nsis
+        env:
+          TOOLBLOX_UPDATE_MANIFEST_URL: https://bakedaleska.github.io/Toolblox/updates/stable.json
+          TOOLBLOX_MANIFEST_PUBLIC_KEY: EuDCNgMRTr2hMG4/aNBJH2gFK/i6VAkQRlc1YFSlh1U=
+          TOOLBLOX_CATALOGUE_URL: https://bakedaleska.github.io/Toolblox/catalogue/v1.json
+          TOOLBLOX_CATALOGUE_PUBLIC_KEY: SRsx1ZzYpQGnV6NhPa00Mt5I6xubH3DXuNdGOfbQSVE=
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Prepare assets
+        run: |
+          mkdir release
+          cp "src-tauri/target/release/bundle/nsis/Toolblox_${VERSION}_x64-setup.exe" release/Toolblox-Setup.exe
+          cp "src-tauri/target/release/bundle/nsis/Toolblox_${VERSION}_x64-setup.exe.sig" release/Toolblox-Setup.exe.sig
+          sha256sum release/Toolblox-Setup.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Toolblox-Setup-${{ inputs.version }}
+          path: release
+      - name: Commit, tag, and publish
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json src/bridge.ts
+          git commit -m "chore(release): $VERSION"
+          git tag "v$VERSION"
+          git push origin HEAD:main "v$VERSION"
+          sha=$(sha256sum release/Toolblox-Setup.exe | cut -d' ' -f1)
+          node scripts/release-notes.mjs "$VERSION" "$sha" > notes.md
+          gh release create "v$VERSION" --title "Toolblox ${VERSION/-/ }"--notes-file notes.md --latest release/Toolblox-Setup.exe release/Toolblox-Setup.exe.sig
+
+  pages:
+    needs: release
+    if: ${{ !inputs.dry_run }}
+    uses: ./.github/workflows/pages.yml
+    secrets: inherit

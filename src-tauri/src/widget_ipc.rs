@@ -8,19 +8,24 @@ use serde_json::Value;
 
 use crate::widgets::WidgetPermission;
 
+/// Protocol version every widget message must carry.
 pub const WIDGET_PROTOCOL_VERSION: u32 = 1;
+/// Largest accepted widget message, in bytes.
 pub const MAX_WIDGET_MESSAGE_BYTES: usize = 64 * 1024;
 
+/// A method call sent by a widget frame.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetRequest {
     pub protocol: u32,
+    /// Widget-chosen ID echoed in the response, up to 128 bytes.
     pub request_id: String,
     pub method: String,
     #[serde(default)]
     pub params: Value,
 }
 
+/// The reply to a widget request. Exactly one of `result` and `error` is set.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetResponse {
@@ -32,14 +37,17 @@ pub struct WidgetResponse {
     pub error: Option<String>,
 }
 
+/// One widget frame's identity, granted permissions, and request rate.
 #[derive(Debug)]
 pub struct WidgetSession {
     pub widget_id: String,
     pub permissions: HashSet<WidgetPermission>,
+    /// Times of requests in the last second, for rate limiting.
     recent_requests: VecDeque<Instant>,
 }
 
 impl WidgetSession {
+    /// Starts a session with the widget's granted permissions.
     pub fn new(widget_id: String, permissions: impl IntoIterator<Item = WidgetPermission>) -> Self {
         Self {
             widget_id,
@@ -48,6 +56,8 @@ impl WidgetSession {
         }
     }
 
+    /// Parses a message and checks its size, rate, protocol version, request ID, and the permission
+    /// its method requires.
     pub fn parse_and_authorize(&mut self, message: &[u8]) -> Result<WidgetRequest, String> {
         if message.len() > MAX_WIDGET_MESSAGE_BYTES {
             return Err("The widget message is too large.".into());
@@ -69,6 +79,7 @@ impl WidgetSession {
         Ok(request)
     }
 
+    /// Allows at most 30 requests per rolling second.
     fn enforce_rate_limit(&mut self, now: Instant) -> Result<(), String> {
         while self
             .recent_requests
@@ -85,20 +96,25 @@ impl WidgetSession {
     }
 }
 
+/// Active widget frame sessions, keyed by an opaque session ID.
 #[derive(Default)]
 pub struct WidgetSessions {
     sessions: HashMap<String, WidgetSession>,
 }
 
 impl WidgetSessions {
+    /// Registers a session.
     pub fn insert(&mut self, session_id: String, session: WidgetSession) {
         self.sessions.insert(session_id, session);
     }
 
+    /// Ends a session.
     pub fn remove(&mut self, session_id: &str) -> Option<WidgetSession> {
         self.sessions.remove(session_id)
     }
 
+    /// Authorizes a message for a session, rejecting it when the claimed widget ID doesn't match
+    /// the session's widget.
     pub fn authorize(
         &mut self,
         session_id: &str,
@@ -116,6 +132,7 @@ impl WidgetSessions {
     }
 }
 
+/// Builds a successful response.
 pub fn success(request_id: String, result: Value) -> WidgetResponse {
     WidgetResponse {
         protocol: WIDGET_PROTOCOL_VERSION,
@@ -125,6 +142,7 @@ pub fn success(request_id: String, result: Value) -> WidgetResponse {
     }
 }
 
+/// Builds an error response.
 pub fn failure(request_id: String, error: impl Into<String>) -> WidgetResponse {
     WidgetResponse {
         protocol: WIDGET_PROTOCOL_VERSION,
@@ -134,6 +152,7 @@ pub fn failure(request_id: String, error: impl Into<String>) -> WidgetResponse {
     }
 }
 
+/// Returns the permission a method requires, or `None` for unknown methods.
 fn permission_for_method(method: &str) -> Option<WidgetPermission> {
     match method {
         "accounts.list" => Some(WidgetPermission::AccountsReadBasic),

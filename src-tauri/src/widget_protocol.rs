@@ -6,6 +6,10 @@ use tauri::Manager;
 
 use crate::app_commands::Runtime;
 
+/// Serves `widget://<id>/<path>` from the widget's install folder to the main window only.
+///
+/// Rejects invalid IDs, non-normal path components, and files that resolve outside the widget
+/// folder, and serves assets under a restrictive Content Security Policy.
 pub fn response(
     context: tauri::UriSchemeContext<'_, tauri::Wry>,
     request: tauri::http::Request<Vec<u8>>,
@@ -105,6 +109,7 @@ pub fn response(
         .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()))
 }
 
+/// Builds a plain-text error response.
 fn error(status: tauri::http::StatusCode, message: &str) -> tauri::http::Response<Vec<u8>> {
     tauri::http::Response::builder()
         .status(status)

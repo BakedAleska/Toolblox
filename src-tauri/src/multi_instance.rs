@@ -8,9 +8,15 @@ use std::process::Command;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+/// Process creation flag that keeps console helpers from opening a window.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+/// Closes the singleton handles of Roblox processes that started since the last call, so the next
+/// client can open alongside them.
+///
+/// `cleared` holds the process IDs already handled and drops IDs that have exited. Does nothing
+/// outside Windows.
 pub fn clear_new_roblox_instances(
     helper: Option<&Path>,
     cleared: &mut HashSet<u32>,

@@ -3,15 +3,19 @@
 use std::fmt;
 use zeroize::Zeroize;
 
+/// Keychain and Credential Manager service name for Roblox sessions.
 const SERVICE: &str = "Toolblox";
 
+/// A Roblox session cookie. Its `Debug` output is redacted and its memory is zeroed on drop.
 pub struct Secret(String);
 
 impl Secret {
+    /// Wraps a session value read from storage or a sign-in.
     pub(crate) fn new(value: String) -> Self {
         Self(value)
     }
 
+    /// Returns the raw session value. Callers must not log or return it to JavaScript.
     pub(crate) fn expose(&self) -> &str {
         &self.0
     }
@@ -29,11 +33,15 @@ impl Drop for Secret {
     }
 }
 
+/// Why a session couldn't be read or written.
 #[derive(Debug)]
 pub enum CredentialError {
+    /// No session is stored for the account, or an empty session was given.
     Missing,
+    /// This platform has no supported secure storage.
     #[cfg(not(any(windows, target_os = "macos")))]
     Unsupported,
+    /// The operating system's secure storage failed or is locked.
     Platform,
 }
 
@@ -59,16 +67,22 @@ impl fmt::Display for CredentialError {
 
 impl std::error::Error for CredentialError {}
 
+/// Stores one Roblox session per account ID.
 pub trait CredentialStore: Send + Sync {
+    /// Reads the account's session.
     fn get(&self, account_id: u64) -> Result<Secret, CredentialError>;
+    /// Stores or replaces the account's session. Rejects an empty session.
     fn set(&self, account_id: u64, secret: &str) -> Result<(), CredentialError>;
+    /// Deletes the account's session. Deleting a missing session succeeds.
     fn delete(&self, account_id: u64) -> Result<(), CredentialError>;
 }
 
+/// Stores sessions in Windows Credential Manager or the macOS login Keychain.
 #[derive(Debug, Default)]
 pub struct OsCredentialStore;
 
 impl OsCredentialStore {
+    /// Opens the keyring entry for an account.
     #[cfg(any(windows, target_os = "macos"))]
     fn entry(account_id: u64) -> Result<keyring::Entry, CredentialError> {
         keyring::Entry::new(SERVICE, &format!("account-{account_id}"))
@@ -120,6 +134,7 @@ impl CredentialStore for OsCredentialStore {
     }
 }
 
+/// Decrypts a session the legacy Flet app protected with Windows DPAPI for the current user.
 #[cfg(windows)]
 pub(crate) fn decrypt_legacy_dpapi(stored: &str) -> Result<Secret, CredentialError> {
     use base64::Engine;
@@ -160,6 +175,7 @@ pub(crate) fn decrypt_legacy_dpapi(stored: &str) -> Result<Secret, CredentialErr
     plaintext.map(Secret)
 }
 
+/// Reads a session the legacy Flet app stored in the macOS login Keychain.
 #[cfg(target_os = "macos")]
 pub(crate) fn lookup_legacy_keychain(account_id: u64) -> Result<Secret, CredentialError> {
     use std::process::Command;

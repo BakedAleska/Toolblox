@@ -1,4 +1,30 @@
 //! Toolblox native host.
+//!
+//! Toolblox is a Tauri 2 desktop app for managing and launching Roblox accounts. This crate owns
+//! everything that touches secrets, the network, the file system, or other processes. The React
+//! interface receives display data and opaque IDs only.
+//!
+//! # Modules
+//!
+//! - [`app_commands`]: the Tauri commands the interface calls, and the shared [`Runtime`].
+//! - [`startup`] and [`update`]: the fail-closed update gate that runs before the app opens.
+//! - [`storage`] and [`models`]: validated, atomic JSON persistence for settings and accounts.
+//! - [`credentials`]: Roblox sessions in Windows Credential Manager or the macOS Keychain.
+//! - [`login`]: the isolated Roblox sign-in window.
+//! - [`roblox`]: Roblox web APIs for profiles, presence, games, and join tickets.
+//! - [`auto_rejoin`]: presence monitoring for drop notifications and auto-rejoin.
+//! - [`multi_instance`]: running several Roblox clients on Windows.
+//! - [`migration`]: one-time import from the legacy Flet app.
+//! - [`lifecycle`]: window, tray, and single-instance behavior.
+//! - [`widgets`], [`widget_protocol`], [`widget_ipc`], and [`widget_process`]: signed widget
+//!   packages, their assets, permission-checked messages, and sidecar processes.
+//!
+//! # Data
+//!
+//! Current data lives in the `v2` folder inside the Toolblox data folder: `%LOCALAPPDATA%\Toolblox`
+//! on Windows and `~/Library/Application Support/Toolblox` on macOS.
+
+#![allow(rustdoc::private_intra_doc_links)]
 
 mod app_commands;
 mod auto_rejoin;
@@ -24,6 +50,10 @@ use app_commands::Runtime;
 use lifecycle::LifecycleState;
 use tauri::Manager;
 
+/// Returns the legacy Toolblox data folder, whose `v2` subfolder holds current data.
+///
+/// This is `%LOCALAPPDATA%\Toolblox` on Windows and `~/Library/Application Support/Toolblox` on
+/// macOS. Debug builds use `TOOLBLOX_DATA_DIR` instead when it's set.
 fn toolblox_data_root() -> Result<PathBuf, std::io::Error> {
     #[cfg(debug_assertions)]
     if let Some(path) = std::env::var_os("TOOLBLOX_DATA_DIR") {
@@ -50,6 +80,7 @@ fn toolblox_data_root() -> Result<PathBuf, std::io::Error> {
     })
 }
 
+/// Name of the marker file that requests safe mode for the next launch.
 const SAFE_MODE_MARKER: &str = "safe-mode-next-launch";
 
 /// Records whether the next launch skips widgets. Failures only lose the one-time request.
@@ -69,6 +100,7 @@ fn take_safe_mode(data_root: &std::path::Path) -> bool {
     marker || std::env::args().any(|argument| argument == "--safe-mode")
 }
 
+/// Starts the processes of widgets marked to start on launch, unless safe mode is active.
 fn start_widgets_on_launch(runtime: &Runtime) {
     if runtime.safe_mode {
         return;
@@ -94,6 +126,7 @@ fn start_widgets_on_launch(runtime: &Runtime) {
     }
 }
 
+/// Builds and runs the Tauri application.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let lifecycle_state = Arc::new(LifecycleState::default());

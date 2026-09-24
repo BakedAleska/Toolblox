@@ -10,19 +10,29 @@ use crate::app_commands::Runtime;
 use crate::credentials::CredentialStore;
 use crate::models::PresenceState;
 
+/// Time between presence checks.
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
+/// Time between presence checks while an account is in its launch window.
 const LAUNCH_POLL_INTERVAL: Duration = Duration::from_secs(3);
+/// How long after a join or rejoin presence is checked more often.
 const LAUNCH_WINDOW: Duration = Duration::from_secs(60);
+/// A drop within this time of an automatic rejoin pauses auto-rejoin for the account.
 const REJOIN_GRACE: Duration = Duration::from_secs(45);
 
+/// Presence history for one account between checks.
 #[derive(Default)]
 struct Entry {
+    /// Whether the previous check saw the account in game.
     was_in_game: bool,
     last_rejoin: Option<Instant>,
+    /// Whether auto-rejoin is paused until the account is joined manually.
     suspended: bool,
     last_played_at: Option<f64>,
 }
 
+/// Polls presence for drop notifications and auto-rejoin until the app exits.
+///
+/// Does nothing while both settings are off. A manual join clears a paused account.
 pub async fn run(app: AppHandle) {
     let mut entries: HashMap<u64, Entry> = HashMap::new();
     let mut interval = POLL_INTERVAL;

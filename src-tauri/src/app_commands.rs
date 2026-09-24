@@ -16,24 +16,33 @@ use crate::storage::{Storage, StorageError};
 use crate::widget_process::WidgetProcessManager;
 use crate::widgets::{Catalogue, CatalogueEntry, InstalledWidget};
 
+/// The account and previous session to restore if saving a signed-in account fails.
 type CredentialRollback = Arc<Mutex<Option<(u64, Option<Secret>)>>>;
 
+/// Shared state for commands, managed by Tauri.
 pub struct Runtime {
+    /// Folder the legacy Flet app stored its data in.
     pub legacy_root: PathBuf,
     pub storage: Arc<Storage>,
     pub credentials: Arc<OsCredentialStore>,
     pub client: reqwest::Client,
     pub widgets_root: PathBuf,
+    /// The verified widget catalogue, once loaded.
     pub catalogue: Mutex<Option<Catalogue>>,
+    /// Why the catalogue couldn't be loaded, shown on the Widgets screen.
     pub catalogue_error: Mutex<Option<String>>,
     pub processes: Arc<Mutex<WidgetProcessManager>>,
+    /// Active widget frame sessions.
     pub widget_sessions: Mutex<crate::widget_ipc::WidgetSessions>,
+    /// Bundled helper that closes Roblox's singleton handles, when installed.
     pub multi_instance_helper: Option<PathBuf>,
+    /// Roblox processes the helper already handled.
     pub cleared_roblox_pids: Mutex<std::collections::HashSet<u32>>,
     /// Widget modules and frames stay unloaded for this session.
     pub safe_mode: bool,
 }
 
+/// The settings the interface reads and edits.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsDto {
@@ -74,26 +83,31 @@ impl From<&Settings> for SettingsDto {
     }
 }
 
+/// An account with its presence, as shown in the interface.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountView {
     #[serde(flatten)]
     account: AccountDto,
     presence: FrontendPresence,
+    /// Name of the game the account is in, when game details are on.
     #[serde(skip_serializing_if = "Option::is_none")]
     game_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     game_place_id: Option<u64>,
 }
 
+/// Presence as the interface shows it.
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum FrontendPresence {
     Offline,
     Playing,
+    /// Presence couldn't be determined.
     Warning,
 }
 
+/// An installed widget, as shown in the interface.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetSummary {
@@ -105,6 +119,7 @@ pub struct WidgetSummary {
     version: String,
     available_version: Option<String>,
     permissions: Vec<crate::widgets::WidgetPermission>,
+    /// Permissions of the newer catalogue version, when one is available.
     available_permissions: Option<Vec<crate::widgets::WidgetPermission>>,
     has_settings: bool,
     has_dashboard_tile: bool,
@@ -115,6 +130,7 @@ pub struct WidgetSummary {
     host_url: String,
 }
 
+/// A catalogue widget that isn't installed.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogueSummary {
@@ -126,6 +142,7 @@ pub struct CatalogueSummary {
     permissions: Vec<crate::widgets::WidgetPermission>,
 }
 
+/// Everything the interface needs to render, without secrets.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppStateDto {
@@ -143,16 +160,19 @@ pub struct AppStateDto {
     safe_mode: bool,
 }
 
+/// Result of a manual update check.
 #[derive(Debug, Serialize)]
 pub struct UpdateAvailability {
     available: bool,
     version: Option<String>,
 }
 
+/// Converts an error to the message returned to the interface.
 fn command_error(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
+/// Reads a response body, failing with `too_large` once it exceeds `maximum` bytes.
 pub(crate) async fn read_response_limited(
     mut response: reqwest::Response,
     maximum: usize,
@@ -180,6 +200,7 @@ pub(crate) async fn read_response_limited(
     Ok(bytes)
 }
 
+/// Current Unix time in seconds.
 fn now_seconds() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -187,6 +208,7 @@ fn now_seconds() -> f64 {
         .as_secs_f64()
 }
 
+/// Fills in names and avatars for accounts saved without an avatar, such as imported ones.
 pub(crate) async fn backfill_profiles(runtime: &Runtime) {
     let Ok(accounts) = runtime.storage.load_accounts() else {
         return;
@@ -211,6 +233,7 @@ pub(crate) async fn backfill_profiles(runtime: &Runtime) {
     }
 }
 
+/// Summarizes installed widgets, noting newer catalogue versions.
 fn installed_widgets(runtime: &Runtime, settings: &Settings) -> Vec<WidgetSummary> {
     let catalogue_entries: HashMap<_, _> = runtime
         .catalogue
@@ -232,6 +255,7 @@ fn installed_widgets(runtime: &Runtime, settings: &Settings) -> Vec<WidgetSummar
         .collect()
 }
 
+/// Summarizes one installed widget.
 fn widget_summary(
     widget: InstalledWidget,
     settings: &Settings,
@@ -268,6 +292,11 @@ fn widget_summary(
     }
 }
 
+/// Adds presence to each account.
+///
+/// Presence is fetched with the first session Roblox accepts. When game details are on, accounts
+/// whose place is hidden from others are checked with their own session, and game names are
+/// looked up.
 async fn account_views(
     runtime: &Runtime,
     accounts: &[StoredAccount],
@@ -388,6 +417,7 @@ async fn name_recent_places(runtime: &Runtime, settings: Settings) -> Settings {
         .unwrap_or(settings)
 }
 
+/// Returns the full interface state, loading the catalogue first if it hasn't been tried.
 #[tauri::command]
 pub async fn get_app_state(runtime: State<'_, Runtime>) -> Result<AppStateDto, String> {
     let catalogue_unset = runtime
@@ -462,6 +492,8 @@ pub async fn get_app_state(runtime: State<'_, Runtime>) -> Result<AppStateDto, S
     })
 }
 
+/// Validates and saves settings, applies always on top, and changes launch at login. The settings
+/// are restored if launch at login can't be changed.
 #[tauri::command]
 pub fn save_settings(
     app: AppHandle,
@@ -571,6 +603,7 @@ pub fn set_account_place(
     Ok(())
 }
 
+/// Replaces an account's notes, up to 10,000 characters.
 #[tauri::command]
 pub fn update_account_notes(
     account_id: u64,
@@ -597,6 +630,8 @@ pub fn update_account_notes(
         .map_err(command_error)
 }
 
+/// Removes an account and its stored session. The account is restored if the session can't be
+/// deleted.
 #[tauri::command]
 pub fn remove_account(account_id: u64, runtime: State<'_, Runtime>) -> Result<(), String> {
     let removed = runtime
@@ -628,6 +663,7 @@ pub fn remove_account(account_id: u64, runtime: State<'_, Runtime>) -> Result<()
     Ok(())
 }
 
+/// Saves a manual account order. `account_ids` must list every account once.
 #[tauri::command]
 pub fn reorder_accounts(account_ids: Vec<u64>, runtime: State<'_, Runtime>) -> Result<(), String> {
     runtime
@@ -661,6 +697,7 @@ pub fn reorder_accounts(account_ids: Vec<u64>, runtime: State<'_, Runtime>) -> R
         .map_err(command_error)
 }
 
+/// Joins each account, at `place_id` when given, then minimizes the window if that setting is on.
 #[tauri::command]
 pub async fn join_accounts(
     app: AppHandle,
@@ -687,6 +724,8 @@ pub async fn join_accounts(
     Ok(())
 }
 
+/// Opens the Roblox sign-in window and waits for it, then adds or updates the signed-in account.
+/// The previous session is restored if saving the account fails.
 #[tauri::command]
 pub async fn begin_roblox_login(
     app: AppHandle,
@@ -796,6 +835,7 @@ pub async fn begin_roblox_login(
     })
 }
 
+/// Returns a widget's entry in the verified catalogue.
 fn catalogue_entry(runtime: &Runtime, widget_id: &str) -> Result<CatalogueEntry, String> {
     runtime
         .catalogue
@@ -807,6 +847,7 @@ fn catalogue_entry(runtime: &Runtime, widget_id: &str) -> Result<CatalogueEntry,
         .ok_or_else(|| "The widget isn't in the verified catalogue. Can you refresh it?".into())
 }
 
+/// Downloads and installs a widget from the verified catalogue.
 async fn install_catalogue_widget(widget_id: &str, runtime: &Runtime) -> Result<(), String> {
     let entry = catalogue_entry(runtime, widget_id)?;
     let response = runtime
@@ -841,6 +882,7 @@ async fn install_catalogue_widget(widget_id: &str, runtime: &Runtime) -> Result<
     .map(|_| ())
 }
 
+/// Installs a catalogue widget that isn't installed yet.
 #[tauri::command]
 pub async fn install_widget(widget_id: String, runtime: State<'_, Runtime>) -> Result<(), String> {
     if find_installed_widget(&runtime, &widget_id).is_ok() {
@@ -849,6 +891,7 @@ pub async fn install_widget(widget_id: String, runtime: State<'_, Runtime>) -> R
     install_catalogue_widget(&widget_id, &runtime).await
 }
 
+/// Stops a widget's processes and installs its newer catalogue version.
 #[tauri::command]
 pub async fn update_widget(widget_id: String, runtime: State<'_, Runtime>) -> Result<(), String> {
     let installed = find_installed_widget(&runtime, &widget_id)?;
@@ -869,6 +912,7 @@ pub async fn update_widget(widget_id: String, runtime: State<'_, Runtime>) -> Re
     install_catalogue_widget(&widget_id, &runtime).await
 }
 
+/// Stops a widget's processes, removes it, and clears its settings.
 #[tauri::command]
 pub fn uninstall_widget(widget_id: String, runtime: State<'_, Runtime>) -> Result<(), String> {
     runtime
@@ -889,6 +933,7 @@ pub fn uninstall_widget(widget_id: String, runtime: State<'_, Runtime>) -> Resul
         .map_err(command_error)
 }
 
+/// Turns an installed widget on or off, stopping its processes when turned off.
 #[tauri::command]
 pub fn set_widget_enabled(
     widget_id: String,
@@ -914,6 +959,7 @@ pub fn set_widget_enabled(
         .map_err(command_error)
 }
 
+/// Sets whether a widget's processes start with the app.
 #[tauri::command]
 pub fn set_widget_start_on_launch(
     widget_id: String,
@@ -936,11 +982,13 @@ pub fn set_widget_start_on_launch(
         .map_err(command_error)
 }
 
+/// Loads the widget catalogue again.
 #[tauri::command]
 pub async fn retry_catalogue(runtime: State<'_, Runtime>) -> Result<(), String> {
     refresh_catalogue_data(&runtime).await
 }
 
+/// Runs the startup update check again. A required update installs and restarts the app.
 #[tauri::command]
 pub async fn check_for_updates(app: AppHandle) -> Result<UpdateAvailability, String> {
     crate::startup::run(app.clone()).await;
@@ -956,13 +1004,17 @@ pub async fn check_for_updates(app: AppHandle) -> Result<UpdateAvailability, Str
 /// Base URL for installed widget assets. Windows WebView2 serves custom schemes over HTTP.
 #[cfg(windows)]
 const WIDGET_ORIGIN: &str = "http://widget.localhost";
+/// Base URL for installed widget assets.
 #[cfg(not(windows))]
 const WIDGET_ORIGIN: &str = "widget://localhost";
 
+/// Returns the URL of a file in an installed widget.
 fn widget_asset_url(widget_id: &str, path: &str) -> String {
     format!("{WIDGET_ORIGIN}/{widget_id}/{path}")
 }
 
+/// Downloads and verifies the signed widget catalogue, recording any error for the interface.
+/// Debug builds without a catalogue URL use an empty catalogue.
 async fn refresh_catalogue_data(runtime: &Runtime) -> Result<(), String> {
     let Some(url) = option_env!("TOOLBLOX_CATALOGUE_URL") else {
         #[cfg(debug_assertions)]
@@ -1062,6 +1114,7 @@ async fn refresh_catalogue_data(runtime: &Runtime) -> Result<(), String> {
     }
 }
 
+/// Records a catalogue error and returns it.
 fn set_catalogue_error(runtime: &Runtime, error: &str) -> Result<(), String> {
     *runtime
         .catalogue_error
@@ -1071,6 +1124,7 @@ fn set_catalogue_error(runtime: &Runtime, error: &str) -> Result<(), String> {
     Err(error.to_owned())
 }
 
+/// A widget surface to load and the session ID its requests must carry.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetHostSession {
@@ -1078,6 +1132,7 @@ pub struct WidgetHostSession {
     url: String,
 }
 
+/// Returns an installed widget by ID.
 fn find_installed_widget(runtime: &Runtime, widget_id: &str) -> Result<InstalledWidget, String> {
     crate::widgets::discover_installed(&runtime.widgets_root)
         .into_iter()
@@ -1086,6 +1141,10 @@ fn find_installed_widget(runtime: &Runtime, widget_id: &str) -> Result<Installed
         .ok_or_else(|| "The widget isn't installed. Can you refresh the list?".into())
 }
 
+/// Starts a session for a widget surface: `main`, `settings`, `dashboard`, or `module`.
+///
+/// Frame surfaces get the manifest's permissions. Module sessions get every permission because
+/// modules run in the app window. Fails in safe mode and for disabled widgets.
 #[tauri::command]
 pub fn open_widget(
     widget_id: String,
@@ -1140,6 +1199,7 @@ pub fn open_widget(
     })
 }
 
+/// Registers a widget session with a random ID.
 fn insert_widget_session(
     runtime: &Runtime,
     widget_id: &str,
@@ -1206,6 +1266,7 @@ pub fn restart_app(app: AppHandle, safe_mode: bool, runtime: State<'_, Runtime>)
     app.restart();
 }
 
+/// Ends a widget session.
 #[tauri::command]
 pub fn close_widget_session(session_id: String, runtime: State<'_, Runtime>) {
     if let Ok(mut sessions) = runtime.widget_sessions.lock() {
@@ -1213,6 +1274,8 @@ pub fn close_widget_session(session_id: String, runtime: State<'_, Runtime>) {
     }
 }
 
+/// Authorizes a widget message against its session and runs it. Method failures are returned
+/// in the response rather than as a command error.
 #[tauri::command]
 pub async fn widget_request(
     session_id: String,
@@ -1232,6 +1295,7 @@ pub async fn widget_request(
     }
 }
 
+/// Runs an authorized widget method.
 async fn dispatch_widget_request(
     runtime: &Runtime,
     widget_id: &str,
@@ -1453,8 +1517,11 @@ pub(crate) async fn join_account_ids(
     Ok(())
 }
 
+/// Gap between launches in a batch.
 const FIRST_LAUNCH_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+/// Longest gap between launches after failures.
 const MAX_LAUNCH_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
+/// Ticket requests retried per account before the join fails.
 const LAUNCH_RETRIES: u32 = 3;
 
 /// Doubles the gap between launches after a failure, up to five seconds. The longer gap then
@@ -1463,6 +1530,7 @@ fn next_launch_delay(current: std::time::Duration) -> std::time::Duration {
     (current * 2).min(MAX_LAUNCH_DELAY)
 }
 
+/// Fetches an HTTPS URL for a widget and returns the status and a text body of up to 1 MB.
 async fn widget_network_fetch(
     runtime: &Runtime,
     widget_id: &str,
@@ -1491,6 +1559,7 @@ async fn widget_network_fetch(
     Ok(json!({ "status": status, "body": body }))
 }
 
+/// Reads a required non-negative integer parameter.
 fn required_u64(params: &Value, field: &str) -> Result<u64, String> {
     params
         .get(field)
@@ -1498,6 +1567,7 @@ fn required_u64(params: &Value, field: &str) -> Result<u64, String> {
         .ok_or_else(|| format!("The widget parameter {field} isn't a positive integer."))
 }
 
+/// Reads a required non-empty string parameter.
 fn required_string<'a>(params: &'a Value, field: &str) -> Result<&'a str, String> {
     params
         .get(field)
@@ -1506,6 +1576,7 @@ fn required_string<'a>(params: &'a Value, field: &str) -> Result<&'a str, String
         .ok_or_else(|| format!("The widget parameter {field} isn't a non-empty string."))
 }
 
+/// Reads a required non-empty array of account IDs.
 fn required_u64_array(params: &Value, field: &str) -> Result<Vec<u64>, String> {
     let values = params
         .get(field)
@@ -1517,6 +1588,7 @@ fn required_u64_array(params: &Value, field: &str) -> Result<Vec<u64>, String> {
         .ok_or_else(|| format!("The widget parameter {field} must contain account IDs."))
 }
 
+/// Reads an optional array of strings, defaulting to empty.
 fn optional_string_array(params: &Value, field: &str) -> Result<Vec<String>, String> {
     let Some(values) = params.get(field) else {
         return Ok(Vec::new());

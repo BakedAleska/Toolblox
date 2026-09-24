@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+/// Which side of the window the sidebar is on.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SidebarPosition {
@@ -12,6 +13,7 @@ pub enum SidebarPosition {
     Right,
 }
 
+/// Color theme. `System` follows the operating system.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ThemeMode {
@@ -20,6 +22,7 @@ pub enum ThemeMode {
     Dark,
 }
 
+/// Account list order. `Manual` keeps the saved order.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SortOrder {
@@ -28,6 +31,8 @@ pub enum SortOrder {
     Manual,
 }
 
+/// Saved preferences. Missing fields take defaults, legacy snake_case names are accepted, and
+/// unknown fields are preserved.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
@@ -41,31 +46,44 @@ pub struct Settings {
     pub sort_order: SortOrder,
     #[serde(alias = "compact_mode")]
     pub compact_mode: bool,
+    /// Default place to join. Empty when none is set.
     #[serde(alias = "place_id")]
     pub place_id: String,
+    /// IDs of installed widgets that are turned off.
     #[serde(alias = "disabled_widgets")]
     pub disabled_widgets: Vec<String>,
+    /// Per-widget settings, keyed by widget ID.
     #[serde(alias = "widget_settings")]
     pub widget_settings: BTreeMap<String, Value>,
+    /// Allow several Roblox clients at once (Windows only).
     #[serde(alias = "multi_instance")]
     pub multi_instance: bool,
     #[serde(alias = "auto_rejoin")]
     pub auto_rejoin: bool,
+    /// Launch Toolblox at login.
     #[serde(alias = "open_on_launch")]
     pub open_on_launch: bool,
+    /// Closing the window hides to the tray instead of quitting.
     #[serde(alias = "run_in_background")]
     pub run_in_background: bool,
+    /// IDs of widgets whose processes start with the app.
     #[serde(alias = "widgets_start_on_launch")]
     pub widgets_start_on_launch: Vec<String>,
+    /// Minimize the window after a manual join.
     pub minimize_on_join: bool,
+    /// Look up and show game names for accounts in game.
     pub show_game_names: bool,
+    /// Notify when an account leaves a game.
     pub notify_on_drop: bool,
     pub always_on_top: bool,
+    /// Recently used places, newest first.
     pub recent_places: Vec<RecentPlace>,
+    /// Unknown fields, kept when saving.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
 
+/// Most places kept in the recent list.
 pub const RECENT_PLACES_LIMIT: usize = 6;
 
 /// A place the user has joined from. `name` is `None` until Toolblox looks it up and empty when
@@ -105,6 +123,7 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Checks the place IDs, recent places, and widget IDs. Returns a user-facing message on failure.
     pub fn validate(&self) -> Result<(), String> {
         if !self.place_id.is_empty() && !is_place_id(&self.place_id) {
             return Err("The saved place ID isn't valid. Can you enter it again?".into());
@@ -149,10 +168,12 @@ impl Settings {
     }
 }
 
+/// Whether `value` is a Roblox place ID: 1 to 20 ASCII digits.
 pub fn is_place_id(value: &str) -> bool {
     !value.is_empty() && value.len() <= 20 && value.bytes().all(|byte| byte.is_ascii_digit())
 }
 
+/// Accepts non-empty IDs of ASCII letters, digits, `_`, and `-`.
 fn validate_widget_id(id: &str) -> Result<(), String> {
     if id.is_empty()
         || !id
@@ -164,6 +185,7 @@ fn validate_widget_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// A saved account. The session is stored separately in the credential store.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StoredAccount {
     pub id: u64,
@@ -172,22 +194,31 @@ pub struct StoredAccount {
     pub avatar_url: Option<String>,
     #[serde(default)]
     pub notes: String,
+    /// Unix time, in seconds, the account was added.
     pub added_at: f64,
+    /// Unix time, in seconds, of the last manual join.
     #[serde(default)]
     pub last_played_at: Option<f64>,
+    /// Number of manual joins.
     #[serde(default)]
     pub play_count: u64,
+    /// Per-widget data for this account, keyed by widget ID.
     #[serde(default)]
     pub widget_data: BTreeMap<String, Value>,
+    /// Place this account joins instead of the default place.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place_id: Option<String>,
+    /// Place of the last manual join.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_place_id: Option<String>,
+    /// Unknown fields, kept when saving.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
 
 impl StoredAccount {
+    /// Checks the IDs, dates, place IDs, and widget IDs, and rejects legacy fields that look like
+    /// secrets. Returns a user-facing message on failure.
     pub fn validate(&self) -> Result<(), String> {
         if self.id == 0 || self.name.trim().is_empty() {
             return Err("A saved account is incomplete. Can you add the account again?".into());
@@ -227,6 +258,7 @@ impl StoredAccount {
         Ok(())
     }
 
+    /// Records a manual join at `timestamp` (Unix seconds) to `place_id`.
     pub fn record_play(&mut self, timestamp: f64, place_id: &str) -> Result<(), String> {
         if !timestamp.is_finite() || timestamp < 0.0 {
             return Err("The play time wasn't valid. Can you try joining again?".into());
@@ -238,6 +270,7 @@ impl StoredAccount {
     }
 }
 
+/// The account fields sent to the interface. Never includes the session or widget data.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountDto {
@@ -270,13 +303,16 @@ impl From<&StoredAccount> for AccountDto {
     }
 }
 
+/// An account's Roblox presence.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PresenceState {
     Offline,
+    /// On Roblox but not in a game.
     Online,
     InGame,
     InStudio,
+    /// Roblox returned a presence type Toolblox doesn't know.
     Unknown,
 }
 

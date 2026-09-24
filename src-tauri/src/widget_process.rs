@@ -11,8 +11,10 @@ use serde::Serialize;
 
 use crate::widgets::WidgetProcess;
 
+/// Longest line read from or sent to a widget process, in bytes. Longer output lines are cut.
 const MAX_LINE_BYTES: usize = 64 * 1024;
 
+/// One line of output from a widget process.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetProcessEvent {
@@ -22,6 +24,7 @@ pub struct WidgetProcessEvent {
     pub line: String,
 }
 
+/// The output stream a line came from.
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProcessStream {
@@ -29,15 +32,20 @@ pub enum ProcessStream {
     Stderr,
 }
 
+/// A running widget process and its input pipe.
 struct ManagedProcess {
     child: Child,
     stdin: ChildStdin,
 }
 
+/// Starts, feeds, and stops the processes widgets declare, and buffers their output.
+///
+/// Processes are keyed by widget ID and process ID. Dropping the manager stops them all.
 pub struct WidgetProcessManager {
     processes: HashMap<(String, String), ManagedProcess>,
     events_tx: SyncSender<WidgetProcessEvent>,
     events_rx: Receiver<WidgetProcessEvent>,
+    /// Events read from the channel but not yet taken by their widget.
     pending_events: VecDeque<WidgetProcessEvent>,
 }
 
@@ -54,6 +62,10 @@ impl Default for WidgetProcessManager {
 }
 
 impl WidgetProcessManager {
+    /// Starts a declared process with arguments from its allow list.
+    ///
+    /// The executable must resolve inside the widget folder. Fails when the process is already
+    /// running; an exited process is replaced.
     pub fn start(
         &mut self,
         widget_id: &str,
@@ -117,6 +129,7 @@ impl WidgetProcessManager {
         Ok(())
     }
 
+    /// Writes one line of JSON to the process's input.
     pub fn send(&mut self, widget_id: &str, process_id: &str, message: &str) -> Result<(), String> {
         if message.len() > MAX_LINE_BYTES || message.contains(['\n', '\r']) {
             return Err("Widget process messages must be one line under 64 KB.".into());
@@ -135,6 +148,7 @@ impl WidgetProcessManager {
             .map_err(|_| "Couldn't send data to the widget process.".to_string())
     }
 
+    /// Kills and waits for the process. Stopping a missing or exited process succeeds.
     pub fn stop(&mut self, widget_id: &str, process_id: &str) -> Result<(), String> {
         let Some(mut process) = self
             .processes
@@ -160,6 +174,7 @@ impl WidgetProcessManager {
         Ok(())
     }
 
+    /// Stops every process a widget started.
     pub fn stop_widget(&mut self, widget_id: &str) {
         let ids: Vec<_> = self
             .processes
@@ -172,6 +187,7 @@ impl WidgetProcessManager {
         }
     }
 
+    /// Stops every process.
     pub fn stop_all(&mut self) {
         let ids: Vec<_> = self.processes.keys().cloned().collect();
         for (widget_id, process_id) in ids {
@@ -179,6 +195,7 @@ impl WidgetProcessManager {
         }
     }
 
+    /// Returns and removes the widget's buffered output, keeping other widgets' output.
     pub fn drain_events(&mut self, widget_id: &str) -> Vec<WidgetProcessEvent> {
         self.pending_events.extend(self.events_rx.try_iter());
         let mut matching = Vec::new();
@@ -201,6 +218,7 @@ impl Drop for WidgetProcessManager {
     }
 }
 
+/// Resolves `relative` inside `root`, rejecting paths that escape it or aren't files.
 fn canonical_child(root: &Path, relative: &str) -> Result<PathBuf, String> {
     let candidate = root.join(relative);
     let resolved = candidate
@@ -212,6 +230,7 @@ fn canonical_child(root: &Path, relative: &str) -> Result<PathBuf, String> {
     Ok(resolved)
 }
 
+/// Allows at most 32 arguments of up to 1 KB, each from the declaration's allow list.
 fn validate_arguments(declaration: &WidgetProcess, arguments: &[String]) -> Result<(), String> {
     if arguments.len() > 32
         || arguments.iter().any(|argument| {
@@ -223,6 +242,8 @@ fn validate_arguments(declaration: &WidgetProcess, arguments: &[String]) -> Resu
     Ok(())
 }
 
+/// Reads a stream line by line on a background thread and sends each line as an event until
+/// the stream closes or the manager is dropped.
 fn spawn_reader<R: std::io::Read + Send + 'static>(
     sender: SyncSender<WidgetProcessEvent>,
     widget_id: String,

@@ -7,9 +7,11 @@ on:
     - cron: "17 */12 * * *"
   release:
     types: [published]
+  workflow_call:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: read
   pages: write
   id-token: write
@@ -39,3 +41,9 @@ jobs:
           path: _site
       - id: deploy
         uses: actions/deploy-pages@v4
+      # GitHub disables scheduled workflows after 60 days without repository activity, which
+      # would let the manifest expire. Re-enabling through the API resets that timer.
+      - name: Keep the schedule enabled
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/pages.yml/enable"
+        env:
+          GH_TOKEN: ${{ github.token }}

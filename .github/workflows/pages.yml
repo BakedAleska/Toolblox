@@ -51,26 +51,38 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+      - id: started
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
       - id: deploy
         uses: actions/deploy-pages@v4
-      # Keeps the newest successful deployment, which is the one serving the site, and deletes
-      # the rest, including failed attempts.
+      # Deletes every other deployment once this run's deployment reports success. Nothing is
+      # deleted if it can't be confirmed, so the deployment serving the site is never removed.
       - name: Remove older deployments
-        if: always()
         run: |
-          kept=""
-          for id in $(gh api --paginate "repos/$GITHUB_REPOSITORY/deployments?environment=github-pages&per_page=100" --jq '.[].id'); do
-            state=$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses?per_page=1" --jq '.[0].state // ""')
-            if [ -z "$kept" ] && [ "$state" = "success" ]; then
-              kept=$id
-              continue
-            fi
-            gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" -f state=inactive > /dev/null
-            gh api -X DELETE "repos/$GITHUB_REPOSITORY/deployments/$id" > /dev/null
+          api="repos/$GITHUB_REPOSITORY/deployments"
+          current=""
+          for attempt in $(seq 1 30); do
+            for id in $(gh api "$api?environment=github-pages&per_page=20" --jq ".[] | select(.created_at >= \"$STARTED\") | .id"); do
+              if [ "$(gh api "$api/$id/statuses?per_page=1" --jq '.[0].state // ""')" = "success" ]; then
+                current=$id
+                break 2
+              fi
+            done
+            sleep 10
           done
-          echo "Kept deployment ${kept:-none}."
+          if [ -z "$current" ]; then
+            echo "::warning::This run's deployment wasn't confirmed, so no deployments were removed."
+            exit 0
+          fi
+          for id in $(gh api --paginate "$api?environment=github-pages&per_page=100" --jq '.[].id'); do
+            [ "$id" = "$current" ] && continue
+            gh api -X POST "$api/$id/statuses" -f state=inactive > /dev/null
+            gh api -X DELETE "$api/$id" > /dev/null
+          done
+          echo "Kept deployment $current."
         env:
           GH_TOKEN: ${{ github.token }}
+          STARTED: ${{ steps.started.outputs.at }}
       # GitHub disables scheduled workflows after 60 days without repository activity, which
       # would let the manifest expire. Re-enabling through the API resets that timer.
       - name: Keep the schedule enabled

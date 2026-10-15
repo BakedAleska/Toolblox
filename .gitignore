@@ -26,3 +26,5 @@ dist-ssr
 # Release output
 _site
 .impeccable
+THIRD-PARTY-NOTICES.txt
+.astro

@@ -53,6 +53,7 @@ examples live in `src/demo-widgets/`.
 | `addToSlot(slot, Component, { order })` | Adds to a slot. See the table below. |
 | `addStyles(css)` | Adds a stylesheet to the whole app, for example to override theme tokens on `:root`. |
 | `storage.get()`, `storage.set(value)` | One JSON value for the widget, up to 1 MB. |
+| `log.debug(message)`, `log.info`, `log.warn`, `log.error` | Writes to the Toolblox log under `widget:<id>`. |
 | `request(method, params)` | Every IPC method below, with all permissions granted. |
 
 Every registration returns a function that removes it. Toolblox also removes all of a widget's
@@ -99,7 +100,49 @@ Methods are listed in [`widget-ipc-v1.schema.json`](../schemas/widget-ipc-v1.sch
 `process.poll`, and `process.stop` run executables declared under `optional-bin/` with their
 exact allowed arguments.
 
+`log.write` takes `{ "message": string, "level"?: "debug" | "info" | "warn" | "error" }` and needs
+no permission. Levels default to `info`.
+
+## Logs
+
+Toolblox writes one log for the app and its widgets: `v2/logs/toolblox.log` in the data folder,
+rotated at 1 MB with three older files kept. **Settings > Diagnostics** shows, copies, and opens
+it. Widget records appear under `widget:<id>`, along with failed IPC requests, render and load
+errors caught by the host, process starts and stops, and the first 200 lines of each process's
+error output.
+
+Release builds keep `info` and above; development builds also keep `debug`. Before a line is
+written, Toolblox removes Roblox session cookies, join tickets, launch links, and the values of
+keys such as `authorization`, `cookie`, `token`, and `password`. Messages over 8 KB are cut.
+Redaction is a safety net, so widgets should still avoid logging secrets.
+
 ## Catalogue
 
 The catalogue signs its exact JSON bytes with Ed25519. Each entry pins the package SHA-256 and
 lists the widget's permissions. Changing whitespace after signing invalidates the signature.
+
+### Publishing
+
+Submitting a widget to the catalogue confirms that:
+
+- you wrote it or have the right to distribute it, and its source is available under an
+  [OSI-approved license](https://opensource.org/licenses) named in the submission;
+- it follows the [Roblox Terms of Use](https://www.roblox.com/info/terms) and the rules of the
+  game it supports;
+- it doesn't use Roblox or Toolblox names, logos, or wording that suggests endorsement.
+
+Review rejects widgets that:
+
+- play, farm, or act in a game without the user, or automate input to the Roblox client;
+- read or change Roblox client memory or files, or inject code into the client, including
+  through `optional-bin/` executables;
+- send account names, user IDs, notes, or widget data anywhere the widget's description doesn't
+  state;
+- trade, sell, transfer, or share accounts, Robux, or items outside Roblox's own features;
+- collect personal information from users, include advertising, or charge for access;
+- hide what they do, such as through obfuscated code or downloaded scripts.
+
+Listing a widget grants Toolblox the right to distribute the reviewed package. Toolblox can remove
+a widget from the catalogue at any time, including when it breaks these rules, when Roblox
+changes make it unsafe, or after a valid legal request. Report a widget, or request a copyright or
+trademark takedown, in a [GitHub issue](https://github.com/BakedAleska/Toolblox/issues).

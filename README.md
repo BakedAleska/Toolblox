@@ -4,7 +4,7 @@
 
 <p align="center">A local-first desktop app for managing and launching Roblox accounts.</p>
 
-<p align="center"><a href="https://github.com/BakedAleska/Toolblox/releases/latest/download/Toolblox-Setup.exe"><b>Download for Windows</b></a> · <a href="https://bakedaleska.github.io/Toolblox/">Website</a> · <a href="https://github.com/BakedAleska/Toolblox/releases">Releases</a></p>
+<p align="center"><a href="https://github.com/BakedAleska/Toolblox/releases/latest/download/Toolblox-Setup.exe"><b>Download for Windows</b></a> · <a href="https://toolblox.dev/">Website</a> · <a href="https://github.com/BakedAleska/Toolblox/releases">Releases</a></p>
 
 > [!IMPORTANT]
 > Toolblox is installed with **Toolblox-Setup.exe**. The "Source code (zip)" files on the
@@ -42,6 +42,9 @@ first launch.
 - Account names, notes, settings, and widget data stay in the local Toolblox data folder.
 - Roblox sessions are stored in Windows Credential Manager or the macOS login Keychain. They
   aren't exposed to the interface, widgets, logs, or any Toolblox server.
+- A diagnostic log stays in the data folder and is never uploaded. Cookies, join tickets, and
+  launch links are removed before each line is written. **Settings > Diagnostics** can show,
+  copy, or open it for bug reports.
 - Toolblox has no hosted account database and no telemetry. It contacts Roblox to sign in, join,
   and check status, and GitHub Pages to check for updates and widgets.
 - Updates are checked against a signed, short-lived manifest with rollback protection, and each
@@ -50,7 +53,17 @@ first launch.
   widgets run with the same access as the app, so only install widgets you trust.
 
 Uninstalling keeps local data so an accidental uninstall doesn't erase accounts. Delete
-`%LOCALAPPDATA%\Toolblox` to remove it. See [SECURITY.md](SECURITY.md) to report a vulnerability.
+`%LOCALAPPDATA%\Toolblox` to remove it. See [PRIVACY.md](PRIVACY.md) for every network connection
+and [SECURITY.md](SECURITY.md) to report a vulnerability.
+
+## Disclaimer
+
+Toolblox isn't affiliated with, endorsed by, or sponsored by Roblox Corporation. Roblox is a
+trademark of Roblox Corporation.
+
+Using Toolblox is subject to the [Roblox Terms of Use](https://www.roblox.com/info/terms).
+Roblox decides how its terms apply to third-party tools and may restrict accounts that use them.
+Toolblox is provided as is, without warranty, under the [MIT License](LICENSE).
 
 ## Development
 
@@ -76,9 +89,10 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-The [API docs](https://bakedaleska.github.io/Toolblox/docs/) are generated from the Rust doc
+The [API docs](https://toolblox.dev/api/) are generated from the Rust doc
 comments on every change. See [CONTRIBUTING.md](CONTRIBUTING.md),
 [docs/RELEASING.md](docs/RELEASING.md) for releases, and [docs/WIDGETS.md](docs/WIDGETS.md) for the
 widget contract.
 
-Toolblox is available under the [MIT License](LICENSE).
+Toolblox is available under the [MIT License](LICENSE). Each release includes
+`THIRD-PARTY-NOTICES.txt` with the licenses of the software it's built from.

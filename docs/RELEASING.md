@@ -36,8 +36,9 @@ it instead of deploying themselves, and only `main` may deploy to the `github-pa
 Deploys run one at a time. After each one, every deployment except the newest successful one is
 deleted, so the repository keeps a single deployment.
 
-The site contains the download page from `site/`, the update manifest and widget catalogue, and
-the API docs under `/docs/`. The Docs workflow regenerates the API docs with rustdoc whenever Rust
+The site contains the Astro project in `site/` (the download page, and the widget docs built with
+Starlight under `/docs/`), the update manifest and widget catalogue, and the API docs under
+`/api/`. The Docs workflow regenerates the API docs with rustdoc whenever Rust
 code changes and replaces the `docs` branch with a single commit of the output.
 
 ## Domain
@@ -77,10 +78,24 @@ build with a new public key, which existing installs can't update to automatical
 
 ## Assets
 
-Every release has exactly one download, `Toolblox-Setup.exe`, plus `Toolblox-Setup.exe.sig` for
-the updater. The README and download page link to
+Every release has exactly one download, `Toolblox-Setup.exe`, plus `Toolblox-Update.exe` (the
+same bytes, which the update manifest points to), `Toolblox-Setup.exe.sig` for the updater, and
+`THIRD-PARTY-NOTICES.txt`, which `scripts/third-party-notices.mjs` generates from
+the Rust crates and npm packages in the build. Settings links to the notices of the installed
+version. The README and download page link to
 `releases/latest/download/Toolblox-Setup.exe`, so the name must not change. Don't attach ZIP
 files; people extract them and try to run the app without installing it.
 
 macOS builds need `npm run tauri build -- --bundles app,dmg` on macOS and a `darwin-*` entry in
 the manifest. They aren't published yet.
+
+## Usage
+
+Toolblox has no telemetry. Updates and manifest builds download `Toolblox-Update.exe`, so the
+`Toolblox-Setup.exe` count is manual downloads only and the `Toolblox-Update.exe` count
+approximates updates. Releases without `Toolblox-Update.exe` mix both, plus one download per
+Pages deploy, and the download page leaves them out:
+
+```sh
+gh api repos/BakedAleska/Toolblox/releases --jq '.[] | "\(.tag_name) \([.assets[] | "\(.name)=\(.download_count)"] | join(" "))"'
+```

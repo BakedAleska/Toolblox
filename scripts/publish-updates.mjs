@@ -1,14 +1,16 @@
 /**
  * Builds the signed update manifest and widget catalogue for GitHub Pages.
  *
- * Reads the latest GitHub release, hashes its Windows installer, and writes `_site/` from `site/`
- * plus `updates/stable.json` and `catalogue/v1.json`, each with a detached Ed25519 `.sig`.
+ * Reads the latest GitHub release, hashes its Windows installer, and writes `_site/` from the
+ * built site in `site/dist/` plus `updates/stable.json` and `catalogue/v1.json`, each with a detached Ed25519 `.sig`.
  * Private keys are base64 32-byte seeds in `MANIFEST_PRIVATE_KEY` and `CATALOGUE_PRIVATE_KEY`.
  */
 import { createHash, createPrivateKey, sign } from "node:crypto";
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 
 const INSTALLER = "Toolblox-Setup.exe";
+/** The same installer under a second name, so updates and manifest builds stay out of the download count of `INSTALLER`. Older releases don't have it. */
+const UPDATER_INSTALLER = "Toolblox-Update.exe";
 const MANIFEST_LIFETIME = 7 * 24 * 60 * 60;
 const CLOCK_ALLOWANCE = 60 * 60;
 
@@ -44,7 +46,7 @@ const asset = (name) => {
   if (!found) throw new Error(`Release ${release.tag_name} has no ${name} asset.`);
   return found;
 };
-const installer = asset(INSTALLER);
+const installer = release.assets.find((entry) => entry.name === UPDATER_INSTALLER) ?? asset(INSTALLER);
 const version = release.tag_name.replace(/^v/, "");
 if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`Release tag ${release.tag_name} isn't a semantic version.`);
 
@@ -54,7 +56,7 @@ const now = Math.floor(Date.now() / 1000);
 const publishedAt = now - CLOCK_ALLOWANCE;
 
 rmSync("_site", { recursive: true, force: true });
-cpSync("site", "_site", { recursive: true });
+cpSync("site/dist", "_site", { recursive: true });
 mkdirSync("_site/updates", { recursive: true });
 mkdirSync("_site/catalogue", { recursive: true });
 writeFileSync("_site/.nojekyll", "");

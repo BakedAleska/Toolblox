@@ -80,6 +80,23 @@ changes before they are merged or released.
   cryptographic update signatures and transparent, reproducible evidence without claiming that
   the Windows executable itself is commercially signed.
 
+## Planned Widget Capabilities
+
+These aren't built yet. Each replaces the matching constraint above once it ships.
+
+- Widget authors aren't limited to premade tools. Module widgets get the same reach as the app's
+  own source, including opening their own windows, and the host API grows to match rather than
+  wrapping them in narrow helpers.
+- Release builds can install widgets that aren't in the catalogue. Installing one shows clear,
+  repeated warnings that the widget is unreviewed and runs with full access, and the widget stays
+  marked as unreviewed while installed.
+- Users can turn an existing tool into a widget through a simple import, which generates a widget
+  that wraps it. AutoHotkey scripts come first, then general applications. The wrapper starts,
+  stops, and shows the tool from Toolblox. Wrapped tools follow the same catalogue review rules as
+  other widgets when published.
+- The Starlight docs at `toolblox.dev/docs/` serve committed widget authors, and cover the full
+  host API, windows, processes, and packaging in depth.
+
 ## Brand Commitments
 
 The product name is Toolblox. Its voice is plain, factual, concise, and reassuring without
@@ -104,8 +121,11 @@ must distinguish what Toolblox can substantiate from what it can't guarantee.
   be presented until they exist for the exact published artifacts.
 - The project doesn't currently have a paid code-signing certificate. Future copy must not imply
   that releases are commercially signed unless this changes.
-- No testimonials, adoption metrics, independent security audit, or formal security
-  certification are currently established and must not be fabricated.
+- No testimonials, independent security audit, or formal security certification are currently
+  established and must not be fabricated.
+- The only adoption metric is GitHub's public download count for `Toolblox-Setup.exe` on
+  releases that also have `Toolblox-Update.exe`. It excludes automatic updates but can include
+  repeat downloads, so copy must call it downloads, never users or installs.
 
 ## Product Principles
 

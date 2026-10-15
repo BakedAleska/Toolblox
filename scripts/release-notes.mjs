@@ -34,7 +34,7 @@ Open the installer and follow the steps. If Windows shows "Windows protected you
 Installed copies update themselves the next time they open.
 
 > [!IMPORTANT]
-> **Toolblox-Setup.exe is the only file you need.** "Source code (zip)" and "Source code (tar.gz)" are added by GitHub automatically and don't contain the app. \`Toolblox-Setup.exe.sig\` is used by the updater.
+> **Toolblox-Setup.exe is the only file you need.** "Source code (zip)" and "Source code (tar.gz)" are added by GitHub automatically and don't contain the app. \`Toolblox-Update.exe\` and \`Toolblox-Setup.exe.sig\` are used by the updater.
 
 ## Changes
 

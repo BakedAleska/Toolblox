@@ -71,6 +71,8 @@ jobs:
           mkdir release
           cp "src-tauri/target/release/bundle/nsis/Toolblox_${VERSION}_x64-setup.exe" release/Toolblox-Setup.exe
           cp "src-tauri/target/release/bundle/nsis/Toolblox_${VERSION}_x64-setup.exe.sig" release/Toolblox-Setup.exe.sig
+          cp release/Toolblox-Setup.exe release/Toolblox-Update.exe
+          node scripts/third-party-notices.mjs release/THIRD-PARTY-NOTICES.txt
           sha256sum release/Toolblox-Setup.exe
       - uses: actions/upload-artifact@v4
         with:
@@ -87,7 +89,7 @@ jobs:
           git push origin HEAD:main "v$VERSION"
           sha=$(sha256sum release/Toolblox-Setup.exe | cut -d' ' -f1)
           node scripts/release-notes.mjs "$VERSION" "$sha" > notes.md
-          gh release create "v$VERSION" --title "Toolblox ${VERSION/-/ }"--notes-file notes.md --latest release/Toolblox-Setup.exe release/Toolblox-Setup.exe.sig
+          gh release create "v$VERSION" --title "Toolblox ${VERSION/-/ }" --notes-file notes.md --latest release/Toolblox-Setup.exe release/Toolblox-Setup.exe.sig release/Toolblox-Update.exe release/THIRD-PARTY-NOTICES.txt
 
   pages:
     needs: release

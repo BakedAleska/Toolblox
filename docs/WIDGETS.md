@@ -44,7 +44,7 @@ examples live in `src/demo-widgets/`.
 | Member | Purpose |
 | --- | --- |
 | `widget` | This widget's `id`, `name`, and `version`. |
-| `React`, `ui` | The app's React instance and components: `Avatar`, `Badge`, `Button`, `Checkbox`, `ChoiceRow`, `DropdownMenu*`, `EmptyState`, `IconButton`, `Input`, `Panel`, `SectionTitle`, `Spinner`, `StatTile`, `Switch`, `SwitchRow`, `Tabs*`, `ToggleGroup*`, `Tooltip*`, and `cn`. |
+| `React`, `ui` | The app's React instance and components: `AccountCard`, `AccountName`, `Avatar`, `Badge`, `Button`, `Checkbox`, `ChoiceRow`, `DropdownMenu*`, `EmptyState`, `IconButton`, `Input`, `Panel`, `SectionTitle`, `Spinner`, `StatTile`, `Switch`, `SwitchRow`, `Tabs*`, `ToggleGroup*`, `Tooltip*`, and `cn`. |
 | `getState()`, `useAppState()`, `onStateChange(listener)` | Current app state: accounts, settings, widgets, and recent places. |
 | `navigate(route)`, `notify(message)`, `refresh()`, `join(accountIds)` | App actions, including the Join flow with its place prompt. |
 | `registerPage(Component)` | The widget's page at `/widgets/<id>`. |

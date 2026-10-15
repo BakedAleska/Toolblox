@@ -13,30 +13,24 @@ export function Dashboard({ state, navigate, join }: ScreenProps) {
   const recent = sortAccounts(accounts.filter(({ lastPlaceId }) => lastPlaceId), "last_played");
 
   return <Screen title="Dashboard">
-    <Panel className="flex flex-wrap items-center gap-4 rounded-2xl p-5">
-      {hero ? <>
-        {settings.showAvatars && <Avatar account={hero} className="size-14" />}
-        <div className="min-w-0 flex-1">
-          <p className="text-xs text-muted-foreground">Continue as</p>
-          <p className="truncate text-lg font-semibold tracking-tight">{accountName(hero)}</p>
-          <p className="truncate text-xs text-muted-foreground">
-            {presenceLabel(hero) || relativeTime(hero.lastPlayedAt)}{place && ` · ${placeLabel(state, place)}`}
-          </p>
-        </div>
-        <Button size="lg" className="px-4" onClick={() => join([hero.id])}><Play />Join</Button>
-      </> : <>
-        <div className="min-w-0 flex-1">
-          <p className="font-semibold">No accounts</p>
-          <p className="text-sm text-muted-foreground">Add a Roblox account to begin.</p>
-        </div>
-        <Button size="lg" className="px-4" onClick={() => navigate("/accounts")}><Plus />Add account</Button>
-      </>}
-    </Panel>
+    {hero ? <AccountCard account={hero} showAvatar={settings.showAvatars} avatarClassName="size-14" nameClassName="text-lg font-semibold tracking-tight"
+      className="flex-wrap gap-4 rounded-2xl p-5" eyebrow={<p className="text-xs text-muted-foreground">Continue as</p>}
+      actions={<Button size="lg" className="px-4" onClick={() => join([hero.id])}><Play />Join</Button>}>
+      <p className="truncate text-xs text-muted-foreground">
+        {presenceLabel(hero) || relativeTime(hero.lastPlayedAt)}{place && ` · ${placeLabel(state, place)}`}
+      </p>
+    </AccountCard> : <Panel className="flex flex-wrap items-center gap-4 rounded-2xl p-5">
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold">No accounts</p>
+        <p className="text-sm text-muted-foreground">Add a Roblox account to begin.</p>
+      </div>
+      <Button size="lg" className="px-4" onClick={() => navigate("/accounts")}><Plus />Add account</Button>
+    </Panel>}
 
     <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
       <StatTile icon={<Users />} label="Accounts" value={accounts.length} onClick={() => navigate("/accounts")} />
       <StatTile icon={<Gamepad2 />} label="In game" value={inGame} onClick={() => navigate("/accounts")} />
-      <StatTile icon={<Puzzle />} label="Widgets enabled" value={`${enabledWidgets.length}/${installedWidgets.length}`} onClick={() => navigate("/widgets")} />
+      <StatTile icon={<Puzzle />} label="Widgets enabled" value={`${enabledWidgets.length}/${installedWidgets.length}`} onClick={WIDGETS_AVAILABLE ? () => navigate("/widgets") : undefined} />
       <WidgetSlot name="dashboard.stats" props={{}} />
     </div>
 
@@ -45,14 +39,10 @@ export function Dashboard({ state, navigate, join }: ScreenProps) {
       <div className="flex flex-col gap-2">
         {recent.map((account) => {
           const lastPlace = placeLabel(state, account.lastPlaceId!);
-          return <Panel key={account.id} className="flex items-center gap-3 px-4 py-3">
-            {settings.showAvatars && <Avatar account={account} className="size-8" />}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{accountName(account)}</p>
-              <p className="truncate text-xs text-muted-foreground" title={`Place ID ${account.lastPlaceId}`}>{lastPlace} · {relativeTime(account.lastPlayedAt)}</p>
-            </div>
-            <Button variant="outline" size="sm" aria-label={`Join ${lastPlace} as ${accountName(account)}`} onClick={() => join([account.id], account.lastPlaceId)}><Play />Join</Button>
-          </Panel>;
+          return <AccountCard key={account.id} account={account} showAvatar={settings.showAvatars} avatarClassName="size-8" className="px-4 py-3"
+            actions={<Button variant="outline" size="sm" aria-label={`Join ${lastPlace} as ${accountName(account)}`} onClick={() => join([account.id], account.lastPlaceId)}><Play />Join</Button>}>
+            <p className="truncate text-xs text-muted-foreground" title={`Place ID ${account.lastPlaceId}`}>{lastPlace} · {relativeTime(account.lastPlayedAt)}</p>
+          </AccountCard>;
         })}
       </div>
     </section>}

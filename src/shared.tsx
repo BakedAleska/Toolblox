@@ -1,7 +1,8 @@
-import { LoaderCircle, UserRound } from "lucide-react";
+import { Eye, HardDrive, LoaderCircle, ShieldCheck, UserRound } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { bridge } from "@/bridge";
+import { accountName } from "@/logic";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -82,6 +83,79 @@ export function Avatar({ account, className }: { account: Account; className?: s
     {account.avatarUrl ? <img className="size-full rounded-full object-cover" src={account.avatarUrl} alt="" /> : <UserRound className="size-1/2" />}
     {account.presence !== "offline" && <span className={cn("absolute right-0 bottom-0 size-2.5 rounded-full ring-2 ring-card", account.presence === "playing" ? "bg-success" : "bg-warning")} />}
   </span>;
+}
+
+/** An account's name that fades into its Roblox user ID while the name is hovered. The two
+ * crossfade after a short pause, and visibility follows the fade so only the text on screen can be
+ * clicked or selected. The shown text stays put while the pointer is pressed on it or part of it is
+ * selected. Pointer events only prompt a check: the swap follows `:hover`, because a pointer leave
+ * during a text selection isn't always reported. Selecting the ID never includes its label. */
+export function AccountName({ account, className }: { account: Account; className?: string }) {
+  const root = useRef<HTMLSpanElement>(null);
+  const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+  const [selected, setSelected] = useState(false);
+  const [showId, setShowId] = useState(false);
+  useEffect(() => {
+    const update = () => { const selection = getSelection(); setSelected(!!selection && !selection.isCollapsed && !!root.current?.contains(selection.anchorNode)); };
+    document.addEventListener("selectionchange", update);
+    return () => document.removeEventListener("selectionchange", update);
+  }, []);
+  useEffect(() => {
+    if (!pressed) return;
+    const release = () => setPressed(false);
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
+    return () => { window.removeEventListener("pointerup", release); window.removeEventListener("pointercancel", release); };
+  }, [pressed]);
+  useEffect(() => {
+    if (pressed || selected) return;
+    const timeout = window.setTimeout(() => {
+      const over = root.current?.matches(":hover") ?? false;
+      setHovered(over);
+      setShowId(over);
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [hovered, pressed, selected]);
+  const fade = "col-start-1 row-start-1 truncate transition-[opacity,visibility] duration-300 ease-in-out motion-reduce:transition-none";
+  return <span ref={root} data-slot="account-name" className={cn("inline-grid max-w-full min-w-0", className)}
+    onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)} onPointerDown={() => setPressed(true)}>
+    <span className={cn(fade, showId && "invisible opacity-0")}>{accountName(account)}</span>
+    <span className={cn(fade, "tabular-nums", !showId && "invisible opacity-0")} aria-hidden="true">
+      <span className="font-normal text-muted-foreground select-none">UserId</span> <span className="select-text">{account.id}</span>
+    </span>
+  </span>;
+}
+
+/** One account as a card: avatar, name, and the surface's own details and actions. */
+export function AccountCard({ account, showAvatar, avatarClassName, nameClassName, leading, eyebrow, inline, children, actions, className, ...props }: {
+  account: Account;
+  showAvatar: boolean;
+  avatarClassName?: string;
+  nameClassName?: string;
+  /** Controls before the avatar, such as a drag handle or checkbox. */
+  leading?: ReactNode;
+  /** A short line above the name. */
+  eyebrow?: ReactNode;
+  /** Badges beside the name. */
+  inline?: ReactNode;
+  /** Details below the name. */
+  children?: ReactNode;
+  actions?: ReactNode;
+} & Omit<ComponentProps<"div">, "children">) {
+  return <Panel className={cn("flex items-center gap-3", className)} {...props}>
+    {leading}
+    {showAvatar && <Avatar account={account} className={avatarClassName} />}
+    <div className="min-w-0 flex-1">
+      {eyebrow}
+      <div className="flex min-w-0 items-center gap-2">
+        <AccountName account={account} className={cn("text-sm font-medium", nameClassName)} />
+        {inline}
+      </div>
+      {children}
+    </div>
+    {actions}
+  </Panel>;
 }
 
 export const presenceLabel = (account: Account) => {

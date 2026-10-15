@@ -11,7 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { bridge, describeError } from "@/bridge";
 import { cn } from "@/lib/utils";
-import { Avatar, ChoiceRow, EmptyState, IconButton, Panel, SectionTitle, Spinner, StatTile, SwitchRow } from "@/shared";
+import { AccountCard, AccountName, Avatar, ChoiceRow, EmptyState, IconButton, Panel, SectionTitle, Spinner, StatTile, SwitchRow } from "@/shared";
 import type { Account, AppRoute, AppState, LogLevel, WidgetSummary } from "@/types";
 
 const logLevels: LogLevel[] = ["debug", "info", "warn", "error"];
@@ -68,7 +68,7 @@ const track = (widgetId: string, dispose: () => void) => {
 
 /** Shared UI so widget interfaces match the rest of the app. */
 const ui = {
-  Avatar, Badge, Button, Checkbox, ChoiceRow, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+  AccountCard, AccountName, Avatar, Badge, Button, Checkbox, ChoiceRow, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
   EmptyState, IconButton, Input, Panel, SectionTitle, Spinner, StatTile, Switch, SwitchRow, Tabs, TabsContent, TabsList, TabsTrigger,
   ToggleGroup, ToggleGroupItem, Tooltip, TooltipContent, TooltipTrigger, cn,
 };

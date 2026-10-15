@@ -90,45 +90,48 @@ export function Accounts({ state, refresh, notify, confirm, join, askPlace, patc
       <Button size="sm" disabled={!selected.size} onClick={() => join([...selected])}><Play />Join selected</Button>
     </Panel>}
 
-    {state.accounts.length === 0 ? <EmptyState icon={<Users />} title="No accounts" text="Accounts are added through the official Roblox sign-in page. Passwords are never sent to Toolblox." action={<Button onClick={() => void addAccount()} disabled={adding}><Plus />Add account</Button>} />
+    {state.accounts.length === 0 ? <EmptyState icon={<Users />} title="No accounts" text="Accounts sign in through the official Roblox page. Passwords never reach Toolblox." action={<Button onClick={() => void addAccount()} disabled={adding}><Plus />Add account</Button>} />
       : visible.length === 0 ? <EmptyState icon={<Search />} title="No results" text="No account matches this search." />
-      : <div className="flex flex-col gap-2">{visible.map((account, index) => <Panel key={account.id} data-account-id={account.id}
-          className={cn("group flex items-center gap-3 px-3 transition-opacity", settings.compactMode ? "py-1.5" : "py-2.5", dragged === account.id && "opacity-50", over === account.id && dragged !== account.id && "ring-2 ring-ring")}>
-        {reorderable && <GripVertical className="size-4 shrink-0 cursor-grab touch-none text-muted-foreground/50 group-hover:text-muted-foreground active:cursor-grabbing" aria-hidden="true"
-          onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); setDragged(account.id); }}
-          onPointerMove={(event) => { if (dragged !== undefined) setOver(rowAt(event)); }}
-          onPointerUp={(event) => drop(rowAt(event))} onPointerCancel={() => drop()} />}
-        {selectMode && <Checkbox checked={selected.has(account.id)} onCheckedChange={() => toggleSelection(account.id)} aria-label={`Select ${accountName(account)}`} />}
-        {settings.showAvatars && <Avatar account={account} className={settings.compactMode ? "size-8" : "size-10"} />}
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-sm font-medium">{accountName(account)}</span>
+        : <div className="flex flex-col gap-2">{visible.map((account, index) => <AccountCard key={account.id} data-account-id={account.id} account={account}
+          showAvatar={settings.showAvatars} avatarClassName={settings.compactMode ? "size-8" : "size-10"}
+          className={cn("group px-3 transition-opacity", settings.compactMode ? "py-1.5" : "py-2.5", dragged === account.id && "opacity-50", over === account.id && dragged !== account.id && "ring-2 ring-ring")}
+          leading={<>
+            {reorderable && <GripVertical className="size-4 shrink-0 cursor-grab touch-none text-muted-foreground/50 group-hover:text-muted-foreground active:cursor-grabbing" aria-hidden="true"
+              onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); setDragged(account.id); }}
+              onPointerMove={(event) => { if (dragged !== undefined) setOver(rowAt(event)); }}
+              onPointerUp={(event) => drop(rowAt(event))} onPointerCancel={() => drop()} />}
+            {selectMode && <Checkbox checked={selected.has(account.id)} onCheckedChange={() => toggleSelection(account.id)} aria-label={`Select ${accountName(account)}`} />}
+          </>}
+          inline={<>
             {account.displayName && account.displayName !== account.name && <span className="truncate text-xs text-muted-foreground">@{account.name}</span>}
             {account.placeId && <Badge variant="outline" title={`Place override: ${placeLabel(state, account.placeId)} (${account.placeId})`} className="min-w-0 shrink text-muted-foreground"><MapPin /><span className="truncate">{placeLabel(state, account.placeId)}</span></Badge>}
             {presenceLabel(account) && <Badge variant="secondary" title={presenceLabel(account)} className={cn("min-w-0 shrink", account.presence === "playing" ? "text-success" : "text-destructive")}><span className="truncate">{presenceLabel(account)}</span></Badge>}
-          </div>
+          </>}
+          actions={<>
+            <Button variant="outline" size="sm" onClick={() => join([account.id])} aria-label={`Join as ${accountName(account)}`}><Play />Join</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`More actions for ${accountName(account)}`} />}><MoreHorizontal /></DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-40">
+                {reorderable && <>
+                  <DropdownMenuItem disabled={index === 0} onClick={() => move(account.id, -1)}><ArrowUp />Move up</DropdownMenuItem>
+                  <DropdownMenuItem disabled={index === visible.length - 1} onClick={() => move(account.id, 1)}><ArrowDown />Move down</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>}
+                <DropdownMenuItem onClick={() => askPlace({
+                  title: `Place for ${accountName(account)}`, description: "Overrides the default place for this account.", action: "Save",
+                  run: (placeId) => setAccountPlace(account, placeId)
+                })}><MapPin />{account.placeId ? "Change place…" : "Set place…"}</DropdownMenuItem>
+                {account.placeId && <DropdownMenuItem onClick={() => void setAccountPlace(account, null)}><MapPinOff />Use default place</DropdownMenuItem>}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onClick={() => confirm({ title: `Remove ${accountName(account)}?`, message: "Removes the account and its saved session from this device.", action: "Remove", danger: true, run: async () => { await bridge.removeAccount(account.id); await refresh(); } })}><Trash2 />Remove</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>}>
           <WidgetSlot name="accounts.row" props={{ account }} wrap={(children) => <div className="mt-1 flex flex-wrap items-center gap-1.5">{children}</div>} />
           {!settings.compactMode && <textarea rows={1} defaultValue={account.notes} placeholder="Add a note" aria-label={`Notes for ${accountName(account)}`}
             className="-mx-1 mt-0.5 block max-h-16 w-full resize-none rounded-md bg-transparent px-1 text-xs text-muted-foreground outline-none [field-sizing:content] placeholder:text-muted-foreground/60 hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring/50"
             onBlur={(event) => { if (event.target.value !== account.notes) void bridge.updateAccountNotes(account.id, event.target.value).then(refresh).catch((error) => notify(`The note wasn't saved. Does retrying help? (${String(error)})`)); }} />}
-        </div>
-        <Button variant="outline" size="sm" onClick={() => join([account.id])} aria-label={`Join as ${accountName(account)}`}><Play />Join</Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`More actions for ${accountName(account)}`} />}><MoreHorizontal /></DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-40">
-            {reorderable && <>
-              <DropdownMenuItem disabled={index === 0} onClick={() => move(account.id, -1)}><ArrowUp />Move up</DropdownMenuItem>
-              <DropdownMenuItem disabled={index === visible.length - 1} onClick={() => move(account.id, 1)}><ArrowDown />Move down</DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </>}
-            <DropdownMenuItem onClick={() => askPlace({ title: `Place for ${accountName(account)}`, description: "Overrides the default place for this account.", action: "Save",
-              run: (placeId) => setAccountPlace(account, placeId) })}><MapPin />{account.placeId ? "Change place…" : "Set place…"}</DropdownMenuItem>
-            {account.placeId && <DropdownMenuItem onClick={() => void setAccountPlace(account, null)}><MapPinOff />Use default place</DropdownMenuItem>}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onClick={() => confirm({ title: `Remove ${accountName(account)}?`, message: "Removes the account and its saved session from this device.", action: "Remove", danger: true, run: async () => { await bridge.removeAccount(account.id); await refresh(); } })}><Trash2 />Remove</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </Panel>)}</div>}
+        </AccountCard>)}</div>}
     <span className="sr-only" aria-live="polite">{adding ? "Roblox sign-in window open." : ""}</span>
   </Screen>;
 }

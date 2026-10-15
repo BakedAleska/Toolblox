@@ -96,7 +96,7 @@ What crosses to JavaScript is defined by explicit data transfer types in
 and [`models.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/models.rs):
 `AppStateDto`, `AccountView` (wrapping `AccountDto`), `SettingsDto`, `WidgetSummary`, and
 `CatalogueSummary`. None has a field for a session. `StoredAccount::validate` goes further and
-rejects legacy account fields that look like secrets, so they can't be persisted into
+rejects account fields that look like secrets, so they can't be persisted into
 `accounts.json` either.
 
 The log is the last line of defense. [`logs.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/logs.rs)
@@ -213,11 +213,10 @@ command shares:
 
 | Field | Purpose |
 | --- | --- |
-| `legacy_root` | The Toolblox data folder, where the legacy Flet app kept its files |
-| `storage` | `Storage` rooted at `<data folder>/v2` |
+| `storage` | `Storage` rooted at the data folder |
 | `credentials` | `OsCredentialStore` |
 | `client` | The shared HTTPS-only `reqwest::Client` |
-| `widgets_root` | `<data folder>/v2/widgets` |
+| `widgets_root` | `<data folder>/widgets` |
 | `catalogue`, `catalogue_error` | The verified widget catalogue, or why it couldn't load |
 | `processes` | `WidgetProcessManager` for widget sidecar processes |
 | `widget_sessions` | Active widget sessions, keyed by random UUID |
@@ -236,7 +235,7 @@ The main interface never renders until the update gate says it can. The order, f
 1. **Plugins.** `single-instance` (a second launch activates the existing window), `opener`,
    `notification`, and `updater` are registered, then the `widget` URI scheme protocol.
 2. **Setup.** The `autostart` plugin is added. The data folder is resolved, safe mode is
-   determined (`--safe-mode` or a one-time marker file), logging starts in `v2/logs`, and a
+   determined (`--safe-mode` or a one-time marker file), logging starts in `logs`, and a
    startup line records the version, build type, platform, and safe mode.
 3. **Runtime.** `Storage`, `OsCredentialStore`, the HTTP client, and the process manager are
    built into `Runtime`, which Tauri manages alongside `LifecycleState` and `StartupState`.
@@ -245,8 +244,8 @@ The main interface never renders until the update gate says it can. The order, f
    window (created hidden in `tauri.conf.json`) is shown.
 5. **Update gate.** `startup::run` is spawned. In release builds it downloads the signed update
    manifest, verifies it, and either marks startup `Ready` or installs the required update and
-   restarts. Debug builds skip the check. When ready, `prepare_local_data` imports legacy data
-   once and creates the widgets folder.
+   restarts. Debug builds skip the check. When ready, `prepare_local_data` creates the widgets
+   folder.
 6. **Interface.** Meanwhile React's `App` polls `startup_status` every 500 ms and renders the
    `UpdaterGate` screen (checking, installing, or failed with **Retry** and **Quit**). Only when
    the phase is `ready` does it call `get_app_state` and render the app.
@@ -298,14 +297,12 @@ reads and writes `settings.json` and `accounts.json`. One mutex serializes every
 critical section so concurrent read-modify-write updates can't lose changes.
 
 **[`models.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/models.rs)**
-defines the persisted types: `Settings` (with snake_case aliases for legacy files and unknown
-fields preserved), `StoredAccount`, `RecentPlace`, `PresenceState`, and the frontend-safe
+defines the persisted types: `Settings` (with unknown fields preserved), `StoredAccount`, `RecentPlace`, `PresenceState`, and the frontend-safe
 `AccountDto`, plus their validation.
 
 **[`credentials.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/credentials.rs)**
 wraps the OS credential store through the `keyring` crate, using the native Windows and Apple
-backends. It also decrypts legacy DPAPI-protected sessions and looks up legacy Keychain entries
-for migration.
+backends.
 
 **[`login.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/login.rs)** opens
 the isolated Roblox sign-in window, polls its cookies after each page load for a secure,
@@ -328,10 +325,6 @@ lets several Roblox clients run at once. On Windows, before each launch it lists
 `RobloxPlayerBeta.exe` processes with `tasklist.exe` and passes new process IDs to the bundled
 helper, which closes their singleton handles. On macOS, it removes the `/RobloxPlayerUniq`
 semaphore name and starts `RobloxPlayer` directly with the join URI.
-
-**[`migration.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/migration.rs)**
-imports the legacy Flet app's `accounts.json` and `settings.json` once, moving sessions into the
-credential store and rolling them back if saving the accounts fails.
 
 **[`lifecycle.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/lifecycle.rs)**
 owns window, tray, and single-instance behavior: the tray menu, the close decision (hide to tray

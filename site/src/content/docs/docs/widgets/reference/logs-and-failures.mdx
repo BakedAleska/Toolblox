@@ -22,10 +22,10 @@ and [`src-tauri/src/lib.rs`](https://github.com/BakedAleska/Toolblox/blob/main/s
 
 | | |
 | --- | --- |
-| File | `v2/logs/toolblox.log` in the data folder |
-| Windows | `%LOCALAPPDATA%\Toolblox\v2\logs\toolblox.log` |
-| macOS | `~/Library/Application Support/Toolblox/v2/logs/toolblox.log` |
-| Development override | Debug builds use `$TOOLBLOX_DATA_DIR/v2/logs/` when `TOOLBLOX_DATA_DIR` is set. |
+| File | `logs/toolblox.log` in the data folder |
+| Windows | `%LOCALAPPDATA%\Toolblox\logs\toolblox.log` |
+| macOS | `~/Library/Application Support/Toolblox/logs/toolblox.log` |
+| Development override | Debug builds use `$TOOLBLOX_DATA_DIR/logs/` when `TOOLBLOX_DATA_DIR` is set. |
 | Rotation | When a write would take the file past 1,000,000 bytes, it's renamed to `toolblox.log.1`, older files shift to `.2` and `.3`, and the oldest is deleted. |
 | Kept | The current file plus three older ones. |
 
@@ -198,7 +198,7 @@ Safe mode starts Toolblox for one session without loading any widget code.
 | Tray menu | **Restart without widgets** writes a one-time marker and restarts the app. |
 | Command line | Start Toolblox with `--safe-mode`. |
 
-The marker is a file named `safe-mode-next-launch` in the `v2` data folder. Toolblox deletes it
+The marker is a file named `safe-mode-next-launch` in the data folder. Toolblox deletes it
 as it starts, so the session after a safe mode session loads widgets again. **Restart normally**
 on the safe mode banner restarts without the marker.
 

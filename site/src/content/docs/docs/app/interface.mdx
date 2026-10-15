@@ -138,6 +138,16 @@ accounts are picked up by these reloads; see
 mode is `system`. Before the state loads the mode defaults to `system`, so the update screen
 already follows the OS.
 
+`useCustomTheme` in [`src/lib/theme.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/lib/theme.ts)
+loads the custom theme with `bridge.getTheme()` once startup is ready. The theme is plain CSS. It's
+applied through one constructed stylesheet, the same mechanism as `addStyles`, so it works under
+the CSP, and it cascades after `theme.css`, so setting a token such as `--primary` or `--radius`
+changes it everywhere. The stylesheet is replaced before the state updates, so a render can read the
+resulting token values with `getComputedStyle`. `<main>` carries a `data-page` attribute
+(`dashboard`, `accounts`, `widgets`, or `settings`) that the CSS can target, for example to set a
+background image as a data URL. In safe mode the stylesheet is emptied, so a broken theme can
+always be undone.
+
 ### Widget host wiring
 
 Two pieces of `App` connect the shell to
@@ -184,7 +194,7 @@ side.
 ### Safe mode banner
 
 When `state.safeMode` is true, a `role="status"` bar with a warning-coloured `ShieldAlert` icon
-reads "Safe mode. Widgets are off for this session." with a **Restart normally** button that calls
+reads "Safe mode. Widgets and the custom theme are off for this session." with a **Restart normally** button that calls
 `bridge.restartApp(false)`. The text carries the meaning; the colour is decorative.
 
 ### The main region
@@ -227,7 +237,8 @@ a string of digits or an `https://roblox.com/games/<id>/…` or `https://www.rob
 link and rejects everything else. It then asks Rust whether the place exists with
 `bridge.placeExists`; a network error counts as "exists" so an offline check doesn't block
 joining. Errors appear under the field with `aria-invalid` and `aria-describedby`. Choosing a
-recent place calls `run` directly.
+recent place calls `run` directly, and the button beside it removes the place with
+`bridge.forgetRecentPlace`.
 
 <Aside type="caution">
 Neither dialog is exposed to widgets. `AlertDialog` isn't in `toolblox.ui`, and `confirm` and
@@ -431,7 +442,7 @@ uses `state`, `navigate`, and `join`. It makes no bridge calls of its own.
 | Recently played | Accounts with a `lastPlaceId`, newest first. Each row shows the place label and relative time with a **Join** button labelled "Join `place` as `name`" that calls `join([id], lastPlaceId)`. |
 | `dashboard.sections` slot | Widget sections. |
 | Iframe tiles | One section per enabled widget with `hasDashboardTile`, titled with the widget name, rendering `WidgetFrame` on the `dashboard` surface. |
-| Footer | A privacy note: data is stored on this device, sessions are in the OS credential store, and no telemetry is collected. |
+| Footer | Icons for the three core commitments (free and open source, no injection, data stays on this device), each revealing its title when pressed, and a **Details** link to Settings. |
 
 `relativeTime` in `logic.ts` produces "Never played", "Last played just now", or "Last played
 `n`m/h/d ago", accepting timestamps in seconds or milliseconds.
@@ -450,7 +461,8 @@ uses `state`, `refresh`, `notify`, `confirm`, `join`, `askPlace`, and `patchSett
    with "Place `id` doesn't exist. Is the ID correct?". When no default is set, the icon, border,
    and placeholder turn destructive, and an `sr-only` hint says "No default place set.". When
    there are recent places, a chevron button opens a `DropdownMenu` anchored to the whole field
-   (`anchor={placeField}`, `align="start"`, `className="min-w-0"`) listing name and ID.
+   (`anchor={placeField}`, `align="start"`, `className="min-w-0"`) listing name and ID. Each item's remove button, or Delete or Backspace on the highlighted item,
+   calls `bridge.forgetRecentPlace`.
 3. A search field that filters on username, display name, and notes.
 4. A select-mode `IconButton` ("Select accounts" / "Exit selection").
 5. **Add**, which calls `bridge.beginRobloxLogin()` and then refreshes. A hidden live region says
@@ -480,8 +492,8 @@ by `lastPlayedAt`, falling back to `addedAt`. Each row is a `Panel` with:
   `bridge.setAccountPlace`), **Use default place** when an override exists, and **Remove**, which
   confirms and calls `bridge.removeAccount`.
 
-Empty states cover no accounts ("Accounts are added through the official Roblox sign-in page.
-Passwords are never sent to Toolblox.") and no search results. The underlying commands are covered
+Empty states cover no accounts ("Accounts sign in through the official Roblox page. Passwords
+never reach Toolblox.") and no search results. The underlying commands are covered
 in [Accounts](/docs/app/accounts/).
 
 ### Widgets
@@ -506,19 +518,24 @@ Permission labels come from `permissionLabels` in `shared.tsx`, for example `pro
 ### Settings
 
 [`src/screens/Settings.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Settings.tsx)
-uses `state`, `notify`, and `patchSettings`. It has two tabs, **General** and **Accounts**, built
+uses `state`, `notify`, and `patchSettings`. It has three tabs, **General**, **Accounts**, and
+**Themes**, built
 from `Tabs`, each a stack of titled groups whose rows sit in one `Panel` with `divide-y`. It has no
 slots and can't be replaced.
 
 | Tab | Group | Rows |
 | --- | --- | --- |
-| General | Appearance | Theme (`system`/`light`/`dark`), Sidebar position (`left`/`right`) as `ChoiceRow`s |
+| General | Appearance | Sidebar position (`left`/`right`) as a `ChoiceRow` |
 | General | Window | Launch at startup (`openOnLaunch`), Run in background (`runInBackground`, wording says menu bar on macOS and system tray on Windows), Always on top (`alwaysOnTop`) |
 | General | Diagnostics | Log: **Show**/**Hide** (reads the last 300 lines with `bridge.readLog`), **Copy** (up to 2,000 lines to the clipboard), **Open folder** (`bridge.openLogFolder`, disabled when `logsPath` is empty) |
-| General | About | Updates with **Check now** (`bridge.checkForUpdates`), privacy text naming the credential store per platform, links to the privacy policy, security policy, license, and third-party notices through `bridge.openExternal` |
+| General | About | An icon per core commitment that reveals its title beside it when pressed, as on the dashboard, with the description as a hover hint (the data commitment names the credential store per platform), a **Verify** row linking the source code, privacy policy, and security policy, and links to the license and third-party notices through `bridge.openExternal` |
 | Accounts | List | Sort order, Show avatars, Compact list, Game details (`showGameNames`) |
 | Accounts | Joining | Minimize on join; Multiple instances (`multiInstance`) |
 | Accounts | Disconnects | Auto-rejoin, Disconnect notifications (`notifyOnDrop`) |
+| Themes | Theme | Mode (`system`/`light`/`dark`) as a `ChoiceRow`; **Import** and **Export** of the custom CSS as a `.css` file |
+| Themes | Colors | A color picker for each token, showing its current value including any the custom CSS sets. Picking a color writes the token to a `:root:not(.dark)` or `:root.dark` block in the custom CSS, for the mode the app is showing |
+| Themes | Style | Font (a menu of Geist, the system font, and fonts installed on both Windows and macOS), Text size (body text in points, 7 to 21, 10.5 by default), and Density (a `ChoiceRow`). Each writes one token to a `:root` block in the custom CSS |
+| Themes | Custom CSS | The theme itself, saved with **Apply**. It's also how background images are set |
 
 In the demo build, the About group also shows **Update** and **Failure** buttons that replay the
 startup screens with `previewUpdater`. The settings themselves are described in
@@ -638,8 +655,16 @@ All colours are OKLCH. Every neutral has zero chroma; only the three status colo
 | `--sidebar-border` | `oklch(0.92 0 0)` | `oklch(1 0 0 / 6%)` | Sidebar edge and divider |
 | `--sidebar-ring` | `oklch(0.708 0 0)` | `oklch(0.556 0 0)` | Mapped, unused by the app |
 
-`--radius` is also set to `0.5rem` in `:root`, but the radius scale below is fixed in pixels. The
-`.dark` block sets `color-scheme: dark` so native scrollbars and form controls match.
+| `--overlay` | `oklch(0 0 0 / 30%)` | `oklch(0 0 0 / 50%)` | Dialog backdrop |
+| `--shadow` | `oklch(0 0 0)` | `oklch(0 0 0)` | Shadow color for floating layers |
+
+`--radius` is set to `8px` in `:root`, and every step of the radius scale below is derived from it.
+The `.dark` block sets `color-scheme: dark` so native scrollbars and form controls match.
+
+Components style themselves only through these tokens, so a custom theme can change every color
+and radius from one place. [`src/globals.test.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/globals.test.ts)
+fails on hex colors, color functions, Tailwind palette colors, arbitrary color, radius, or shadow
+values, and inline color styles anywhere in the interface source.
 
 ### Base styles
 
@@ -651,10 +676,13 @@ overflow (each screen scrolls itself), and draw thin scrollbars in the `--border
 ### Type, radii, spacing, and elevation
 
 - **Font**: Geist Variable, bundled through `@fontsource-variable/geist` and served from the app
-  itself. `--font-sans` and `--font-heading` both resolve to it. Place IDs, paths, and the log use
+  itself. `--font-sans` and `--font-heading` both resolve to `--font`, which a theme can change.
+  Every text size is multiplied by `--text-scale` (`1` by default), and `text-2xs` (11 px) and
+  `text-button` (0.8 rem) cover the sizes between Tailwind's steps. Place IDs, paths, and the log use
   Tailwind's default `font-mono` stack. Numbers in stat tiles use `tabular-nums`.
-- **Radii**: `--radius-sm` 4 px, `--radius-md` 6 px, `--radius-lg` 8 px (controls), `--radius-xl`
-  12 px (panels, dialogs), `--radius-2xl` 16 px (the Dashboard hero). Badges are pill-shaped.
+- **Radii**: multiples of `--radius`: `--radius-xs` 0.25× (2 px), `--radius-sm` 0.5× (4 px),
+  `--radius-md` 0.75× (6 px), `--radius-lg` 1× (8 px, controls), `--radius-xl` 1.5× (12 px, panels,
+  dialogs), `--radius-2xl` 2× (16 px, the Dashboard hero). Badges are pill-shaped.
 - **Spacing**: the shared scale is 4, 8, 12, 16, and 24 px (`1`, `2`, `3`, `4`, `6` in Tailwind
   units). Screens use `gap-4` between sections and `px-6 pb-6` around content, card grids use
   `gap-3`, and settings rows use `px-4 py-3`. Half steps such as `gap-1.5` and `py-2.5` appear only

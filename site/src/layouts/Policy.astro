@@ -1,0 +1,45 @@
+---
+import Site from "./Site.astro";
+
+/** A policy page: its title, last-updated date, links to the other policies, and the text. Markdown
+ * pages pass their frontmatter; `.astro` pages pass the same fields as props. */
+interface Props {
+  frontmatter?: { title: string; description: string; updated: string };
+  title?: string;
+  description?: string;
+  updated?: string;
+}
+
+const { title, description, updated } = Astro.props.frontmatter ?? Astro.props;
+const policies = [
+  { href: "/privacy/", label: "Privacy" },
+  { href: "/security/", label: "Security" },
+  { href: "/legal/", label: "Legal" },
+];
+const current = Astro.url.pathname.replace(/\/?$/, "/");
+---
+
+<Site title={title} description={description}>
+  <div class="mx-auto flex max-w-3xl flex-col gap-8 px-4 pt-12 pb-20 sm:pt-16">
+    <header class="flex flex-col gap-4">
+      <nav aria-label="Policies">
+        <ul class="inline-flex gap-1 rounded-xl bg-muted p-1 text-sm">
+          {policies.map(({ href, label }) => (
+            <li>
+              <a href={href} aria-current={current === href ? "page" : undefined}
+                class="inline-flex h-8 items-center rounded-lg px-3 text-muted-foreground transition-colors hover:text-foreground aria-[current=page]:bg-background aria-[current=page]:text-foreground aria-[current=page]:shadow-sm">{label}</a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+      <div class="flex flex-col gap-2">
+        <h1 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">{title}</h1>
+        <p class="text-pretty text-muted-foreground">{description}</p>
+        {updated && <p class="text-sm text-muted-foreground">Last updated {updated}</p>}
+      </div>
+    </header>
+    <article class="policy">
+      <slot />
+    </article>
+  </div>
+</Site>

@@ -54,11 +54,10 @@ Every app command receives `State<'_, Runtime>`, a single struct created in `lib
 
 | Field | Type | Purpose |
 | --- | --- | --- |
-| `legacy_root` | `PathBuf` | The Toolblox data folder, where the legacy Flet app kept its files. |
-| `storage` | `Arc<Storage>` | Locked, atomic JSON persistence rooted at `<data>/v2`. See [Accounts](/docs/app/accounts/#locking-and-atomic-writes). |
+| `storage` | `Arc<Storage>` | Locked, atomic JSON persistence rooted at the data folder. See [Accounts](/docs/app/accounts/#locking-and-atomic-writes). |
 | `credentials` | `Arc<OsCredentialStore>` | Roblox sessions in Credential Manager or the Keychain. |
 | `client` | `reqwest::Client` | HTTPS-only, no redirects, 20-second timeout, `Toolblox/<version>` user agent. |
-| `widgets_root` | `PathBuf` | `<data>/v2/widgets`. |
+| `widgets_root` | `PathBuf` | `<data>/widgets`. |
 | `catalogue` | `Mutex<Option<Catalogue>>` | The verified widget catalogue, once loaded. |
 | `catalogue_error` | `Mutex<Option<String>>` | Why the catalogue couldn't load, shown on the Widgets screen. |
 | `processes` | `Arc<Mutex<WidgetProcessManager>>` | Running widget sidecar processes. |
@@ -92,9 +91,8 @@ These are defined in `startup.rs` and work before the app is ready. See
 | Command | Arguments | Returns | What it does | Bridge |
 | --- | --- | --- | --- | --- |
 | `get_app_state` | — | `AppStateDto` (async) | Builds the full interface snapshot. Loads the catalogue first if it hasn't been tried, names recent places, and fetches presence. [Details below](#how-get_app_state-builds-the-snapshot). | `getAppState()` |
-| `save_settings` | `settings: SettingsDto` | `()` | Copies every DTO field onto the saved settings, re-parses `placeId` (blank clears it), remembers a changed place in recent places, saves, applies **always on top** to the main window, and enables or disables launch at login. If the login item can't change, the previous settings are restored and it fails with "The startup setting couldn't be changed. Does this account allow startup apps?". | `saveSettings(settings)` |
+| `save_settings` | `settings: SettingsDto` | `()` (async) | Copies every DTO field onto the saved settings, re-parses `placeId` (blank clears it), saves, applies **always on top** to the main window, and enables or disables launch at login. If the login item can't change, the previous settings are restored and it fails with "The startup setting couldn't be changed. Does this account allow startup apps?". A changed place is then added to recent places only if Roblox confirms it exists; a missing place or failed lookup leaves the list unchanged. | `saveSettings(settings)` |
 | `place_exists` | `place_id: String` | `bool` (async) | Asks Roblox whether the place has a universe. `false` only for a `400` or `404`; network failures are errors. | `placeExists(placeId)` |
-| `check_for_updates` | — | `UpdateAvailability` (async) | Runs the startup update check again. A required update installs and restarts the app, so a returned value is always `{ available: false, version: null }`. A failed check returns its message as an error. | `checkForUpdates()` |
 | `restart_app` | `safe_mode: bool` | `()` | Writes or removes the `safe-mode-next-launch` marker, then restarts. | `restartApp(safeMode)` |
 
 ### Accounts
@@ -105,7 +103,8 @@ The account flows are explained in depth on [Accounts](/docs/app/accounts/).
 | --- | --- | --- | --- | --- |
 | `begin_roblox_login` | — | `AccountView` (async) | Opens the isolated sign-in window, waits for it, stores the session, and adds or updates the account. Restores the previous session if saving fails. Returns the account with `presence: "warning"`. | `beginRobloxLogin()` |
 | `update_account_notes` | `account_id: u64`, `notes: String` | `()` | Replaces an account's notes. Fails above 10,000 characters with "The note is too long. Can you shorten it?". | `updateAccountNotes(accountId, notes)` |
-| `set_account_place` | `account_id: u64`, `place_id: Option<String>` | `()` | Sets the account's place override from an ID or game link, or clears it for `null` or blank input. A new place is added to recent places. | `setAccountPlace(accountId, placeId)` |
+| `set_account_place` | `account_id: u64`, `place_id: Option<String>` | `()` (async) | Sets the account's place override from an ID or game link, or clears it for `null` or blank input. The place is added to recent places only if Roblox confirms it exists. | `setAccountPlace(accountId, placeId)` |
+| `forget_recent_place` | `place_id: String` | `()` | Removes the place from recent places. | `forgetRecentPlace(placeId)` |
 | `remove_account` | `account_id: u64` | `()` | Removes the account, then deletes its session. Puts the account back if the session can't be deleted. | `removeAccount(accountId)` |
 | `reorder_accounts` | `account_ids: Vec<u64>` | `()` | Saves a manual order. The list must contain every saved account exactly once. | `reorderAccounts(accountIds)` |
 | `join_accounts` | `account_ids: Vec<u64>`, `place_id: Option<String>` | `()` (async) | Launches each account in order, at `place_id` when given, otherwise at its override or the default place. Records each join and minimizes the window afterwards when **minimize on join** is on. Rejects an empty list. | `joinAccounts(accountIds, placeId?)` |
@@ -134,6 +133,9 @@ The widget lifecycle is covered in the widget reference; this table lists the co
 | --- | --- | --- | --- | --- |
 | `read_log` | `lines: Option<usize>` | `String` | The most recent log lines, 300 by default. | `readLog(lines?)` |
 | `open_log_folder` | — | `()` | Opens the log folder in Explorer or Finder. | `openLogFolder()` |
+| `get_theme` | — | `String` | Loads the custom theme CSS from `theme.css`, or an empty string when there's none. | `getTheme()` |
+| `save_theme` | `css: String` | `()` | Validates and saves the custom theme CSS. It must be under 16 MB and can't load anything except data URLs. | `saveTheme(css)` |
+| `export_theme` | — | `String` | Writes the saved theme to a new `Toolblox theme.css` file in Downloads, shows it in Explorer or Finder, and returns its path. | `exportTheme()` |
 | `write_log` | `level: "debug" \| "info" \| "warn" \| "error"`, `message: String`, `widget_id: Option<String>` | `()` | Writes a record under the `interface` target, or under the widget's target when `widget_id` is a valid widget ID. Lines are redacted and long messages cut. | `writeLog(level, message, widgetId?)` |
 
 `bridge.openExternal(url)` isn't a Toolblox command. It calls `openUrl` from
@@ -165,7 +167,7 @@ source of truth the interface renders from, and it contains no secrets.
 | `catalogue` | `CatalogueEntry[]` | Catalogue widgets that aren't installed. |
 | `catalogueError` | `string?` | Why the catalogue couldn't load. Serialized as `null` when there's none. |
 | `settings` | `Settings` | The editable settings. See below. |
-| `recentPlaces` | `RecentPlace[]` | Up to six `{ placeId, name? }`, newest first. |
+| `recentPlaces` | `RecentPlace[]` | Up to five `{ placeId, name? }`, newest first. |
 | `safeMode` | `boolean` | Widgets are off for this session. |
 
 ### `Account`
@@ -234,7 +236,7 @@ Widget-related settings (`disabledWidgets`, `widgetsStartOnLaunch`, `widgetSetti
 1. If the catalogue has never been loaded and there's no recorded error, download and verify it.
    A failure is recorded in `catalogueError` rather than failing the command.
 2. Load settings. When **show game names** is on, name any unnamed recent places through the
-   Roblox universe and games APIs, saving the names.
+   Roblox universe and games APIs, saving the names and dropping places Roblox has no universe for.
 3. Load accounts and run `account_views`: fetch presence with the first session Roblox accepts,
    re-check hidden places with each account's own session, and look up game names.
 4. Discover installed widgets, summarizing valid ones and collecting load errors.

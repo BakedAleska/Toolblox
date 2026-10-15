@@ -18,8 +18,8 @@ Along the way it uses every kind of state a widget has:
 | State | API | Lives in | Scope |
 | --- | --- | --- | --- |
 | App state | `getState()`, `useAppState()`, `onStateChange()` | Memory, reloaded from Rust | Read-only view of Toolblox |
-| Widget store | `storage.get()`, `storage.set()` | `v2/settings.json` | One JSON value per widget |
-| Account data | `request("widgetData.get" \| "widgetData.set")` | `v2/accounts.json` | One JSON value per widget per account |
+| Widget store | `storage.get()`, `storage.set()` | `settings.json` | One JSON value per widget |
+| Account data | `request("widgetData.get" \| "widgetData.set")` | `accounts.json` | One JSON value per widget per account |
 | Web data | `request("network.fetch")` | Nowhere; you keep it | One HTTPS GET per call |
 
 It assumes you've finished the earlier tutorials, from

@@ -1,6 +1,6 @@
 ---
 title: Startup and updates
-description: How release builds refuse to open until a signed update manifest confirms they're current, and how legacy data is imported once afterwards.
+description: How release builds refuse to open until a signed update manifest confirms they're current, and what runs once the gate opens.
 sidebar:
   order: 1
 ---
@@ -14,14 +14,12 @@ newer version, the main interface never appears: the window shows an update scre
 the app either installs the newer release and restarts, or stops with an error and a **Retry**
 button.
 
-Only after the gate passes does the host import data from the legacy Flet app (once), create the
-widget folder, and start the background services described in
+Only after the gate passes does the host create the widget folder and start the background services described in
 [Background services](/docs/app/background-services/). Widgets therefore never run on an
 outdated or unverified build.
 
 This page covers the gate end to end: the manifest format, the decision logic, the installer
-verification, what the interface shows, how the manifest is produced and kept fresh, and the
-one-way legacy migration that runs once the gate opens.
+verification, what the interface shows, and how the manifest is produced and kept fresh.
 
 ## Where the code lives
 
@@ -31,7 +29,6 @@ one-way legacy migration that runs once the gate opens.
     - lib.rs the builder; spawns the startup task and waits on it before starting services
     - startup.rs the gate: download, verify, install, prepare local data, Tauri commands
     - update.rs pure decision logic: manifest schema, signature trait, release decisions
-    - migration.rs one-way import from the legacy Flet app
   - tauri.conf.json updater plugin configuration and public key
   - windows/installer-hooks.nsh
 - scripts/
@@ -71,14 +68,14 @@ the newer version.
                             ├─ Ed25519 verify (manifest public key)
                             ├─ parse JSON (deny unknown fields)
                             ├─ decide_and_record
-                            │    load  v2/highest-update-version
+                            │    load  highest-update-version
                             │    check schema, channel, dates, floor, artifact
                             │    store newer verified version
                             │
                             ├── Current ──────────────────────────────┐
                             │                                         ▼
-                            │                       prepare_local_data: legacy import once,
-                            │                       create v2/widgets
+                            │                       prepare_local_data:
+                            │                       create widgets/
  phase = ready ◀────────────┤                       phase = ready
  get_app_state, render app  │                       services task continues (autostart,
                             │                       always on top, profiles, widgets,
@@ -190,7 +187,7 @@ daily (see [Keeping the manifest fresh](#keeping-the-manifest-fresh)).
 ### Rollback protection
 
 Toolblox stores the highest version it has ever verified in
-`v2/highest-update-version` inside the data folder (a single semver string and a newline). The
+`highest-update-version` inside the data folder (a single semver string and a newline). The
 `FileHighestSeen` store writes it through a temporary file and `storage::replace_file`, which is an
 atomic `MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)` on Windows and `rename`
 elsewhere.
@@ -430,106 +427,27 @@ polling loop starts fresh. If the `startup_status` call itself throws, the gate 
 When the phase becomes `ready`, `App.tsx` calls `get_app_state` and renders the app. From then on
 it reloads the app state every 60 seconds and whenever the window regains focus.
 
-### The "Check now" button
+### No in-app update check
 
-Settings → General → About has a **Check now** button that calls the `check_for_updates`
-command. That command simply runs `startup::run` again and reads the resulting phase:
-
-- If the manifest still names the installed version, the phase returns to `ready` and Settings
-  shows "Up to date."
-- If a newer version is required, the same install-and-restart path runs.
-- If the check fails, the command returns the failure message and Settings shows
-  "The update check failed. Is the connection working?" with it.
-
-While the check runs, the host phase is `checking`, and after a failure it stays `failed`. The
-interface doesn't poll again once it has seen `ready`, so the open window keeps working, but
-host code that reads the phase treats the app as not ready. In particular, closing the window
-exits instead of hiding to the tray (see
-[Close behaviour](/docs/app/background-services/#close-behaviour)) until a later check succeeds.
+Updates are checked only at launch. Settings has no update button, so after `ready` the phase
+doesn't change until the next launch.
 
 ### What widgets see
 
 Widget modules are loaded only from `getAppState` data, which isn't requested until the phase is
 `ready`, and the services task in `lib.rs` waits on `startup::wait_until_ready` (a 250 ms poll)
 before starting widget processes marked to start on launch. A widget can therefore assume the
-installed build is the current verified release and that legacy data has already been imported.
+installed build is the current verified release.
 For startup ordering of widget modules and processes, see
 [Logs and failures](/docs/widgets/reference/logs-and-failures/) and
 [Processes](/docs/widgets/tutorials/processes/).
 
-## Legacy migration
-
-Toolblox replaces an earlier Flet (Python) app. That app stored its files directly in the Toolblox
-data folder; the current app stores everything one level deeper in `v2`:
-
-| Platform | Legacy root | Current data |
-| --- | --- | --- |
-| Windows | `%LOCALAPPDATA%\Toolblox` (falling back to `%USERPROFILE%\AppData\Local\Toolblox`) | `…\Toolblox\v2` |
-| macOS | `~/Library/Application Support/Toolblox` | `…/Toolblox/v2` |
-
-### When it runs
+## Local data
 
 `prepare_local_data` in `startup.rs` runs right after the gate decides `Current` (or immediately
-in debug builds), before the phase becomes `ready`. It imports legacy data when **all** of these
-hold:
+in debug builds), before the phase becomes `ready`. It creates the `widgets` folder in the data
+folder. **Retry** reuses the same path, so it runs again after a failed check. If the folder
+can't be created, startup stops at the gate with "Toolblox couldn't create the widget folder. Is
+it writable?"
 
-- `v2/.legacy-migration-complete` doesn't exist, and
-- `accounts.json` or `settings.json` exists in the legacy root.
-
-After a successful import it writes the marker file (`1\n`), so the import never runs again. It
-then creates `v2/widgets`. Because `check_for_updates` and **Retry** reuse the same path, they
-also call `prepare_local_data`, but the marker makes the import a no-op.
-
-If the import fails, startup stops at the gate with the import error (for example "Toolblox
-couldn't read the old account data. Is the file intact?"), no marker is written, and **Retry**
-attempts the import again.
-
-### What is imported
-
-`migrate_legacy` in [`migration.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/migration.rs)
-does the following:
-
-1. **Settings.** If `settings.json` exists, it's deserialized into the current `Settings` model
-   and saved to `v2`. Keys the current model doesn't know are kept in its `extra` map rather than
-   dropped.
-
-2. **Accounts.** `accounts.json` is read as a list of legacy accounts. For each one:
-
-   | Legacy field | Imported as |
-   | --- | --- |
-   | `id`, `name` | Same |
-   | `display_name` | Same, or `name` when missing or blank |
-   | `avatar_url`, `notes`, `added_at`, `last_played_at`, `play_count`, `widget_data` | Same (`notes`, `play_count`, `widget_data` default when absent) |
-   | — | `place_id` and `last_place_id` start empty |
-   | `security_cookie` | Moved to the OS credential store, never written to JSON |
-   | Any other key | Preserved in the account's `extra` map |
-
-3. **Sessions.** Each account's session is resolved per platform:
-
-   | Platform | Source |
-   | --- | --- |
-   | Windows | `security_cookie` is base64 DPAPI ciphertext, decrypted for the current user with `CryptUnprotectData`. A value that isn't valid base64 is taken as plaintext. |
-   | macOS | The login Keychain item with service `Toolblox` and account `account-<id>` is read with the `security` tool. If there's none, a non-empty plaintext `security_cookie` is used. |
-   | Other | Any non-empty session fails the import as unsupported. |
-
-   Resolved sessions are written to Windows Credential Manager or the macOS Keychain. Session
-   values are wrapped in `Secret`, which is redacted in `Debug` output and zeroed on drop.
-
-4. **Rollback.** Before writing each session, the previous stored session (if any) is read. If a
-   credential write or the final `save_accounts` fails, every session written by this import is
-   restored to its previous value or deleted, newest first, and the error is returned.
-
-The log records a summary such as `Imported legacy data: 3 accounts, 3 sessions, settings imported`
-with counts only.
-
-### Why it's one-way
-
-The import only **reads** the legacy folder. It never modifies or deletes `accounts.json`,
-`settings.json`, or legacy Keychain entries, and nothing in the current app writes back to them.
-The marker stops later launches from importing again, so changes made in the new app aren't
-overwritten by old data, and changes made in the legacy app after the import aren't picked up.
-Imported accounts have their missing avatars and names filled in later by the profile backfill
-described in [Background services](/docs/app/background-services/#after-startup).
-
-For how accounts and sessions are stored after the import, see
-[Accounts](/docs/app/accounts/).
+For how accounts and sessions are stored, see [Accounts](/docs/app/accounts/).

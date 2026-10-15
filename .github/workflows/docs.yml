@@ -8,6 +8,8 @@ on:
     paths:
       - "src-tauri/src/**"
       - "src-tauri/Cargo.toml"
+      - "site/**"
+      - "LICENSE"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 

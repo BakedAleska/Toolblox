@@ -61,14 +61,14 @@ builds the Tauri app in this order:
    `tauri_plugin_updater`, and the `widget` URI scheme protocol. Inside `setup`,
    `tauri_plugin_autostart` is added with `MacosLauncher::LaunchAgent`.
 
-2. **Paths.** The legacy root is the platform data folder (`%LOCALAPPDATA%\Toolblox` or
-   `~/Library/Application Support/Toolblox`; `TOOLBLOX_DATA_DIR` in debug builds). Current data
-   is in `v2`, widgets in `v2/widgets`, logs in `v2/logs`.
+2. **Paths.** The data folder is `%LOCALAPPDATA%\Toolblox` or
+   `~/Library/Application Support/Toolblox` (`TOOLBLOX_DATA_DIR` in debug builds). Widgets are
+   in `widgets` and logs in `logs`.
 
 3. **Safe mode.** `take_safe_mode` decides whether this launch skips widgets (see
    [Safe mode](#safe-mode)).
 
-4. **Logging.** `logs::init(v2/logs)` starts the file logger and the panic hook. The first record
+4. **Logging.** `logs::init(logs)` starts the file logger and the panic hook. The first record
    is `Toolblox <version> (<debug|release>) starting on <os> <arch>`, with ` in safe mode`
    appended when it applies.
 
@@ -98,7 +98,7 @@ every 250 ms) and then runs, in order:
 | --- | --- | --- |
 | Autostart | Release builds only: if the OS registration differs from the `openOnLaunch` setting, enable or disable it. Errors are ignored. | `lib.rs` |
 | Always on top | If `alwaysOnTop` is set, apply it to the main window. | `lib.rs` |
-| Profile backfill | For every account with no avatar URL (for example accounts imported from the legacy app), fetch the public profile and fill in name, display name, and avatar. Failures are logged per account. | `app_commands::backfill_profiles` |
+| Profile backfill | For every account with no avatar URL, fetch the public profile and fill in name, display name, and avatar. Failures are logged per account. | `app_commands::backfill_profiles` |
 | Widget processes | Unless safe mode is on, start every declared process of each installed widget that is in `widgetsStartOnLaunch` and not in `disabledWidgets`. Failures are logged as warnings. | `start_widgets_on_launch` |
 | Presence monitor | Runs `auto_rejoin::run`, which loops until the process exits. | `auto_rejoin.rs` |
 
@@ -165,8 +165,7 @@ again rather than leaving an invisible app with no way back; the window simply s
 exit, it calls `app.exit(0)`.
 
 `runInBackground` defaults to on. Because the decision requires the `ready` phase, closing the
-window on the update screen, or while a **Check now** run is in progress or has failed, always
-exits.
+window on the update screen always exits.
 
 A widget can't keep the window open or veto a close. Widget frames and modules stay loaded while
 the window is hidden, because hiding doesn't unload the webview.
@@ -190,7 +189,7 @@ manager, logs `Toolblox exited`, and flushes the log.
 Safe mode starts Toolblox without loading widget modules, frames, or start-on-launch processes for
 one session. It applies when either:
 
-- the marker file `v2/safe-mode-next-launch` exists, or
+- the marker file `safe-mode-next-launch` exists, or
 - the process was started with the `--safe-mode` argument.
 
 `take_safe_mode` deletes the marker as it reads it, so the following launch loads widgets again.
@@ -380,12 +379,6 @@ use the event for more than the startup check, and closing the handle under a ru
 make clients close unexpectedly, so touching each process once reduces how often that happens
 without eliminating it.
 
-<Aside type="caution" title="Legacy references in the helper">
-The helper's README and source comments still refer to the legacy Python caller
-(`toolblox/roblox/multi_instance.py`) and an older folder path. The current caller is
-`multi_instance.rs`, and the binary ships as a Tauri resource.
-</Aside>
-
 ### macOS
 
 On macOS, Roblox blocks a second client in two places:
@@ -439,8 +432,8 @@ who logged it.
 
 | Platform | Current file |
 | --- | --- |
-| Windows | `%LOCALAPPDATA%\Toolblox\v2\logs\toolblox.log` |
-| macOS | `~/Library/Application Support/Toolblox/v2/logs/toolblox.log` |
+| Windows | `%LOCALAPPDATA%\Toolblox\logs\toolblox.log` |
+| macOS | `~/Library/Application Support/Toolblox/logs/toolblox.log` |
 
 Before each write, if the current file plus the new line would exceed 1 000 000 bytes, the logger
 deletes `toolblox.log.3`, renames `.2` to `.3` and `.1` to `.2`, renames the current file to
@@ -547,7 +540,7 @@ builds use `panic = "abort"`, and the hook still runs before the abort.
 | Command | Bridge method | Effect |
 | --- | --- | --- |
 | `read_log` | `bridge.readLog(lines)` | Returns the last `lines` lines (default 300, clamped to 1–2000), oldest first, reading back into rotated files when the current one is shorter. |
-| `open_log_folder` | `bridge.openLogFolder()` | Opens `v2/logs` in Explorer or Finder. |
+| `open_log_folder` | `bridge.openLogFolder()` | Opens the `logs` folder in Explorer or Finder. |
 | `write_log` | `bridge.writeLog(level, message, widgetId?)` | Writes a record as described above. |
 
 Settings → General → Diagnostics uses these: **Show** loads 300 lines into a scrolling view,
@@ -577,7 +570,7 @@ The message protocol, permissions, and limits are documented in the
 
 | Area | Windows | macOS |
 | --- | --- | --- |
-| Data and log folder | `%LOCALAPPDATA%\Toolblox\v2` | `~/Library/Application Support/Toolblox/v2` |
+| Data and log folder | `%LOCALAPPDATA%\Toolblox` | `~/Library/Application Support/Toolblox` |
 | Tray | Notification-area icon | Menu bar item |
 | Reactivation | Second launch through single instance | Second launch, or `RunEvent::Reopen` from the Dock |
 | Autostart | `HKCU\…\Run` value `Toolblox`, removed by the uninstaller | LaunchAgent |

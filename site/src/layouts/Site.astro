@@ -1,0 +1,81 @@
+---
+import "../styles/global.css";
+import GitHubIcon from "../components/GitHubIcon.astro";
+import { buttonVariants } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+
+/** The page shell shared by the home page and the policy pages: header, footer, and theme. */
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const { title, description = "A free, open-source Roblox account manager. No injection, and your data stays on your device." } = Astro.props;
+const repo = "https://github.com/BakedAleska/Toolblox";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title ? `${title} · Toolblox` : "Toolblox"}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <script is:inline>
+      const scheme = matchMedia("(prefers-color-scheme: dark)");
+      const applyScheme = () => document.documentElement.classList.toggle("dark", scheme.matches);
+      applyScheme();
+      scheme.addEventListener("change", applyScheme);
+    </script>
+  </head>
+  <body>
+    <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-background focus:px-3 focus:py-2">Skip to content</a>
+
+    <header class="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
+      <nav class="mx-auto flex h-14 max-w-5xl items-center gap-4 px-4" aria-label="Main">
+        <a href="/" class="mr-auto flex items-center gap-2 font-semibold">
+          <img src="/logo.svg" alt="" width="24" height="24" />
+          Toolblox
+        </a>
+        <a href="/#commitments" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">Commitments</a>
+        <a href="/#widgets" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">Widgets</a>
+        <a href="/#faq" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">FAQ</a>
+        <a href={repo} class={buttonVariants({ size: "sm", variant: "ghost" })} aria-label="Toolblox on GitHub"><GitHubIcon /><span data-stars hidden></span></a>
+        <a href="/#download" class={buttonVariants({ size: "sm" })}>Download</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <slot />
+    </main>
+
+    <footer class="border-t">
+      <div class="mx-auto flex max-w-5xl flex-col items-center gap-4 px-4 py-8 text-center text-sm text-muted-foreground">
+        <nav class="flex flex-wrap justify-center gap-x-6 gap-y-2" aria-label="Footer">
+          <a href="/#download" class="hover:text-foreground">Download</a>
+          <a href="/docs/" class="hover:text-foreground">Widget docs</a>
+          <a href="/privacy/" class="hover:text-foreground">Privacy</a>
+          <a href="/security/" class="hover:text-foreground">Security</a>
+          <a href="/legal/" class="hover:text-foreground">Legal</a>
+          <a href={repo} class="hover:text-foreground">Source code</a>
+        </nav>
+        <Separator />
+        <p>Toolblox isn't affiliated with or endorsed by Roblox Corporation. Roblox is a trademark of Roblox Corporation.</p>
+      </div>
+    </footer>
+
+    <script>
+      fetch("https://api.github.com/repos/BakedAleska/Toolblox")
+        .then((response) => (response.ok ? response.json() : Promise.reject()))
+        .then(({ stargazers_count: stars }: { stargazers_count: number }) => {
+          const element = document.querySelector<HTMLElement>("[data-stars]");
+          if (!stars || !element) return;
+          element.textContent = stars.toLocaleString("en-US");
+          element.hidden = false;
+          element.parentElement?.setAttribute("aria-label", `Toolblox on GitHub, ${element.textContent} stars`);
+        })
+        .catch(() => {});
+    </script>
+  </body>
+</html>

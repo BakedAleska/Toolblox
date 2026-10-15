@@ -77,19 +77,19 @@ data. Neither loads widgets from the widgets folder. The demo build only loads t
 
 ## Find the widgets folder
 
-Toolblox keeps its data in a `v2` folder inside its data folder, and widgets live in `v2/widgets`:
+Widgets live in the `widgets` folder inside the Toolblox data folder:
 
 | Platform | Widgets folder |
 | --- | --- |
-| Windows | `%LOCALAPPDATA%\Toolblox\v2\widgets` |
-| macOS | `~/Library/Application Support/Toolblox/v2/widgets` |
+| Windows | `%LOCALAPPDATA%\Toolblox\widgets` |
+| macOS | `~/Library/Application Support/Toolblox/widgets` |
 
 In a development build you don't need to remember this: open **Widgets** in the sidebar and scroll
 to the bottom. A panel reads "Development builds also load unpacked widgets from this folder." with
 the exact path and a copy button.
 
 Debug builds also honour the `TOOLBLOX_DATA_DIR` environment variable. When it's set, Toolblox
-uses that folder as its data folder, so widgets live in `$TOOLBLOX_DATA_DIR/v2/widgets`. This is
+uses that folder as its data folder, so widgets live in `$TOOLBLOX_DATA_DIR/widgets`. This is
 useful for keeping test accounts, settings, and widget data apart from the copy of Toolblox you use
 day to day. Accounts' Roblox sessions are still kept in the operating system's credential store.
 
@@ -302,7 +302,7 @@ renamed to match.
 
 ## Read the logs
 
-Toolblox writes one log for the app and its widgets: `v2/logs/toolblox.log` in the data folder,
+Toolblox writes one log for the app and its widgets: `logs/toolblox.log` in the data folder,
 rotated at 1 MB with three older files kept. To read it, open **Settings**, find **Diagnostics**,
 and select **Show** next to **Log**. The view shows the last 300 lines; **Copy** copies up to 2,000
 and **Open folder** opens the log folder.
@@ -356,7 +356,7 @@ app unusable. Safe mode starts Toolblox with every widget off for one session:
   npx tauri dev -- -- --safe-mode
   ```
 
-- **From the data folder**, create an empty file named `safe-mode-next-launch` in the `v2` folder,
+- **From the data folder**, create an empty file named `safe-mode-next-launch` in the data folder,
   then start Toolblox. It deletes the file as it reads it.
 
 In safe mode a banner reads "Safe mode. Widgets are off for this session." No module is imported,

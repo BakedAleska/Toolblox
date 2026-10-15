@@ -1,0 +1,30 @@
+---
+import Policy from "../layouts/Policy.astro";
+import license from "../../../LICENSE?raw";
+
+const repo = "https://github.com/BakedAleska/Toolblox";
+---
+
+<Policy title="Legal" description="Toolblox's relationship to Roblox, its license, and the licenses of the software it's built from." updated="October 15, 2026">
+  <h2 id="disclaimer">Disclaimer</h2>
+  <p>
+    Toolblox is an independent project. It isn't affiliated with, endorsed by, or sponsored by Roblox Corporation. Roblox is a
+    trademark of Roblox Corporation.
+  </p>
+  <p>
+    Using Toolblox is subject to the <a href="https://www.roblox.com/info/terms">Roblox Terms of Use</a>. Roblox decides how
+    its terms apply to third-party tools and may restrict accounts that use them, so no outside app can guarantee an account's
+    standing.
+  </p>
+  <p>Toolblox is provided as is, without warranty of any kind, under the MIT License below.</p>
+
+  <h2 id="license">License</h2>
+  <p>Toolblox's source code is available under the MIT License.</p>
+  <pre><code>{license.trim()}</code></pre>
+
+  <h2 id="third-party-notices">Third-party notices</h2>
+  <p>
+    Toolblox is built from open-source software. Each release includes a list of those packages and their license texts.
+  </p>
+  <p><a href={`${repo}/releases/latest/download/THIRD-PARTY-NOTICES.txt`}>Download the notices for the latest release</a></p>
+</Policy>

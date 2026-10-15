@@ -59,9 +59,6 @@ Debug builds behave differently from installed releases in several deliberate wa
 | Widgets folder path on the Widgets screen | Shown | Hidden |
 | Console window on Windows | Present (the GUI subsystem is set only for release in `main.rs`) | None |
 
-The **Check now** button in Settings re-runs startup, which in a debug build just reports
-"Up to date."
-
 <Aside type="caution" title="Development builds use your real accounts by default">
 Without `TOOLBLOX_DATA_DIR`, a debug build reads and writes the same data folder as an installed
 copy of Toolblox. Set it to keep development data separate:
@@ -80,8 +77,8 @@ copy of Toolblox. Set it to keep development data separate:
   </TabItem>
 </Tabs>
 
-`TOOLBLOX_DATA_DIR` replaces the `Toolblox` folder itself, so current data goes in
-`$TOOLBLOX_DATA_DIR/v2`. It has no effect on sessions: the credential store is shared by every
+`TOOLBLOX_DATA_DIR` replaces the `Toolblox` folder itself, so data goes in
+`$TOOLBLOX_DATA_DIR`. It has no effect on sessions: the credential store is shared by every
 build on the device, keyed only by account ID. Signing in an account in a development build
 replaces that account's session for the installed app too, and removing an account deletes its
 session for every build.
@@ -107,7 +104,7 @@ What demo mode simulates:
 | --- | --- |
 | Accounts | Five sample accounts covering in game (with and without a game name), a presence warning, a per-account place, and a new account. **Add account** appends a `demo_user_<n>`; notes, removal, reordering, and per-account places edit the sample list. |
 | Joining | Updates `lastPlayedAt` and `lastPlaceId`. Nothing launches. |
-| Settings | Saved in memory. Setting a place adds it to recent places (six at most). |
+| Settings | Saved in memory. Setting a place adds it to recent places (five at most). |
 | Widgets | Five installed widgets with varied permissions, an available update, a disabled widget, and a start-on-launch widget. Two are real module widgets loaded from [`src/demo-widgets`](https://github.com/BakedAleska/Toolblox/tree/main/src/demo-widgets): `rogue_lineage` and `stock_notifier`. |
 | Catalogue | Six uninstalled entries. Installing moves an entry into the installed list. |
 | Widget storage | `storage.get/set` use an in-memory map. `rogue_lineage` starts with sample race and class data. |
@@ -144,14 +141,14 @@ What each covers:
   including unused locals and parameters.
 - **`npm test`** runs the Vitest suite in
   [`src/logic.test.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/logic.test.ts):
-  relative times (accepting both legacy seconds and milliseconds), account sorting, place ID
+  relative times (accepting both seconds and milliseconds), account sorting, place ID
   parsing, and sidebar width snapping and keyboard stepping.
 - **`cargo fmt --check`** and **`cargo clippy --all-targets -- -D warnings`** enforce formatting
   and treat every lint as an error, tests included.
 - **`cargo test`** runs the unit tests embedded in the Rust modules. Security-sensitive logic is
   tested there: update decisions in `update.rs`, redaction and rotation in `logs.rs`, manifest and
   archive validation in `widgets.rs`, message authorization in `widget_ipc.rs`, process handling in
-  `widget_process.rs`, legacy migration, storage, sign-in cookie matching, Roblox parsing, close
+  `widget_process.rs`, the beta data move, storage, sign-in cookie matching, Roblox parsing, close
   decisions, and the one-time safe mode marker.
 
 CI additionally runs `npm audit`, `npm run build`, `cargo doc --no-deps --document-private-items --lib`
@@ -182,8 +179,8 @@ catalogue entry, or install record. This is how widgets are built and tested.
 
 2. Open the **Widgets** screen. In development builds, a panel at the bottom reads "Development
    builds also load unpacked widgets from this folder" and shows the path with a copy button. It's
-   `<data folder>/v2/widgets`, which is `%LOCALAPPDATA%\Toolblox\v2\widgets` on Windows and
-   `~/Library/Application Support/Toolblox/v2/widgets` on macOS unless `TOOLBLOX_DATA_DIR` is
+   `<data folder>/widgets`, which is `%LOCALAPPDATA%\Toolblox\widgets` on Windows and
+   `~/Library/Application Support/Toolblox/widgets` on macOS unless `TOOLBLOX_DATA_DIR` is
    set. Toolblox creates the folder during startup.
 
 3. Create a folder inside it named exactly after the widget's `id`, with a `widget.json`:
@@ -259,7 +256,7 @@ There are four ways to enter it:
 | Command line | Start the executable with `--safe-mode`, for example `src-tauri/target/debug/toolblox --safe-mode` after a dev build. |
 | Tray | Choose **Restart without widgets** from the tray or menu bar icon. |
 | Command | `restart_app` with `safeMode: true`, which `bridge.restartApp(true)` calls. |
-| Marker file | Create an empty `safe-mode-next-launch` file in `<data folder>/v2`. |
+| Marker file | Create an empty `safe-mode-next-launch` file in the data folder. |
 
 The tray item and `restart_app` both write the marker file and restart. On launch,
 `take_safe_mode` in [`lib.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/lib.rs)
@@ -297,18 +294,14 @@ The data folder is resolved by `toolblox_data_root` in `lib.rs`:
 | macOS | `~/Library/Application Support/Toolblox` |
 | Debug build with `TOOLBLOX_DATA_DIR` | `$TOOLBLOX_DATA_DIR` |
 
-The top level is where the legacy Flet app kept its data. Current data lives in `v2`:
-
 | Path under the data folder | Contents |
 | --- | --- |
-| `accounts.json`, `settings.json` | Legacy Flet files, imported once if present |
-| `v2/settings.json` | `Settings`, including disabled widgets, start-on-launch widgets, and each widget's `storage` value |
-| `v2/accounts.json` | `StoredAccount` records, including per-account `widgetData` |
-| `v2/widgets/<id>/` | Installed and unpacked widgets |
-| `v2/logs/toolblox.log` | The current log, with `toolblox.log.1` to `.3` as older files |
-| `v2/.legacy-migration-complete` | Written after the legacy import, so it runs once |
-| `v2/highest-update-version` | Rollback protection for the update gate (release builds) |
-| `v2/safe-mode-next-launch` | The one-time safe mode marker, when present |
+| `settings.json` | `Settings`, including disabled widgets, start-on-launch widgets, and each widget's `storage` value |
+| `accounts.json` | `StoredAccount` records, including per-account `widgetData` |
+| `widgets/<id>/` | Installed and unpacked widgets |
+| `logs/toolblox.log` | The current log, with `toolblox.log.1` to `.3` as older files |
+| `highest-update-version` | Rollback protection for the update gate (release builds) |
+| `safe-mode-next-launch` | The one-time safe mode marker, when present |
 
 `settings.json` and `accounts.json` don't exist until first written; missing files load as
 defaults and an empty list. Both are written atomically through a temporary file, and validated on

@@ -78,7 +78,6 @@ from the top.
 - CONTRIBUTING.md
 - index.html
 - package.json
-- PRIVACY.md
 - PRODUCT.md
 - README.md
 - SECURITY.md
@@ -90,18 +89,21 @@ from the top.
 
 | File | Contents |
 | --- | --- |
-| [`README.md`](https://github.com/BakedAleska/Toolblox/blob/main/README.md) | Install instructions, features, privacy summary, and the development and verification commands. |
+| [`README.md`](https://github.com/BakedAleska/Toolblox/blob/main/README.md) | A pointer to toolblox.dev for downloads, then the development and verification commands, project layout, and documentation links. |
 | [`PRODUCT.md`](https://github.com/BakedAleska/Toolblox/blob/main/PRODUCT.md) | The product authority: platform, stack, users, purpose, constraints, planned widget capabilities, brand commitments, and principles. When a behavior is in doubt, this file decides. |
-| [`AGENTS.md`](https://github.com/BakedAleska/Toolblox/blob/main/AGENTS.md) | Engineering rules for contributors and AI agents: stack boundaries, code style, UI parity rules, and required verification. |
+| [`AGENTS.md`](https://github.com/BakedAleska/Toolblox/blob/main/AGENTS.md) | Engineering rules for contributors and AI agents: stack boundaries, code style, UI rules, and required verification. |
 | [`CONTRIBUTING.md`](https://github.com/BakedAleska/Toolblox/blob/main/CONTRIBUTING.md) | How to propose changes, the expectation that every Rust item has a `///` comment, and what must stay in Rust. |
-| [`PRIVACY.md`](https://github.com/BakedAleska/Toolblox/blob/main/PRIVACY.md) | Every network connection the app makes and what data stays local. |
-| [`SECURITY.md`](https://github.com/BakedAleska/Toolblox/blob/main/SECURITY.md) | How to report a vulnerability. |
+| [`SECURITY.md`](https://github.com/BakedAleska/Toolblox/blob/main/SECURITY.md) | How to report a vulnerability, and a link to the full security policy on the website. |
 | [`package.json`](https://github.com/BakedAleska/Toolblox/blob/main/package.json) | Interface dependencies and the npm scripts (`dev`, `build`, `check`, `test`, `tauri`, `demo`, `preview:installer`). |
 | [`index.html`](https://github.com/BakedAleska/Toolblox/blob/main/index.html) | The Vite entry page. It holds only `<div id="root">` and loads `/src/main.tsx`. |
 | [`vite.config.ts`](https://github.com/BakedAleska/Toolblox/blob/main/vite.config.ts) | Vite with the React and Tailwind CSS plugins, the `@` alias for `/src`, a fixed dev port of 1420 (`strictPort`), and `src-tauri` excluded from file watching. |
 | [`tsconfig.json`](https://github.com/BakedAleska/Toolblox/blob/main/tsconfig.json) | Strict TypeScript for `src`, with `noUnusedLocals`, `noUnusedParameters`, and the `@/*` path alias. `tsconfig.node.json` covers `vite.config.ts`. |
 | [`components.json`](https://github.com/BakedAleska/Toolblox/blob/main/components.json) | The shadcn/ui configuration used by `npx shadcn@latest add <name>`. |
-| `LICENSE` | The MIT license. |
+| `LICENSE` | The MIT license. The website's legal page reads it at build time. |
+
+The privacy policy, security policy, and legal notices are pages of the website, in
+`site/src/pages` (`privacy.md`, `security.md`, and `legal.astro`), and share `site/src/layouts/Policy.astro`.
+The app's Settings links to them on toolblox.dev.
 
 `.gitignore` excludes `node_modules`, `dist`, logs, `_site` (the assembled Pages output),
 `THIRD-PARTY-NOTICES.txt`, and `.astro`. `.vscode/extensions.json` recommends the Tauri and
@@ -186,7 +188,7 @@ and `rlib`. The edition is 2024. Notable dependencies:
 | `tauri-plugin-opener`, `-autostart`, `-single-instance`, `-updater`, `-notification` | Opening URLs, launch at login, second-launch activation, installer updates, disconnect notifications |
 | `reqwest` (`rustls-tls`, `json`) | All HTTP |
 | `keyring` (`windows-native` or `apple-native`) | The OS credential store, per platform |
-| `windows-sys` | Legacy DPAPI decryption on Windows |
+| `windows-sys` | Atomic file replacement on Windows |
 | `ed25519-dalek`, `sha2`, `base64`, `hex` | Manifest and catalogue signatures, package hashes |
 | `zip` (`deflate` only) | Widget package extraction |
 | `semver`, `url`, `uuid`, `serde`, `serde_json` | Versions, URL validation, session IDs, JSON |

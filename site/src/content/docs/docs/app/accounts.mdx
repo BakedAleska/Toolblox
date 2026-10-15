@@ -24,8 +24,8 @@ the numeric account ID, which is an opaque handle for asking Rust to act on that
 | File | Responsibility |
 | --- | --- |
 | [`src-tauri/src/models.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/models.rs) | Persisted types (`Settings`, `StoredAccount`, `RecentPlace`), validation, and the frontend-safe `AccountDto`. |
-| [`src-tauri/src/storage.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/storage.rs) | Locked, validated, atomic reads and writes of `settings.json` and `accounts.json`. |
-| [`src-tauri/src/credentials.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/credentials.rs) | The OS credential store for sessions, the `Secret` wrapper, and legacy session readers. |
+| [`src-tauri/src/storage.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/storage.rs) | Locked, validated, atomic reads and writes of `settings.json`, `accounts.json`, and `theme.css`. |
+| [`src-tauri/src/credentials.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/credentials.rs) | The OS credential store for sessions and the `Secret` wrapper. |
 | [`src-tauri/src/login.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/login.rs) | The isolated Roblox sign-in webview and the cookie handoff. |
 | [`src-tauri/src/roblox.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/roblox.rs) | Every Roblox HTTP call and the strict `roblox-player:` URI builder. |
 | [`src-tauri/src/multi_instance.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/multi_instance.rs) | Lets several Roblox clients run at once on Windows and macOS. |
@@ -43,7 +43,6 @@ serde, and both are designed to survive version changes in either direction:
 - Missing fields take defaults (`#[serde(default)]`).
 - Unknown fields are kept in a flattened `extra` map and written back on save, so an older build
   doesn't delete data a newer build added.
-- `Settings` accepts the legacy Flet app's snake_case names through `#[serde(alias = ...)]`.
 
 ### `StoredAccount`
 
@@ -72,8 +71,8 @@ OS credential store, keyed by `id`. Field names on disk are snake_case, because 
 - a non-finite or negative `added_at` or `last_played_at`;
 - a `widget_data` key that isn't a valid widget ID (non-empty ASCII letters, digits, `_`, and `-`);
 - a `place_id` or `last_place_id` that isn't 1 to 20 ASCII digits;
-- any `extra` key whose lowercase form contains `cookie`, `secret`, or `ticket`. This is a guard
-  against legacy data smuggling a session into the plain JSON file.
+- any `extra` key whose lowercase form contains `cookie`, `secret`, or `ticket`. This keeps a
+  session from being written into the plain JSON file.
 
 `StoredAccount::record_play` is the only way a join changes an account: it increments
 `play_count`, sets `last_played_at`, and sets `last_place_id`.
@@ -81,7 +80,7 @@ OS credential store, keyed by `id`. Field names on disk are snake_case, because 
 ### `Settings`
 
 The whole of `settings.json`. Unlike accounts, the struct uses `rename_all = "camelCase"`, so the
-file has camelCase keys while still accepting the legacy snake_case aliases on read. See
+file has camelCase keys. See
 [`Settings` in rustdoc](/api/toolblox_lib/models/struct.Settings.html).
 
 | Field (on disk) | Type | Default | Meaning |
@@ -103,7 +102,7 @@ file has camelCase keys while still accepting the legacy snake_case aliases on r
 | `showGameNames` | `bool` | `true` | Look up and show game names for accounts in game. |
 | `notifyOnDrop` | `bool` | `false` | Notify when an account leaves a game. |
 | `alwaysOnTop` | `bool` | `false` | Keep the main window above others. |
-| `recentPlaces` | `Vec<RecentPlace>` | `[]` | Recently used places, newest first, at most 6. |
+| `recentPlaces` | `Vec<RecentPlace>` | `[]` | Recently used places, newest first, at most `RECENT_PLACES_LIMIT` (5). Longer lists saved by older versions load and are trimmed. |
 | `extra` | flattened map | `{}` | Unknown fields, preserved on save. |
 
 A `RecentPlace` is `{ "placeId": String, "name": Option<String> }`. `name` is `null` until Toolblox
@@ -113,8 +112,9 @@ each with a valid place ID and a name of at most 100 characters, and valid widge
 `disabledWidgets`, `widgetsStartOnLaunch`, and the keys of `widgetSettings`.
 
 `Settings::remember_place` moves a place to the front of `recentPlaces`, keeping any name already
-looked up, and truncates the list to six. It runs whenever the default place changes or a
-per-account place is set.
+looked up, and truncates the list to five. It runs when the default place changes or a
+per-account place is set, and only after `fetch_place_universe` confirms the place exists, so an
+ID like `32` never enters the list. `forget_recent_place` removes an entry.
 
 ### Persisted types versus frontend views
 
@@ -144,8 +144,7 @@ multiply by 1000 before building a `Date`.
 ## On-disk layout
 
 `toolblox_data_root` in [`lib.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/lib.rs)
-resolves the Toolblox folder per platform. Current data lives in its `v2` subfolder; the folder
-itself is where the legacy Flet app kept its files.
+resolves the Toolblox data folder per platform.
 
 | Platform | Toolblox folder |
 | --- | --- |
@@ -155,15 +154,12 @@ itself is where the legacy Flet app kept its files.
 
 <FileTree>
 - Toolblox/
-  - settings.json legacy Flet settings, imported once
-  - accounts.json legacy Flet accounts, imported once
-  - v2/
-    - settings.json
-    - accounts.json
-    - .legacy-migration-complete marker written after the one-time import
-    - safe-mode-next-launch present only when the next launch should skip widgets
-    - widgets/ installed widget packages
-    - logs/ rotating, redacted log files
+  - settings.json
+  - accounts.json
+  - theme.css the custom theme, present once one is saved
+  - safe-mode-next-launch present only when the next launch should skip widgets
+  - widgets/ installed widget packages
+  - logs/ rotating, redacted log files
 </FileTree>
 
 Sessions are not in this tree. They're in Windows Credential Manager or the macOS Keychain, described
@@ -171,7 +167,7 @@ Sessions are not in this tree. They're in Windows Credential Manager or the macO
 
 ### Locking and atomic writes
 
-[`Storage`](/api/toolblox_lib/storage/struct.Storage.html) owns the `v2` folder. A single
+[`Storage`](/api/toolblox_lib/storage/struct.Storage.html) owns the data folder. A single
 `Mutex<()>` gate serializes every read and write of both files, so concurrent commands can't
 interleave a read-modify-write and lose an update. The test `updates_are_serialized_without_lost_writes`
 runs eight threads incrementing `play_count` and expects exactly eight.
@@ -247,24 +243,6 @@ Sessions read from the store come back as `Secret`, a newtype around `String` th
 
 The sign-in window uses a sibling type, `RobloxCookie`, which wraps a `Zeroizing<String>` and
 exposes the value through `expose_secret()`.
-
-### Legacy sessions and DPAPI
-
-DPAPI is used only to read what the legacy Flet app left behind. The one-time import in
-[`migration.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/migration.rs) runs
-during startup when `v2/.legacy-migration-complete` is absent and a legacy `accounts.json` or
-`settings.json` exists. For each legacy account with a `security_cookie`:
-
-- **Windows:** `decrypt_legacy_dpapi` base64-decodes the value and calls `CryptUnprotectData` for
-  the current user. A value that isn't valid base64 is treated as an already-plain session.
-- **macOS:** `lookup_legacy_keychain` runs
-  `security find-generic-password -a account-<id> -s Toolblox -w`. When that entry is missing, the
-  plaintext legacy value is used instead.
-
-Each recovered session is written to the credential store and the accounts are saved without any
-session field. If storing a session or saving the accounts fails, every session the import wrote
-is rolled back to its previous value, newest first. More on startup and migration is on
-[Startup and updates](/docs/app/startup-and-updates/).
 
 ## Signing in
 
@@ -392,7 +370,7 @@ calls `refresh()`.
 ### Profile backfill
 
 After startup reaches the ready state, `backfill_profiles` in `app_commands.rs` looks for saved
-accounts with no `avatar_url`, such as ones imported from the legacy app, and fills in `name`,
+accounts with no `avatar_url` and fills in `name`,
 `display_name`, and `avatar_url` from `roblox::public_profile`. Failures are logged and skipped.
 
 ## Roblox HTTP flows
@@ -673,7 +651,7 @@ account whose session is still stored.
 | --- | --- | --- |
 | Roblox sign-in page → Rust | The `.ROBLOSECURITY` cookie | Read by Rust from the webview cookie store, never through page scripts. Name, flags, and domain are checked. The webview is incognito, navigation-restricted, without devtools or capabilities, and cleared before storing. |
 | Rust → credential store | The session | Windows Credential Manager or macOS Keychain only. No other platform stores sessions. |
-| Rust → disk | Account display data | Validated on load and save; secret-looking legacy keys rejected; atomic writes; `0600` on Unix. |
+| Rust → disk | Account display data | Validated on load and save; secret-looking keys rejected; atomic writes; `0600` on Unix. |
 | Rust → Roblox | Cookie, CSRF token | HTTPS only, no redirects, sensitive header, fixed error messages. |
 | Rust → OS | `roblox-player:` URI with ticket | Place ID is digits only; launcher URL encoded; URI never logged or returned. |
 | Rust → React and widgets | `AccountView`, `SettingsDto`, IDs | Typed DTOs with no secret fields, guarded by a test. |

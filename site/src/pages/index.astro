@@ -1,28 +1,28 @@
 ---
-import "../styles/global.css";
+import Site from "../layouts/Site.astro";
 import GitHubIcon from "../components/GitHubIcon.astro";
 import Screenshot from "../components/Screenshot.astro";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { ArrowRight, ChevronDown, CircleHelp, Download, Eye, Hammer, Laptop, Lock, Monitor, Puzzle, Users } from "lucide-react";
+import { ArrowRight, ChevronDown, CircleHelp, Download, Eye, Hammer, HardDrive, Laptop, Monitor, Puzzle, ShieldCheck } from "lucide-react";
 
 const repo = "https://github.com/BakedAleska/Toolblox";
 const installer = `${repo}/releases/latest/download/Toolblox-Setup.exe`;
 const macInstaller = `${repo}/releases/latest/download/Toolblox.dmg`;
 
-/** One card each for open source, security, and features. */
-const highlights = [
-  { icon: Eye, title: "Open source", text: "The complete source code is public on GitHub, and every release is built from it in the open. Free under the MIT License." },
-  { icon: Lock, title: "Private by default", text: "Accounts are added through Roblox's own sign-in page and kept in Windows Credential Manager or the macOS Keychain. Toolblox never sees your password and collects no data." },
-  { icon: Users, title: "Built for multiple accounts", text: "Join games with several accounts at once, each in its own Roblox window, with alerts and optional auto-rejoin on disconnect." },
+/** The core commitments from `PRODUCT.md`, each linked to the evidence for it. */
+const commitments = [
+  { icon: Eye, title: "Free and open source", text: "No ads or paid features. Every line of source code is public under the MIT License, and every release is built from it in the open.", link: { label: "Source code", href: repo } },
+  { icon: ShieldCheck, title: "No injection", text: "Toolblox never injects code into Roblox or reads or changes its memory or files. It signs in through Roblox's own page and launches Roblox the same way the Roblox website does.", link: { label: "Launch code", href: `${repo}/blob/main/src-tauri/src/roblox.rs` } },
+  { icon: HardDrive, title: "Data stays on your device", text: "Accounts and settings are stored on your computer and logins in its secure storage: Windows Credential Manager or the macOS Keychain. There's no Toolblox server or telemetry, and Toolblox connects only to Roblox and GitHub.", link: { label: "Every connection", href: "/privacy/#network-connections" } },
 ];
 
 const questions = [
   { question: "Is Toolblox free?", answer: "Yes. Toolblox is free, with no advertisements or paid features, and is released under the MIT License." },
   { question: "Can Toolblox see my password?", answer: "No. Accounts are added through Roblox's own sign-in page. Toolblox stores only the login token Roblox provides, keeps it in your computer's secure storage, and never sends it anywhere other than Roblox." },
-  { question: "Could using Toolblox affect my account?", answer: "Toolblox doesn't modify Roblox or provide any in-game advantage, and it launches Roblox the same way the Roblox website does. However, Roblox determines how its Terms of Use apply to third-party applications, so no outside app can guarantee an account's standing." },
+  { question: "Does Toolblox inject into Roblox?", answer: "No. Toolblox never injects code into Roblox, reads or changes its memory or files, or provides any in-game advantage. It launches Roblox the same way the Roblox website does. Roblox decides how its Terms of Use apply to third-party apps, so no outside app can guarantee an account's standing." },
+  { question: "Does my data leave my computer?", answer: "Not to Toolblox. There's no Toolblox server, account service, or telemetry. The app connects only to Roblox, to sign in and join games, and to GitHub, to check for updates and widgets. The privacy policy lists every connection, and the source code shows them." },
   { question: "Why does Windows show a warning?", answer: "Windows shows this warning for applications from publishers it doesn't recognize yet, and Toolblox doesn't currently have a paid code-signing certificate. Select More info, then Run anyway, but only for a file downloaded from this site or the official GitHub page." },
   { question: "Is Toolblox made by Roblox?", answer: "No. Toolblox is an independent project and isn't affiliated with or endorsed by Roblox Corporation." },
   { question: "Why does macOS say it can't verify Toolblox?", answer: "macOS shows this for apps that aren't notarized by Apple, and Toolblox doesn't currently have a paid Apple Developer ID. Select Done, then open System Settings, Privacy & Security, and select Open Anyway, but only for a file downloaded from this site or the official GitHub page." },
@@ -30,45 +30,17 @@ const questions = [
 ];
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Toolblox</title>
-    <meta name="description" content="A free, open-source desktop app for managing and launching Roblox accounts." />
-    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
-    <script is:inline>
-      const scheme = matchMedia("(prefers-color-scheme: dark)");
-      const applyScheme = () => document.documentElement.classList.toggle("dark", scheme.matches);
-      applyScheme();
-      scheme.addEventListener("change", applyScheme);
-    </script>
-  </head>
-  <body>
-    <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-background focus:px-3 focus:py-2">Skip to content</a>
-
-    <header class="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
-      <nav class="mx-auto flex h-14 max-w-5xl items-center gap-4 px-4" aria-label="Main">
-        <a href="/" class="mr-auto flex items-center gap-2 font-semibold">
-          <img src="/logo.svg" alt="" width="24" height="24" />
-          Toolblox
-        </a>
-        <a href="#features" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">Features</a>
-        <a href="#widgets" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">Widgets</a>
-        <a href="#faq" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">FAQ</a>
-        <a href={repo} class={buttonVariants({ size: "sm", variant: "ghost" })} aria-label="Toolblox on GitHub"><GitHubIcon /><span data-stars hidden></span></a>
-        <a href="#download" class={buttonVariants({ size: "sm" })}>Download</a>
-      </nav>
-    </header>
-
-    <main id="main">
+<Site>
       <section class="mx-auto flex max-w-5xl flex-col items-center gap-6 px-4 pt-16 pb-12 text-center sm:pt-24">
-        <a href="#features"><Badge variant="secondary">Open source</Badge></a>
         <h1 class="max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl">The open-source Roblox account manager.</h1>
         <p class="max-w-2xl text-lg text-pretty text-muted-foreground">
           Manage and launch all of your Roblox accounts from one desktop app. Every line of code is public, so anyone can verify how Toolblox handles account data.
         </p>
+        <ul class="flex flex-wrap justify-center gap-2" aria-label="Commitments">
+          {commitments.map(({ icon: Icon, title }) => (
+            <li><a href="#commitments"><Badge variant="secondary"><Icon />{title}</Badge></a></li>
+          ))}
+        </ul>
         <div class="flex flex-wrap justify-center gap-3">
           <a href={installer} data-hero-download class={buttonVariants({ size: "lg", className: "h-10 px-4" })}><Download /><span data-hero-download-label>Download for Windows</span></a>
           <a href={repo} class={buttonVariants({ size: "lg", variant: "outline", className: "h-10 px-4" })}><GitHubIcon />View source code</a>
@@ -85,21 +57,22 @@ const questions = [
         </div>
       </section>
 
-      <section id="features" class="scroll-mt-14 border-t bg-muted/40">
+      <section id="commitments" class="scroll-mt-14 border-t bg-muted/40">
         <div class="mx-auto flex max-w-5xl flex-col gap-12 px-4 py-24">
           <div class="mx-auto flex max-w-2xl flex-col gap-4 text-center">
-            <p class="flex items-center justify-center gap-2 text-sm font-medium text-muted-foreground"><GitHubIcon />Open source</p>
-            <h2 class="text-3xl font-semibold tracking-tight text-balance sm:text-5xl">Transparent by design.</h2>
+            <p class="flex items-center justify-center gap-2 text-sm font-medium text-muted-foreground"><GitHubIcon />Commitments</p>
+            <h2 class="text-3xl font-semibold tracking-tight text-balance sm:text-5xl">Verifiable by design.</h2>
             <p class="text-lg text-pretty text-muted-foreground">
-              An account manager handles Roblox logins, so its code shouldn't be a secret. Toolblox is open source: its code is public, and anyone can review exactly what it does.
+              An account manager handles Roblox logins, so its promises should be checkable. Each one below links to the code or policy that shows it.
             </p>
           </div>
           <ul class="grid gap-4 md:grid-cols-3">
-            {highlights.map(({ icon: Icon, title, text }) => (
+            {commitments.map(({ icon: Icon, title, text, link }) => (
               <li class="flex flex-col gap-3 rounded-xl bg-card p-6 ring-1 ring-border">
                 <span class="flex size-9 items-center justify-center rounded-lg bg-muted"><Icon className="size-4" /></span>
                 <h3 class="font-medium">{title}</h3>
                 <p class="text-sm text-muted-foreground">{text}</p>
+                <a href={link.href} class="mt-auto inline-flex items-center gap-1 text-sm underline-offset-4 hover:underline">{link.label}<ArrowRight className="size-3.5" /></a>
               </li>
             ))}
           </ul>
@@ -131,8 +104,8 @@ const questions = [
             </div>
           </details>
           <div class="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm">
-            <a href={`${repo}/blob/main/PRIVACY.md`} class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Privacy policy<ArrowRight className="size-3.5" /></a>
-            <a href={`${repo}/blob/main/SECURITY.md`} class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Security policy<ArrowRight className="size-3.5" /></a>
+            <a href="/privacy/" class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Privacy policy<ArrowRight className="size-3.5" /></a>
+            <a href="/security/" class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Security policy<ArrowRight className="size-3.5" /></a>
           </div>
         </div>
       </section>
@@ -215,39 +188,11 @@ const questions = [
           </div>
           <p class="text-center text-sm text-pretty text-muted-foreground">
             Download Toolblox only from this site or its official GitHub page.{" "}
-            <a href={`${repo}/blob/main/SECURITY.md#verify-a-release`} class="underline underline-offset-4">How to verify a download</a>
+            <a href="/security/#verify-a-download" class="underline underline-offset-4">How to verify a download</a>
           </p>
         </div>
       </section>
-    </main>
-
-    <footer class="border-t">
-      <div class="mx-auto flex max-w-5xl flex-col items-center gap-4 px-4 py-8 text-center text-sm text-muted-foreground">
-        <nav class="flex flex-wrap justify-center gap-x-6 gap-y-2" aria-label="Footer">
-          <a href={repo} class="hover:text-foreground">Source code</a>
-          <a href={`${repo}/releases`} class="hover:text-foreground">Releases</a>
-          <a href="/docs/" class="hover:text-foreground">Widget docs</a>
-          <a href="/api/" class="hover:text-foreground">API docs</a>
-          <a href={`${repo}/blob/main/SECURITY.md`} class="hover:text-foreground">Security</a>
-          <a href={`${repo}/blob/main/PRIVACY.md`} class="hover:text-foreground">Privacy</a>
-          <a href={`${repo}/blob/main/LICENSE`} class="hover:text-foreground">MIT License</a>
-        </nav>
-        <Separator />
-        <p>Toolblox isn't affiliated with or endorsed by Roblox Corporation. Roblox is a trademark of Roblox Corporation.</p>
-      </div>
-    </footer>
-
-    <script>
-      fetch("https://api.github.com/repos/BakedAleska/Toolblox")
-        .then((response) => (response.ok ? response.json() : Promise.reject()))
-        .then(({ stargazers_count: stars }: { stargazers_count: number }) => {
-          const element = document.querySelector<HTMLElement>("[data-stars]");
-          if (!stars || !element) return;
-          element.textContent = stars.toLocaleString("en-US");
-          element.hidden = false;
-          element.parentElement?.setAttribute("aria-label", `Toolblox on GitHub, ${element.textContent} stars`);
-        })
-        .catch(() => {});
+  <script>
       fetch("https://api.github.com/repos/BakedAleska/Toolblox/releases?per_page=100")
         .then((response) => (response.ok ? response.json() : Promise.reject()))
         .then((releases: { tag_name: string; draft: boolean; assets: { name: string; download_count: number }[] }[]) => {
@@ -291,6 +236,5 @@ const questions = [
           for (const element of document.querySelectorAll<HTMLElement>("[data-downloads]")) element.hidden = false;
         })
         .catch(() => {});
-    </script>
-  </body>
-</html>
+  </script>
+</Site>

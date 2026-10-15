@@ -1,0 +1,70 @@
+---
+title: Themes
+description: Writing custom CSS for the Themes tab in Settings.
+sidebar:
+  order: 6
+---
+
+A Toolblox theme is plain CSS, entered under **Settings → Themes → Custom CSS** or imported from a
+`.css` file. It's applied after the app's own styles, so it can change anything.
+
+## Tokens
+
+Every color and radius in the app comes from a CSS variable. Setting one changes it everywhere,
+and the color pickers in the Themes tab show the new value.
+
+```css
+:root {
+  --radius: 12px;
+}
+
+:root.dark {
+  --primary: #e0a030;
+  --background: #101014;
+}
+```
+
+`:root` applies to both modes, `:root.dark` to dark mode, and `:root:not(.dark)` to light mode.
+The color pickers write to the last two.
+
+| Tokens | Used for |
+| --- | --- |
+| `--background`, `--foreground` | Page background and text |
+| `--card`, `--card-foreground` | Panels |
+| `--popover`, `--popover-foreground` | Menus and dialogs |
+| `--primary`, `--primary-foreground` | Default buttons and checked controls |
+| `--secondary`, `--secondary-foreground` | Secondary buttons and badges |
+| `--accent`, `--accent-foreground` | Hovered and focused menu items |
+| `--muted`, `--muted-foreground` | Subtle surfaces and descriptions |
+| `--border`, `--input`, `--ring` | Borders, field borders, and focus rings |
+| `--overlay`, `--shadow` | Dialog backdrop and shadow color |
+| `--sidebar`, `--sidebar-*` | The sidebar |
+| `--success`, `--warning`, `--destructive` | Status colors |
+| `--radius` | Corner radius. Every other radius is a multiple of it |
+| `--font` | The interface font |
+| `--text-scale` | Multiplies every text size. `1` is the default. Settings shows it as the body text size in points, 10.5 pt by default |
+| `--spacing` | The spacing unit, `0.25rem` by default. Every gap, padding, and control height is a multiple of it |
+
+The **Style** controls in the Themes tab set `--font`, `--text-scale`, and `--spacing` in a
+`:root` block.
+
+## Pages
+
+Each page's `<main>` element has a `data-page` attribute: `dashboard`, `accounts`, `widgets`
+(including widget pages), or `settings`.
+
+```css
+main[data-page="dashboard"] {
+  background: url(data:image/png;base64,...) center / cover;
+}
+```
+
+## Images and limits
+
+A theme can't load anything from outside this device. Images must be `data:` URLs, and `@import`
+and other URLs are rejected when the CSS is saved. A theme can be up to 16 MB.
+
+## Recovery
+
+Safe mode starts Toolblox without the custom theme, so CSS that hides or breaks the interface can
+always be fixed from the Themes tab.

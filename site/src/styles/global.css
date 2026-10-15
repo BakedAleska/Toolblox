@@ -27,3 +27,65 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Long-form policy text. */
+@layer components {
+  .policy {
+    @apply text-[15px] leading-7 text-pretty text-foreground/85;
+  }
+  .policy > :first-child {
+    @apply mt-0;
+  }
+  .policy h2 {
+    @apply mt-12 mb-3 scroll-mt-20 border-t pt-8 text-xl font-semibold tracking-tight text-foreground;
+  }
+  .policy h3 {
+    @apply mt-8 mb-2 scroll-mt-20 text-base font-semibold text-foreground;
+  }
+  .policy p,
+  .policy ul,
+  .policy ol,
+  .policy pre {
+    @apply my-4;
+  }
+  .policy ul {
+    @apply list-disc space-y-2 pl-6 marker:text-muted-foreground;
+  }
+  .policy ol {
+    @apply list-decimal space-y-2 pl-6 marker:text-muted-foreground;
+  }
+  .policy a {
+    @apply font-medium text-foreground underline decoration-foreground/30 underline-offset-4 transition-colors hover:decoration-foreground;
+  }
+  .policy strong {
+    @apply font-semibold text-foreground;
+  }
+  .policy code {
+    @apply rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.85em] text-foreground;
+  }
+  .policy pre {
+    @apply overflow-x-auto rounded-xl bg-muted! p-4 font-mono text-[13px] leading-6 whitespace-pre-wrap text-foreground!;
+  }
+  .policy pre code,
+  .policy pre span {
+    @apply bg-transparent p-0 text-inherit!;
+  }
+  .policy table {
+    @apply my-6 block w-full overflow-x-auto text-sm sm:table;
+  }
+  .policy th {
+    @apply border-b py-2 pr-6 text-left font-medium text-muted-foreground;
+  }
+  .policy td {
+    @apply border-b py-3 pr-6 align-top;
+  }
+  .policy tr:last-child td {
+    @apply border-b-0;
+  }
+  .policy blockquote {
+    @apply my-6 rounded-xl bg-muted px-4 py-3 text-foreground;
+  }
+  .policy blockquote p {
+    @apply my-0;
+  }
+}

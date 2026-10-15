@@ -8,13 +8,15 @@ import { Input } from "@/components/ui/input";
 import { bridge } from "@/bridge";
 import { cn } from "@/lib/utils";
 import { accountName, parsePlaceId, sortAccounts } from "@/logic";
-import { Avatar, EmptyState, IconButton, Panel, Screen, Spinner, placeLabel, presenceLabel, type ScreenProps } from "@/shared";
+import { AccountCard, EmptyState, IconButton, Panel, Screen, Spinner, placeLabel, presenceLabel, type ScreenProps } from "@/shared";
 import type { Account } from "@/types";
 import { WidgetSlot } from "@/widgets/host";
+import { activeFilters, emptySearch, matchAccount, type SearchState } from "@/search";
+import { AccountSearch } from "@/screens/AccountSearch";
 
 export function Accounts({ state, refresh, notify, confirm, join, askPlace, patchSettings }: ScreenProps) {
   const { settings } = state;
-  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState<SearchState>(emptySearch);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [adding, setAdding] = useState(false);
@@ -23,16 +25,18 @@ export function Accounts({ state, refresh, notify, confirm, join, askPlace, patc
   const placeField = useRef<HTMLLabelElement>(null);
   const [pendingOrder, setPendingOrder] = useState<Account[]>();
   const saved = useMemo(() => sortAccounts(state.accounts, settings.sortOrder), [state.accounts, settings.sortOrder]);
+  const filters = activeFilters(search);
   const sorted = pendingOrder ?? saved;
-  const visible = sorted.filter((account) => `${account.name} ${account.displayName} ${account.notes}`.toLowerCase().includes(query.trim().toLowerCase()));
-  const reorderable = settings.sortOrder === "manual" && !query;
+  const visible = sorted.filter((account) => matchAccount(account, filters, { recentPlaces: state.recentPlaces }));
+  const reorderable = settings.sortOrder === "manual" && !filters.length;
 
   const toggleSelection = (id: number) => setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const addAccount = async () => { setAdding(true); try { await bridge.beginRobloxLogin(); await refresh(); } catch (error) { notify(`Sign-in didn't complete. Was the sign-in window closed? (${String(error)})`); } finally { setAdding(false); } };
   const persistOrder = (next: Account[]) => { setPendingOrder(next); return bridge.reorderAccounts(next.map(({ id }) => id)).then(refresh).catch((error) => notify(`The order wasn't saved. Does refreshing help? (${String(error)})`)).finally(() => setPendingOrder(undefined)); };
-  const move = (id: number, direction: -1 | 1) => { const index = sorted.findIndex((account) => account.id === id); const target = index + direction; if (index < 0 || target < 0 || target >= sorted.length) return; const next = [...sorted]; [next[index], next[target]] = [next[target], next[index]]; void persistOrder(next); };
+  const move = (id: number, direction: -1 | 1) => { const index = sorted.findIndex((account) => account.id === id); const target = index + direction; if (index < 0 || target < 0 || target >= sorted.length) return; const next = [...sorted];[next[index], next[target]] = [next[target], next[index]]; void persistOrder(next); };
   const drop = (targetId?: number) => { setDragged(undefined); setOver(undefined); if (dragged === undefined || targetId === undefined || dragged === targetId) return; const next = [...sorted]; const from = next.findIndex(({ id }) => id === dragged); const to = next.findIndex(({ id }) => id === targetId); next.splice(to, 0, next.splice(from, 1)[0]); void persistOrder(next); };
   const rowAt = (event: PointerEvent<Element>) => { const id = (document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-account-id]") as HTMLElement | null)?.dataset.accountId; return id ? Number(id) : undefined; };
+  const forgetPlace = (placeId: string) => bridge.forgetRecentPlace(placeId).then(refresh).catch((error) => notify(`The place wasn't removed. Does retrying help? (${String(error)})`));
   const setAccountPlace = (account: Account, placeId: string | null) => bridge.setAccountPlace(account.id, placeId).then(refresh).catch((error) => notify(`The place wasn't saved. Does retrying help? (${String(error)})`));
   const savePlace = async (input: HTMLInputElement) => {
     const value = input.value.trim();
@@ -75,11 +79,7 @@ export function Accounts({ state, refresh, notify, confirm, join, askPlace, patc
         </DropdownMenuContent>
       </DropdownMenu>}
     </label>
-    <label className="relative min-w-0 flex-1 basis-0">
-      <span className="sr-only">Search accounts</span>
-      <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-      <Input className="pl-8" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" />
-    </label>
+    <AccountSearch app={state} value={search} onChange={setSearch} />
     <IconButton label={selectMode ? "Exit selection" : "Select accounts"} variant={selectMode ? "secondary" : "ghost"} onClick={() => { setSelectMode((value) => !value); setSelected(new Set()); }}>{selectMode ? <X /> : <ListChecks />}</IconButton>
     <Button onClick={() => void addAccount()} disabled={adding}>{adding ? <Spinner /> : <Plus />}Add</Button>
   </>}>

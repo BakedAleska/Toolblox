@@ -6,6 +6,17 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@theme {
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.7, 0, 0.84, 0);
+}
+
+/* Menus that list choices show five rows and scroll: five items (py-1.5 plus a text-sm line) and
+   the menu's p-1, from the same tokens, so it holds at any density or text size. */
+@utility max-h-menu {
+  max-height: min(var(--available-height), calc(var(--spacing) * 17 + 6.25rem * var(--text-scale)));
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

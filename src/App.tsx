@@ -52,6 +52,7 @@ function App() {
   const [loadError, setLoadError] = useState("");
   const [route, setRoute] = useState<AppRoute>(routeFromHash);
   const [toast, setToast] = useState("");
+  const [toastLeaving, setToastLeaving] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmRequest>();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [placeRequest, setPlaceRequest] = useState<PlaceRequest>();
@@ -105,7 +106,8 @@ function App() {
   }, []);
   useEffect(() => {
     if (!toast) return;
-    const timeout = window.setTimeout(() => setToast(""), 4000);
+    setToastLeaving(false);
+    const timeout = window.setTimeout(() => setToastLeaving(true), 4000);
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
@@ -159,13 +161,16 @@ function App() {
       <div className="relative flex min-w-0 flex-1 flex-col">
         {state.safeMode && <div className="flex items-center gap-3 border-b bg-warning/10 px-6 py-2 text-sm" role="status">
           <ShieldAlert className="size-4 shrink-0 text-warning" aria-hidden="true" />
-          <span className="flex-1">Safe mode. Widgets are off for this session.</span>
+          <span className="flex-1">Safe mode. Widgets and the custom theme are off for this session.</span>
           <Button variant="outline" size="sm" onClick={() => void bridge.restartApp(false)}>Restart normally</Button>
         </div>}
-        <main key={route} className="min-h-0 flex-1 animate-in duration-200 fade-in-0 slide-in-from-bottom-1" id="main-content">{screen}</main>
-        {toast && <div className="absolute inset-x-4 bottom-4 z-50 mx-auto w-fit max-w-[520px] animate-in rounded-lg bg-foreground px-4 py-3 text-sm text-background shadow-lg fade-in-0 slide-in-from-bottom-2" role="status">{toast}</div>}
+        <main key={route} data-page={pageOf(route)} className="min-h-0 flex-1 animate-in duration-200 fade-in-0 slide-in-from-bottom-1" id="main-content">{screen}</main>
+        {toast && <div role="status" onAnimationEnd={() => { if (toastLeaving) { setToast(""); setToastLeaving(false); } }}
+          className={cn("absolute inset-x-4 bottom-4 z-50 mx-auto w-fit max-w-[520px] rounded-xl bg-foreground px-4 py-3 text-sm text-background shadow-lg shadow-shadow/20",
+            toastLeaving ? "animate-out fill-mode-forwards fade-out-0 zoom-out-95 slide-out-to-bottom-1 duration-150 ease-exit" : "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-200 ease-enter")}>{toast}</div>}
       </div>
-      {placeRequest && <PlaceDialog request={placeRequest} recentPlaces={state.recentPlaces} open={placeOpen} close={() => setPlaceOpen(false)} />}
+      {placeRequest && <PlaceDialog request={placeRequest} recentPlaces={state.recentPlaces} open={placeOpen} close={() => setPlaceOpen(false)}
+        forget={(placeId) => bridge.forgetRecentPlace(placeId).then(load).catch((error) => setToast(`The place wasn't removed. Does retrying help? (${String(error)})`))} />}
       {confirm && <ConfirmDialog request={confirm} open={confirmOpen} close={() => setConfirmOpen(false)} notify={setToast} />}
     </div>
   </TooltipProvider>;

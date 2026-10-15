@@ -1,0 +1,550 @@
+---
+title: Background services
+description: The window, tray, single-instance, autostart, auto-rejoin, multi-instance, and logging behaviour that runs outside any screen.
+sidebar:
+  order: 5
+---
+
+import { Aside, Steps, FileTree } from '@astrojs/starlight/components';
+
+Most of what Toolblox does happens in response to a screen: a button calls a Tauri command, the
+command returns, the screen updates. A handful of host services don't fit that pattern. They're set
+up once in `lib.rs`, live for the whole process, and keep working when the window is hidden in the
+tray. This page describes each of them, how they're wired together, and where Windows and macOS
+behave differently.
+
+A module widget runs inside the same interface and can call the same commands, so these services
+shape what a widget can rely on: whether the app is still running when the window is closed,
+when widget processes are stopped, how presence changes are detected, and where a widget's log
+lines end up.
+
+<FileTree>
+- src-tauri/src/
+  - lib.rs builder, plugins, setup, the post-startup services task, exit handling
+  - lifecycle.rs window, tray, single instance, close-to-tray decision
+  - auto_rejoin.rs presence monitor, drop notifications, auto-rejoin
+  - multi_instance.rs Windows Roblox singleton cleanup
+  - logs.rs rotating, redacted log file
+  - widget_process.rs widget sidecar processes
+- src-tauri/resources/multi-instance/
+  - helper.c
+  - build.ps1
+  - multi_instance_helper.exe
+  - README.md
+- src-tauri/windows/installer-hooks.nsh
+</FileTree>
+
+## Overview
+
+| Service | Starts | Runs until | Platforms |
+| --- | --- | --- | --- |
+| Logging | First thing in `setup` | Process exit | Both |
+| Tray icon and menu | `setup` | Process exit | Both (system tray on Windows, menu bar on macOS) |
+| Close-to-tray handler | `setup` | Process exit | Both |
+| Single-instance handler | Plugin registration | Process exit | Both |
+| Autostart reconciliation | After startup is ready (release only) | One shot | Both, with different backends |
+| Always on top | After startup is ready | One shot | Both |
+| Profile backfill | After startup is ready | One shot | Both |
+| Widgets that start on launch | After startup is ready | One shot (processes keep running) | Both |
+| Presence monitor (auto-rejoin, drop notifications) | After the above | Process exit | Both |
+| Multi-instance cleanup | Before each Roblox launch, when enabled | Per launch | Windows only |
+
+## Setup order
+
+`toolblox_lib::run` in [`lib.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/lib.rs)
+builds the Tauri app in this order:
+
+<Steps>
+
+1. **Plugins.** `tauri_plugin_single_instance` (first, so a second launch is caught before
+   anything else happens), `tauri_plugin_opener`, `tauri_plugin_notification`,
+   `tauri_plugin_updater`, and the `widget` URI scheme protocol. Inside `setup`,
+   `tauri_plugin_autostart` is added with `MacosLauncher::LaunchAgent`.
+
+2. **Paths.** The legacy root is the platform data folder (`%LOCALAPPDATA%\Toolblox` or
+   `~/Library/Application Support/Toolblox`; `TOOLBLOX_DATA_DIR` in debug builds). Current data
+   is in `v2`, widgets in `v2/widgets`, logs in `v2/logs`.
+
+3. **Safe mode.** `take_safe_mode` decides whether this launch skips widgets (see
+   [Safe mode](#safe-mode)).
+
+4. **Logging.** `logs::init(v2/logs)` starts the file logger and the panic hook. The first record
+   is `Toolblox <version> (<debug|release>) starting on <os> <arch>`, with ` in safe mode`
+   appended when it applies.
+
+5. **Runtime.** Storage, the OS credential store, the shared HTTP client, the widget process
+   manager, the multi-instance helper path, and the safe-mode flag go into the `Runtime` state.
+   `LifecycleState` and `StartupState` are managed alongside it.
+
+6. **Tray.** `lifecycle::install_tray` adds the tray icon and menu.
+
+7. **Close handler.** A `CloseRequested` handler is attached to the main window.
+
+8. **Show.** The main window, created hidden (`visible: false` in `tauri.conf.json`), is shown,
+   and any activation request from a second launch that arrived earlier is applied.
+
+9. **Startup and services tasks.** `startup::run` is spawned (the update gate described in
+   [Startup and updates](/docs/app/startup-and-updates/)), and a second task waits for it to
+   reach `ready` before starting the post-startup services.
+
+</Steps>
+
+### After startup
+
+The services task in `lib.rs` waits on `startup::wait_until_ready` (polling the startup phase
+every 250 ms) and then runs, in order:
+
+| Step | What it does | Code |
+| --- | --- | --- |
+| Autostart | Release builds only: if the OS registration differs from the `openOnLaunch` setting, enable or disable it. Errors are ignored. | `lib.rs` |
+| Always on top | If `alwaysOnTop` is set, apply it to the main window. | `lib.rs` |
+| Profile backfill | For every account with no avatar URL (for example accounts imported from the legacy app), fetch the public profile and fill in name, display name, and avatar. Failures are logged per account. | `app_commands::backfill_profiles` |
+| Widget processes | Unless safe mode is on, start every declared process of each installed widget that is in `widgetsStartOnLaunch` and not in `disabledWidgets`. Failures are logged as warnings. | `start_widgets_on_launch` |
+| Presence monitor | Runs `auto_rejoin::run`, which loops until the process exits. | `auto_rejoin.rs` |
+
+If startup never reaches `ready`, none of these run.
+
+## Window and lifecycle
+
+The main window is labelled `main` (`lifecycle::MAIN_WINDOW_LABEL`). It opens at 900 × 500, with
+a minimum of 720 × 480, and is resizable. `LifecycleState` holds two atomic flags shared by the
+tray, the close handler, and the single-instance handler:
+
+| Flag | Set by | Read by |
+| --- | --- | --- |
+| `quit_requested` | Tray **Quit** | Close handler, so a close after Quit exits instead of hiding |
+| `pending_activation` | A second launch or tray **Open** that arrived before the window could be restored | `apply_pending_activation`, once the window is shown in `setup` |
+
+`restore_main_window` restores the taskbar button (`set_skip_taskbar(false)`), unminimizes,
+shows, and focuses the window. If any of that fails, `activate_or_defer` records a pending
+activation instead of dropping the request.
+
+### Single instance
+
+`tauri_plugin_single_instance` keeps one Toolblox process per user. When a second copy starts, the
+plugin's callback runs in the first process and calls `activate_or_defer`, bringing the existing
+window forward (including from the tray). The second process exits.
+
+On macOS, `RunEvent::Reopen` (for example clicking the Dock icon while the window is hidden) is
+handled in the `run` callback and calls the same `activate_or_defer`. Windows has no equivalent
+event; relaunching the app goes through the single-instance path instead.
+
+### Tray menu
+
+`install_tray` creates one tray icon with ID `toolblox-tray`, tooltip `Toolblox`, and the app's
+default window icon. The menu doesn't open on left-click (`show_menu_on_left_click(false)`) and
+there's no separate click handler, so the menu is the way in. On Windows the icon sits in the
+notification area; on macOS it's a menu bar item, and Settings words the **Run in background**
+description accordingly.
+
+| Item | ID | Action |
+| --- | --- | --- |
+| Open Toolblox | `toolblox-open` | `activate_or_defer`: restore and focus the main window. |
+| Restart without widgets | `toolblox-safe-mode` | Writes the safe-mode marker, then `app.restart()`. |
+| Quit | `toolblox-quit` | Sets `quit_requested`, stops every widget process, then `app.exit(0)`. |
+
+If the tray can't be created, `setup` fails with "The tray icon couldn't open. Would turning off
+background mode help?"
+
+### Close behaviour
+
+Closing the main window doesn't always quit. The `CloseRequested` handler in `lib.rs` computes
+`run_in_background` as **startup phase is `ready`** and **the `runInBackground` setting is on**
+(defaulting to off if settings can't be read). `lifecycle::decide_close` then picks:
+
+| `run_in_background` | Tray exists | Quit chosen from tray | Result |
+| --- | --- | --- | --- |
+| true | true | false | **Hide to tray** |
+| true | false | — | Exit |
+| false | — | — | Exit |
+| — | — | true | Exit |
+
+To hide, the handler prevents the close, removes the taskbar button (`set_skip_taskbar(true)`),
+and hides the window. If either call fails, it restores the taskbar button and shows the window
+again rather than leaving an invisible app with no way back; the window simply stays open. To
+exit, it calls `app.exit(0)`.
+
+`runInBackground` defaults to on. Because the decision requires the `ready` phase, closing the
+window on the update screen, or while a **Check now** run is in progress or has failed, always
+exits.
+
+A widget can't keep the window open or veto a close. Widget frames and modules stay loaded while
+the window is hidden, because hiding doesn't unload the webview.
+
+### Exit and restart paths
+
+| Path | Stops widget processes | Notes |
+| --- | --- | --- |
+| Tray **Quit** | Yes, before exit | Also through `RunEvent::Exit`. |
+| Closing the window when it exits | Yes, in `RunEvent::Exit` | Logs `Toolblox exited` and flushes. |
+| **Quit** on the update screen (`quit_startup`) | Yes, in `RunEvent::Exit` | — |
+| `restart_app` command | — | Sets or clears the safe-mode marker, then `app.restart()`. |
+| Tray **Restart without widgets** | — | Sets the marker, then `app.restart()`. |
+| Installing an update | — | On Windows the updater plugin ends the process directly. |
+
+The `RunEvent::Exit` handler in `lib.rs` calls `processes.stop_all()` on the widget process
+manager, logs `Toolblox exited`, and flushes the log.
+
+### Safe mode
+
+Safe mode starts Toolblox without loading widget modules, frames, or start-on-launch processes for
+one session. It applies when either:
+
+- the marker file `v2/safe-mode-next-launch` exists, or
+- the process was started with the `--safe-mode` argument.
+
+`take_safe_mode` deletes the marker as it reads it, so the following launch loads widgets again.
+The marker is written by the tray's **Restart without widgets** item and by the `restart_app`
+command with `safeMode: true` (and removed by `restart_app` with `false`). The flag is exposed to
+the interface as `safeMode` in the app state. For how the interface treats it, see
+[Logs and failures](/docs/widgets/reference/logs-and-failures/).
+
+### Autostart
+
+Launch at login uses `tauri-plugin-autostart`.
+
+| Platform | Mechanism |
+| --- | --- |
+| Windows | A value named `Toolblox` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. The NSIS uninstaller hook in `src-tauri/windows/installer-hooks.nsh` deletes that value on uninstall. |
+| macOS | A LaunchAgent (`MacosLauncher::LaunchAgent`). |
+
+The setting is applied in two places:
+
+- **`save_settings`** compares the new `openOnLaunch` with the stored value and enables or disables
+  autostart only when it changed. If the OS change fails, the previous settings are written back
+  and the command fails with "The startup setting couldn't be changed. Does this account allow
+  startup apps?"
+- **After startup**, release builds reconcile the registration with the setting, which repairs
+  drift (for example a registration removed outside the app). Debug builds skip this so a
+  development build never registers itself to run at login.
+
+`save_settings` also applies `alwaysOnTop` to the main window immediately when it changes.
+
+## Presence monitor and auto-rejoin
+
+[`auto_rejoin.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/auto_rejoin.rs)
+is a single long-running loop that watches Roblox presence for every saved account and reacts when
+an account leaves a game. It's **opt-in**: it does nothing unless **Auto-rejoin** (`autoRejoin`)
+or **Disconnect notifications** (`notifyOnDrop`) is turned on in Settings → Accounts →
+Disconnects. Both default to off.
+
+### Timing
+
+| Constant | Value | Meaning |
+| --- | --- | --- |
+| `POLL_INTERVAL` | 10 s | Normal gap between checks. |
+| `LAUNCH_POLL_INTERVAL` | 3 s | Gap while any account is in its launch window. |
+| `LAUNCH_WINDOW` | 60 s | An account is in its launch window for 60 seconds after its `lastPlayedAt`, or after an automatic rejoin. |
+| `REJOIN_GRACE` | 45 s | A drop within 45 seconds of an automatic rejoin pauses auto-rejoin for that account. |
+
+Each iteration sleeps first, then reloads settings and accounts from disk, so changes in Settings
+take effect on the next tick without a restart. When both options are off, the loop clears its
+per-account history and sleeps again.
+
+### Fetching presence
+
+One batched request to `https://presence.roblox.com/v1/presence/users` covers every saved account.
+The request needs a signed-in session, so the loop tries each account's stored session in order:
+
+- A readable session whose request succeeds ends the search.
+- A request that Roblox rejects with an HTTP error status moves on to the next account's session.
+- Any other error (for example a network failure) stops the search for this tick.
+
+If no session works, the loop logs `Presence checks for auto-rejoin are failing: <reason>` once
+(when it first starts failing, and only if there are accounts) and logs
+`Presence checks for auto-rejoin recovered` when a later check succeeds. When Roblox answers the
+first request with HTTP 403 and an `x-csrf-token` header, `roblox::fetch_presence_details` repeats
+it once with that token. Sessions never leave the host; see [Accounts](/docs/app/accounts/) for
+how they're stored.
+
+### Drop detection
+
+The loop keeps a small history per account: whether the previous check saw it in game, when it was
+last auto-rejoined, whether auto-rejoin is paused, and the `lastPlayedAt` it last saw. Presence
+values map as follows:
+
+| Presence | Effect |
+| --- | --- |
+| `InGame`, `InStudio` | Marks the account as in game. |
+| `Offline`, `Online` after being in game | A **drop**. Logs `Account <id> left its game` and handles it as below. |
+| `Offline`, `Online` otherwise | Nothing. |
+| `Unknown` | Nothing, and the in-game flag is left as it was. |
+
+An account that is already offline when monitoring starts never counts as a drop; it must be seen
+in game first.
+
+### What happens on a drop
+
+```text
+drop detected
+   │
+   ├─ autoRejoin off ──▶ notify "<name> disconnected" / "Open Toolblox to rejoin."   (if notifyOnDrop)
+   │
+   ├─ account paused ──▶ nothing
+   │
+   ├─ last auto-rejoin < 45 s ago ──▶ pause the account
+   │                                  log warning
+   │                                  notify "Auto-rejoin paused for <name>" /
+   │                                         "It disconnected again shortly after rejoining.
+   │                                          Join manually to resume."          (if notifyOnDrop)
+   │
+   └─ otherwise ──▶ notify "<name> disconnected" / "Rejoining automatically."   (if notifyOnDrop)
+                    join_account_ids(account, record_play = false, place = none)
+                      ok  ──▶ log "Auto-rejoined account <id>", remember the time
+                      err ──▶ log warning
+```
+
+Notifications go through `tauri-plugin-notification` and are shown only when `notifyOnDrop` is
+on. `<name>` is the account's display name.
+
+The rejoin uses the same `join_account_ids` path as a manual join, so it goes to the account's own
+place if one is set, otherwise the default place, and it honours the multi-instance setting. It
+passes `record_play = false`, so an automatic rejoin doesn't update `lastPlayedAt` or the play
+count.
+
+That's what makes the pause work: a **manual** join records play and changes `lastPlayedAt`. When
+the loop sees `lastPlayedAt` change for an account, it clears the pause and the last-rejoin time.
+In the interface this is described as "Pauses after repeated failures until the account is joined
+manually."
+
+<Aside type="note">
+Joins from the Accounts screen and from a widget's `roblox.join` IPC method both call
+`join_account_ids` with `record_play = true`, so either one clears a paused account. See the
+[IPC reference](/docs/widgets/reference/ipc/).
+</Aside>
+
+## Multiple Roblox instances
+
+On Windows, the Roblox client allows only one running copy. Toolblox's **Multiple instances**
+setting (Settings → Accounts → Joining, shown only when the platform is Windows) works around
+this with a small bundled native helper.
+
+### How Roblox enforces one instance
+
+According to the helper's
+[README](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/resources/multi-instance/README.md),
+`RobloxPlayerBeta.exe` creates a named event object, `ROBLOX_singletonEvent`, at startup and
+refuses to open a second window if it already exists. The object disappears once no process holds
+a handle to it, so closing the handle held by the running client lets the next client start
+normally.
+
+### When it runs
+
+`join_account_ids` in `app_commands.rs` calls
+`multi_instance::clear_new_roblox_instances` for every account it launches, after the join ticket
+is obtained and before the `roblox-player:` URI is opened, whenever `multiInstance` is on:
+
+<Steps>
+
+1. **Find the helper.** `Runtime.multi_instance_helper` is
+   `<resource dir>/resources/multi-instance/multi_instance_helper.exe`. If it isn't a file, the
+   join fails with "The multi-instance helper isn't installed. Can you reinstall Toolblox?"
+
+2. **List Roblox processes.** `tasklist.exe /FI "IMAGENAME eq RobloxPlayerBeta.exe" /FO CSV /NH`
+   runs with `CREATE_NO_WINDOW`, and the PID column is parsed from its CSV output.
+
+3. **Pick new PIDs.** `Runtime.cleared_roblox_pids` remembers which PIDs were already handled.
+   PIDs that are no longer running are dropped from it. Only PIDs not yet in the set are passed
+   on. If there are none, nothing else happens.
+
+4. **Run the helper** with the new PIDs as arguments, again without a console window. A non-zero
+   exit fails the join with "The multi-instance helper failed. Can you try again?"
+
+5. **Remember the PIDs** as cleared.
+
+</Steps>
+
+Any failure is logged as `Multiple instances couldn't be enabled: <error>` and stops the join for
+that account.
+
+### The helper
+
+[`helper.c`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/resources/multi-instance/helper.c)
+is built with MSVC by `build.ps1` and shipped as a bundle resource (`tauri.conf.json` lists the
+`.exe`, the source, and the README). For each PID passed in, it:
+
+1. Keeps the PID only if it's currently a running `RobloxPlayerBeta.exe` (from a Toolhelp
+   snapshot), so stale or reused PIDs are ignored.
+2. Reads the system handle table with `NtQuerySystemInformation(SystemHandleInformation)`.
+3. For each handle owned by that process, duplicates it and asks for its object name with
+   `NtQueryObject(ObjectNameInformation)` on a worker thread with a 150 ms timeout, because that
+   call can hang on some handle types.
+4. If the name contains `ROBLOX_singletonEvent`, closes the original handle inside the Roblox
+   process with `DuplicateHandle(..., DUPLICATE_CLOSE_SOURCE)`.
+
+It needs no administrator rights, because Roblox runs as the same user, and it always exits 0; the
+non-zero check in Rust guards against the helper failing to run at all.
+
+Each running client has its handle closed only once. The README documents why: Roblox appears to
+use the event for more than the startup check, and closing the handle under a running client can
+make clients close unexpectedly, so touching each process once reduces how often that happens
+without eliminating it.
+
+<Aside type="caution" title="Legacy references in the helper">
+The helper's README and source comments still refer to the legacy Python caller
+(`toolblox/roblox/multi_instance.py`) and an older folder path. The current caller is
+`multi_instance.rs`, and the binary ships as a Tauri resource.
+</Aside>
+
+### macOS
+
+On every platform other than Windows, `clear_new_roblox_instances` returns `Ok(())` without doing
+anything, and Settings hides the **Multiple instances** toggle when the platform isn't Windows.
+The `multiInstance` setting itself can still be stored, but has no effect.
+
+## Logs
+
+[`logs.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/logs.rs) implements a
+small file logger behind the [`log`](https://docs.rs/log) facade. The host, the interface, and
+widgets all write to the same file, and every line is redacted before it's written, regardless of
+who logged it.
+
+### Location and rotation
+
+| Platform | Current file |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\Toolblox\v2\logs\toolblox.log` |
+| macOS | `~/Library/Application Support/Toolblox/v2/logs/toolblox.log` |
+
+Before each write, if the current file plus the new line would exceed 1 000 000 bytes, the logger
+deletes `toolblox.log.3`, renames `.2` to `.3` and `.1` to `.2`, renames the current file to
+`toolblox.log.1`, and opens a fresh file. At most four files exist, about 4 MB in total.
+
+The file is opened in append mode with no write buffer, so records reach the file as they're
+logged. If `logs::init` fails (for example because the folder isn't writable), startup continues
+without a log, and reading it fails with "Logging didn't start. Can you check that the data folder
+is writable?"
+
+### Line format
+
+Each record is one line:
+
+```text
+2026-09-24T18:09:53.104Z INFO  auto_rejoin: Auto-rejoined account 101
+```
+
+- **Time** is UTC in ISO 8601 with milliseconds.
+- **Level** is padded to five characters.
+- **Target** is `toolblox` for the crate root, the module path without the `toolblox_lib::` prefix
+  for host modules (`startup`, `app_commands`, `widgets`, …), `interface` for the React app,
+  `widget:<id>` for widgets, `panic` for panics, and the full target for other crates.
+- **Message** is redacted, then cut to 8 KB with ` [truncated]` appended. Line breaks become
+  continuation lines indented by four spaces, tabs become spaces, and other control characters are
+  escaped as `\u{…}`, so a message can't forge a separate record or inject terminal escapes.
+
+### Levels
+
+| Target | Debug build | Release build |
+| --- | --- | --- |
+| Toolblox modules, `toolblox`, `interface`, `panic`, `widget:*` | `Debug` and above | `Info` and above |
+| Other crates (Tauri, plugins, `reqwest`, …) | `Warn` and above | `Warn` and above |
+
+A widget's `debug` records are therefore dropped in release builds.
+
+### Redaction
+
+`logs::redact` runs on every message and target. It replaces values with `[redacted]`:
+
+| Pattern | Example input | Written as |
+| --- | --- | --- |
+| A Roblox session cookie, anywhere (starts with `_\|WARNING:`, any case) | `bare _\|WARNING:-DO-NOT-SHARE…` | `bare [redacted]` |
+| A launch URI (`roblox-player:` or `roblox-studio:`), everything after the scheme | `roblox-player:1+launchmode:play+gameinfo:T1` | `roblox-player:[redacted]` |
+| `key=value`, `key: value`, or `"key": "value"` for a secret key | `.ROBLOSECURITY=abc123; path=/` | `.ROBLOSECURITY=[redacted]; path=/` |
+| Whole header values for `authorization`, `proxy-authorization`, `cookie`, `set-cookie` | `cookie: a=1; .ROBLOSECURITY=zzz` | `cookie: [redacted]` |
+
+The secret keys, matched case-insensitively at word boundaries, are `.roblosecurity`,
+`rbx-authentication-ticket`, `authentication-ticket`, `ticket`, `x-csrf-token`, `authorization`,
+`proxy-authorization`, `cookie`, `set-cookie`, `password`, `secret`, `token`, `access_token`,
+`refresh_token`, `api_key`, and `apikey`. A key only matches when it's followed by `=` or `:`, so
+ordinary prose such as "the ticket request failed" is left alone. Unquoted values end at
+whitespace or at one of `;`, `,`, `"`, `'`, `&`, `<`, `>`, or a backtick; the four header keys
+take the rest of the line. Quoted values end at the closing quote.
+
+<Aside type="tip">
+Redaction is a safety net, not a licence. Widget authors should still avoid logging anything
+secret, and shouldn't rely on a custom key name being caught. Only the patterns above are
+recognized.
+</Aside>
+
+### How records reach the file
+
+```text
+Rust host modules ───── log::info! / warn! / error! ──────────────────────────┐
+                                                                              │
+Widget processes ────── start / stop (info), stderr lines (warn, first 200) ──┤
+                        target widget:<id>                                    │
+                                                                              ▼
+React interface ─┐                                                   logs::FileLogger
+  window "error" ├─ writeLog(level, message) ─▶ write_log command ─▶  level filter
+  "unhandled-    │   (bridge.ts)                 cut at 64 KB          redact, sanitize
+   rejection"    │                               target "interface"    cut at 8 KB
+  failed command ┘                               or widget:<id>        rotate, append
+                                                                              ▲
+Widget modules ── host.log.debug/info/warn/error ─▶ writeLog(…, widgetId) ────┘
+  load, render, and deactivate failures             (widget ID validated)
+```
+
+The interface side lives in `bridge.ts` and `main.tsx`:
+
+- `main.tsx` logs uncaught errors and unhandled promise rejections at `error`.
+- Every failed bridge command is logged at `warn` as `Command <name> failed: <error>` before the
+  error is rethrown.
+- `writeLog` never rejects; if the host call fails, the record is dropped. In demo mode it writes
+  to the browser console instead.
+
+The `write_log` command accepts `level` (`debug`, `info`, `warn`, `error`), `message`, and an
+optional `widgetId`. A widget ID must pass `widgets::validate_widget_id`; an invalid one is
+rejected rather than logged under an arbitrary target. Messages are cut to 64 KB on a character
+boundary before reaching the logger, which then applies its own 8 KB limit.
+
+Widgets receive a logger bound to their ID through the host API, and the widget host logs module
+load failures, render failures caught by the error boundary, and `deactivate` failures under the
+same `widget:<id>` target. See [Host API](/docs/widgets/reference/host-api/) and
+[Logs and failures](/docs/widgets/reference/logs-and-failures/).
+
+Panics are logged too: `logs::init` installs a panic hook that writes the panic message and a
+captured backtrace under the `panic` target, flushes, and then calls the previous hook. Release
+builds use `panic = "abort"`, and the hook still runs before the abort.
+
+### Reading the log
+
+| Command | Bridge method | Effect |
+| --- | --- | --- |
+| `read_log` | `bridge.readLog(lines)` | Returns the last `lines` lines (default 300, clamped to 1–2000), oldest first, reading back into rotated files when the current one is shorter. |
+| `open_log_folder` | `bridge.openLogFolder()` | Opens `v2/logs` in Explorer or Finder. |
+| `write_log` | `bridge.writeLog(level, message, widgetId?)` | Writes a record as described above. |
+
+Settings → General → Diagnostics uses these: **Show** loads 300 lines into a scrolling view,
+**Copy** copies the last 2000 lines to the clipboard, and **Open folder** opens the folder. The
+folder path is also in the app state as `logsPath`.
+
+## Widget processes
+
+Widgets can declare sidecar processes in their manifest. `widget_process.rs` owns them: it starts
+only executables that resolve inside the widget's folder, with arguments from the declared allow
+list, pipes their standard input and output, and records each output line as an event for the
+widget. Start and stop are logged under `widget:<id>`, and the first 200 standard error lines per
+start are logged as warnings.
+
+From the background-service point of view, three things matter:
+
+- Processes marked to start on launch are started by the post-startup services task, and never in
+  safe mode.
+- Processes keep running while the window is hidden in the tray.
+- Every process is stopped by tray **Quit** and by `RunEvent::Exit`.
+
+The message protocol, permissions, and limits are documented in the
+[IPC reference](/docs/widgets/reference/ipc/), with a walkthrough in
+[Processes](/docs/widgets/tutorials/processes/).
+
+## Platform differences
+
+| Area | Windows | macOS |
+| --- | --- | --- |
+| Data and log folder | `%LOCALAPPDATA%\Toolblox\v2` | `~/Library/Application Support/Toolblox/v2` |
+| Tray | Notification-area icon | Menu bar item |
+| Reactivation | Second launch through single instance | Second launch, or `RunEvent::Reopen` from the Dock |
+| Autostart | `HKCU\…\Run` value `Toolblox`, removed by the uninstaller | LaunchAgent |
+| Multiple instances | Bundled helper closes `ROBLOX_singletonEvent` handles | Not available; the call does nothing and the toggle is hidden |
+| Session storage used by auto-rejoin | Windows Credential Manager | macOS login Keychain |
+| Atomic file replace | `MoveFileExW` with write-through | `rename` |

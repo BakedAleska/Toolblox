@@ -1,0 +1,224 @@
+---
+title: Catalogue
+description: The signed widget catalogue's format, how it's signed, how Toolblox fetches and verifies it, and how a widget gets listed.
+sidebar:
+  order: 2
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+The catalogue is a signed JSON file listing every reviewed widget that Toolblox can install. Each
+entry names a package URL, pins the package's SHA-256, and lists its permissions. Toolblox
+verifies the file's Ed25519 signature over its exact bytes before parsing it, and refuses to
+install anything that isn't in it.
+
+Sources:
+[`Catalogue::parse_verified`](/api/toolblox_lib/widgets/struct.Catalogue.html) in
+[`src-tauri/src/widgets.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widgets.rs),
+`refresh_catalogue_data` in
+[`src-tauri/src/app_commands.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/app_commands.rs),
+and [`scripts/publish-updates.mjs`](https://github.com/BakedAleska/Toolblox/blob/main/scripts/publish-updates.mjs).
+
+## Where it lives
+
+| | |
+| --- | --- |
+| Catalogue | `https://toolblox.dev/catalogue/v1.json` |
+| Signature | `https://toolblox.dev/catalogue/v1.json.sig` |
+| Public key | `SRsx1ZzYpQGnV6NhPa00Mt5I6xubH3DXuNdGOfbQSVE=` |
+
+Release builds compile the URL and key in from the `TOOLBLOX_CATALOGUE_URL` and
+`TOOLBLOX_CATALOGUE_PUBLIC_KEY` environment variables at build time. They can't be changed at run
+time.
+
+## Format
+
+```json
+{
+  "schemaVersion": 1,
+  "generatedAt": 1791504000,
+  "entries": [
+    {
+      "id": "trade_tracker",
+      "name": "Trade Tracker",
+      "version": "1.2.0",
+      "description": "Logs trades per account and shows value changes over time.",
+      "archiveUrl": "https://example.com/widgets/trade_tracker-1.2.0.zip",
+      "sha256": "9f2c…64 hex characters…",
+      "permissions": ["accounts.read.basic", "widgetData.read", "widgetData.write"],
+      "iconUrl": "https://example.com/widgets/trade_tracker.png"
+    }
+  ]
+}
+```
+
+### Top level
+
+| Field | Type | Rule |
+| --- | --- | --- |
+| `schemaVersion` | integer | Must be `1`. Otherwise: `The widget catalogue version isn't supported.` |
+| `generatedAt` | integer | Unix time in seconds when the file was generated. |
+| `entries` | array | One object per widget. May be empty. |
+
+### Entry
+
+| Field | Type | Required | Rule |
+| --- | --- | --- | --- |
+| `id` | string | Yes | A valid [widget ID](/docs/widgets/reference/manifest/#id). Unique in the catalogue. |
+| `name` | string | Yes | Shown on the catalogue card and in the install prompt. |
+| `version` | string | Yes | Valid SemVer. Must equal the package manifest's `version`. |
+| `description` | string | Yes | Shown on the catalogue card. |
+| `archiveUrl` | string | Yes | An `https` URL with a host. Must serve the ZIP without a redirect. |
+| `sha256` | string | Yes | 64 hexadecimal characters, the package's SHA-256. Compared case-insensitively. |
+| `permissions` | array | No | The package manifest's permissions, as a set. Defaults to `[]`. No duplicates. |
+| `iconUrl` | string | No | Image shown on the catalogue card. Any URL the app's image policy allows, such as `https:` or `data:`. |
+
+Entry checks, each of which rejects the whole catalogue:
+
+| Problem | Error |
+| --- | --- |
+| Invalid ID | `Widget IDs may contain only lowercase letters, numbers, and underscores.` |
+| Invalid version | `Widget <id> has an invalid version.` |
+| Invalid hash | `A widget checksum isn't a valid SHA-256 value.` |
+| Duplicate permission | `Widget <id> has duplicate catalogue permissions.` |
+| Unknown permission, missing field, or wrong type | `The widget catalogue isn't valid JSON.` |
+| Unparseable archive URL | `Widget <id> has an invalid archive URL.` |
+| Non-HTTPS or hostless archive URL | `Widget <id> must use an HTTPS archive URL.` |
+| Repeated ID | `The catalogue contains widget <id> more than once.` |
+
+Unknown fields are ignored.
+
+## Signing
+
+The signature is a detached Ed25519 signature over the exact bytes of `v1.json`.
+
+| File | Contents |
+| --- | --- |
+| `v1.json` | The catalogue JSON, as UTF-8 bytes. |
+| `v1.json.sig` | The 64-byte signature, standard base64, with no trailing newline or whitespace. |
+| Public key | The raw 32-byte Ed25519 public key, standard base64. |
+
+Because the signature covers bytes, not the parsed value, anything that changes the file after
+signing invalidates it: reformatting, reordering keys, changing indentation, adding a trailing
+newline, or converting line endings. Sign the final bytes and publish them untouched.
+
+`scripts/publish-updates.mjs` produces both files with Node's `crypto` module:
+
+```js
+const writeSigned = (path, value, key) => {
+  const bytes = Buffer.from(JSON.stringify(value, null, 2));
+  writeFileSync(path, bytes);
+  writeFileSync(`${path}.sig`, sign(null, bytes, key).toString("base64"));
+};
+```
+
+The private key is a base64 32-byte Ed25519 seed held in the `CATALOGUE_PRIVATE_KEY` repository
+secret, and the Pages workflow runs the script on each deployment.
+
+### Verifying a catalogue locally
+
+```js
+// verify-catalogue.mjs <catalogue.json> <catalogue.json.sig>
+import { createPublicKey, verify } from "node:crypto";
+import { readFileSync } from "node:fs";
+
+const raw = Buffer.from("SRsx1ZzYpQGnV6NhPa00Mt5I6xubH3DXuNdGOfbQSVE=", "base64");
+const key = createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), raw]), format: "der", type: "spki" });
+const bytes = readFileSync(process.argv[2]);
+const signature = Buffer.from(readFileSync(process.argv[3], "utf8"), "base64");
+console.log(verify(null, bytes, key, signature) ? "Signature valid." : "Signature invalid.");
+```
+
+## How Toolblox loads it
+
+<Steps>
+
+1. **When.** The first time the interface asks for app state in a session, Toolblox loads the
+   catalogue. After a success, it isn't fetched again until the next launch. After a failure, the
+   Widgets page shows the error and a **Retry** button.
+
+2. **Configuration.** Release builds without a compiled-in URL fail with
+   `This build doesn't have a widget catalogue endpoint. Can you reinstall Toolblox?` Development
+   builds without one use an empty catalogue. A URL without a key fails with
+   `This build doesn't have a widget catalogue key. Can you reinstall Toolblox?`, and a URL that
+   doesn't start with `https://` fails with
+   `The widget catalogue endpoint isn't secure. Can you reinstall Toolblox?`
+
+3. **Download the catalogue.** One `GET` with Toolblox's HTTP client: HTTPS only, redirects not
+   followed, 20-second timeout. A non-`2xx` status fails with
+   `The widget catalogue returned status <code>. Can you try again?` The body may be at most
+   1 MB: `The widget catalogue is larger than 1 MB.`
+
+4. **Download the signature.** One `GET` of the same URL with `.sig` appended. A non-`2xx` status
+   fails with `The widget catalogue signature isn't available. Can you try again later?` The body
+   may be at most 8 KB and must be UTF-8.
+
+5. **Verify, then parse.** The signature is checked against the compiled-in key over the exact
+   downloaded bytes. Only a valid signature lets the bytes be parsed and the entries validated.
+   A bad signature fails with `The widget catalogue signature couldn't be verified.`
+
+6. **Use.** The verified catalogue is kept in memory. Every install and update looks its entry up
+   there, so a widget can only be installed from a URL, hash, version, and permission list that
+   came from a verified catalogue.
+
+</Steps>
+
+Every failure is logged as `Widget catalogue unavailable: <error>`. An invalid catalogue is never
+partly used: either every entry passes, or none is loaded. A failed retry doesn't discard a
+catalogue already verified in the same session.
+
+<Aside type="caution" title="No redirects anywhere">
+Toolblox's HTTP client doesn't follow redirects, for the catalogue, its signature, or package
+archives. Every URL must answer directly with its content.
+</Aside>
+
+## How it appears in the app
+
+The Catalogue section of the Widgets page shows every entry whose ID has no folder in the widgets
+folder, as a card with the icon from `iconUrl`, the name, `v<version>`, the description clamped to
+two lines, and the permission summary. **Install** opens a confirmation listing the permissions.
+Once every entry is installed, the section reads "All catalogue widgets are installed."
+
+For installed widgets, the catalogue is how updates are found: an entry with a higher version
+than the installed one adds an **Update to v&lt;version&gt;** button to the installed card. See
+[Packaging](/docs/widgets/publishing/packaging/#updates).
+
+## Getting a widget listed
+
+The catalogue is generated by `scripts/publish-updates.mjs` and signed with a key only the
+maintainers hold, so authors can't publish to it directly. A listing is a new entry in the
+generated catalogue, made by the maintainers after the widget passes
+[review](/docs/widgets/publishing/review/).
+
+<Steps>
+
+1. **Build and test** the widget as an unpacked folder in a development build.
+
+2. **Package** it as described in [Packaging](/docs/widgets/publishing/packaging/), and host the
+   ZIP at a stable HTTPS URL that serves the file without a redirect. Don't replace the file
+   later: the catalogue pins its hash, and a changed file fails to install.
+
+3. **Prepare the entry**: the ID, name, version, description, archive URL, SHA-256, permissions,
+   and an optional icon URL. The permissions must match the manifest exactly.
+
+4. **Submit** the widget with its source, which must be available under an
+   [OSI-approved license](https://opensource.org/licenses) named in the submission. Submitting
+   confirms the statements on [Review](/docs/widgets/publishing/review/#what-submitting-confirms).
+
+5. **Review.** The widget is checked against the
+   [review rules](/docs/widgets/publishing/review/#what-review-rejects).
+
+6. **Listing.** The maintainers add the entry, the Pages workflow regenerates and re-signs the
+   catalogue, and the widget appears in the app's Catalogue section after the next launch or
+   retry.
+
+</Steps>
+
+Updates follow the same path with a new version, a new archive at a new URL, and a new hash.
+
+<Aside>
+The current catalogue is empty: `publish-updates.mjs` writes `entries: []`, and no widgets are
+published yet. The repository doesn't yet define a submission form or a file format for proposed
+entries. Use [GitHub issues](https://github.com/BakedAleska/Toolblox/issues) to contact the
+maintainers about a submission.
+</Aside>

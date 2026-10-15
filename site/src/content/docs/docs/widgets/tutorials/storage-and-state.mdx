@@ -1,0 +1,489 @@
+---
+title: Storage and state
+description: Read app state, keep widget settings and per-account data, fetch from the web, and join accounts, in one stateful widget.
+sidebar:
+  order: 4
+---
+
+import { Aside, Steps, FileTree } from '@astrojs/starlight/components';
+
+The stock_notifier demo shows a fixed list of shop items on the Dashboard, and its first line says
+what a real version would do: refresh the list with `network.fetch`. This tutorial builds that real
+version, **Restock Watch**. It polls a stock feed, remembers what was in stock between sessions,
+lets each account keep a list of wanted items, marks accounts whose wanted items are back, and joins
+them with one button.
+
+Along the way it uses every kind of state a widget has:
+
+| State | API | Lives in | Scope |
+| --- | --- | --- | --- |
+| App state | `getState()`, `useAppState()`, `onStateChange()` | Memory, reloaded from Rust | Read-only view of Toolblox |
+| Widget store | `storage.get()`, `storage.set()` | `v2/settings.json` | One JSON value per widget |
+| Account data | `request("widgetData.get" \| "widgetData.set")` | `v2/accounts.json` | One JSON value per widget per account |
+| Web data | `request("network.fetch")` | Nowhere; you keep it | One HTTPS GET per call |
+
+It assumes you've finished the earlier tutorials, from
+[Your first widget](/docs/widgets/tutorials/first-widget/) to
+[Slots and styles](/docs/widgets/tutorials/slots-and-styles/).
+
+## App state
+
+App state is the same `AppState` object the Toolblox interface renders from, defined in
+[`src/types.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/types.ts). The fields most
+widgets use:
+
+| Field | Contents |
+| --- | --- |
+| `accounts` | Each account's `id` (the Roblox user ID), `name`, `displayName`, `avatarUrl`, `notes`, `addedAt`, `lastPlayedAt`, `presence` (`"offline"`, `"playing"`, or `"warning"` when status is unavailable), `gameName`, `gamePlaceId`, `placeId` (its own place), and `lastPlaceId`. |
+| `settings` | The user's Toolblox settings, such as `themeMode`, `showAvatars`, `compactMode`, `placeId` (the default place), and `sortOrder`. |
+| `installedWidgets` | A summary of each installed widget, including `id`, `name`, `version`, and `enabled`. |
+| `recentPlaces` | Recently used places, each a `placeId` and, once looked up, a game `name`. |
+| `platform` | `"windows"` or `"macos"`. |
+| `version`, `channel` | The Toolblox version and `"stable"` or `"canary"`. |
+| `safeMode` | Always `false` while your module runs, since safe mode loads no modules. |
+
+App state never contains Roblox session cookies, and accounts don't carry widget data. Account
+data is read through IPC, below.
+
+Toolblox reloads app state when its window gains focus, every 60 seconds while it's open, after the
+user's actions, and when a widget calls `toolblox.refresh()`. Each load asks Roblox for every
+account's presence, so call `refresh` after something changed, not on a timer.
+
+There are three ways to read it:
+
+- **`toolblox.getState()`** returns the current state. Use it outside components, for example in
+  `activate` or a timer callback. It throws "Toolblox state isn't loaded yet." if called before the
+  first load, but modules are only activated after that, so it's safe in `activate`.
+- **`toolblox.useAppState()`** is a React hook that returns the current state and re-renders the
+  component when it changes. Use it in components.
+- **`toolblox.onStateChange(listener)`** calls `listener(state)` whenever the host's registry
+  emits a change, and returns a remover. Toolblox removes the listener when the widget unloads.
+  Changes include every state load, and also any widget adding or removing a page, slot
+  contribution, or stylesheet, so the listener can run with the same state object or with equal
+  data. Compare what you care about before acting, as Restock Watch does with account IDs.
+
+Widgets can't change app state directly. The host API's actions are `navigate`, `notify`,
+`refresh`, and `join`, plus the [IPC methods](/docs/widgets/reference/ipc/).
+
+## Build Restock Watch
+
+<Steps>
+
+1. **Create the folder and manifest.**
+
+   <FileTree>
+   - widgets/
+     - restock_watch/
+       - widget.json
+       - main.js
+   </FileTree>
+
+   ```json title="restock_watch/widget.json"
+   {
+     "schemaVersion": 1,
+     "id": "restock_watch",
+     "name": "Restock Watch",
+     "version": "1.0.0",
+     "description": "Checks a shop stock feed at example.com and marks accounts whose wanted items are back in stock.",
+     "module": "main.js",
+     "permissions": ["accounts.read.basic", "widgetData.read", "widgetData.write", "roblox.join", "network.fetch"],
+     "networkOrigins": ["https://example.com"]
+   }
+   ```
+
+   Module widgets receive every permission at run time, so the list doesn't change what the code
+   can do. It's still required to be accurate: the install dialog shows it to the user, the
+   catalogue entry must list exactly the same permissions, and review checks that the code uses no
+   more. `networkOrigins` declares the HTTPS origins the widget contacts. It requires
+   `network.fetch`, each entry must be a bare origin without a path, and review compares it against
+   the code. The host itself only checks that each fetched URL is HTTPS without embedded
+   credentials. See [Permissions](/docs/widgets/reference/permissions/).
+
+2. **Choose a feed.** `https://example.com/stock.json` is a placeholder. Replace `FEED_URL` and
+   `networkOrigins` with a feed that returns JSON in this shape:
+
+   ```json
+   { "items": [{ "name": "Katana", "stock": 3 }, { "name": "Healing potion", "stock": 0 }] }
+   ```
+
+3. **Write the module.**
+
+   ```js title="restock_watch/main.js"
+   const FEED_URL = "https://example.com/stock.json";
+   const MAX_ITEMS = 100;
+   const INTERVALS = ["1", "5", "15"];
+
+   let stop = () => {};
+
+   const svg = (h, ...paths) => h("svg", {
+     viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
+     strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round",
+   }, ...paths.map((d) => h("path", { key: d, d })));
+
+   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+   function createStore(initial) {
+     let value = initial;
+     const listeners = new Set();
+     return {
+       get: () => value,
+       set: (next) => { value = next; listeners.forEach((listener) => listener()); },
+       subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+     };
+   }
+
+   function parseFeed(body) {
+     const data = JSON.parse(body);
+     if (!Array.isArray(data?.items)) throw new Error("The feed has no items list.");
+     return data.items
+       .filter((item) => typeof item?.name === "string" && item.name.trim() && Number.isInteger(item.stock) && item.stock >= 0)
+       .slice(0, MAX_ITEMS)
+       .map((item) => ({ name: item.name.trim().slice(0, 80), stock: item.stock }));
+   }
+
+   export async function activate(toolblox) {
+     const { React, ui } = toolblox;
+     const h = React.createElement;
+     const use = (store) => React.useSyncExternalStore(store.subscribe, store.get);
+     const pageRoute = `/widgets/${toolblox.widget.id}`;
+     const bagIcon = svg(h, "M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z", "M3 6h18", "M16 10a4 4 0 0 1-8 0");
+     const accountName = (account) => account.displayName || account.name;
+
+     const saved = createStore({ intervalMinutes: 5, notify: true, lastStock: null, ...((await toolblox.storage.get()) ?? {}) });
+     const feed = createStore({ items: [], checkedAt: 0, error: "" });
+     const wanted = createStore({});
+
+     const save = (patch) => {
+       saved.set({ ...saved.get(), ...patch });
+       toolblox.storage.set(saved.get()).catch((error) => toolblox.notify(`Restock Watch settings weren't saved. Does retrying help? (${error})`));
+     };
+
+     async function loadWanted(accounts) {
+       for (const account of accounts) {
+         try {
+           const value = await toolblox.request("widgetData.get", { accountId: account.id });
+           const list = Array.isArray(value?.wanted) ? value.wanted.filter((name) => typeof name === "string") : [];
+           wanted.set({ ...wanted.get(), [account.id]: list });
+         } catch (error) {
+           void toolblox.log.warn(`Wanted items for account ${account.id} didn't load: ${error}`);
+         }
+         await sleep(50);
+       }
+     }
+
+     async function toggleWanted(accountId, name) {
+       const previous = wanted.get()[accountId] ?? [];
+       const next = previous.includes(name) ? previous.filter((item) => item !== name) : [...previous, name];
+       wanted.set({ ...wanted.get(), [accountId]: next });
+       try {
+         await toolblox.request("widgetData.set", { accountId, value: { wanted: next } });
+       } catch (error) {
+         wanted.set({ ...wanted.get(), [accountId]: previous });
+         toolblox.notify(`The wanted list wasn't saved. Does retrying help? (${error})`);
+       }
+     }
+
+     async function checkFeed() {
+       try {
+         const response = await toolblox.request("network.fetch", { url: FEED_URL });
+         if (response.status !== 200) throw new Error(`The feed returned status ${response.status}.`);
+         const items = parseFeed(response.body);
+         const previous = saved.get().lastStock;
+         const lastStock = Object.fromEntries(items.map((item) => [item.name, item.stock]));
+         const restocked = previous ? items.filter((item) => item.stock > 0 && !previous[item.name]) : [];
+         feed.set({ items, checkedAt: Date.now(), error: "" });
+         if (JSON.stringify(lastStock) !== JSON.stringify(previous)) save({ lastStock });
+         if (restocked.length && saved.get().notify) toolblox.notify(`Back in stock: ${restocked.map((item) => item.name).join(", ")}.`);
+         void toolblox.log.debug(`Feed checked: ${items.length} items, ${restocked.length} restocked`);
+       } catch (error) {
+         feed.set({ ...feed.get(), error: String(error) });
+         void toolblox.log.warn(`Feed check failed: ${error}`);
+       }
+     }
+
+     let timer;
+     let active = true;
+     const schedule = () => {
+       clearTimeout(timer);
+       if (active) timer = setTimeout(() => void checkFeed().then(schedule), saved.get().intervalMinutes * 60_000);
+     };
+     stop = () => { active = false; clearTimeout(timer); };
+
+     let knownIds = "";
+     const syncAccounts = (state) => {
+       const ids = state.accounts.map((account) => account.id).join(",");
+       if (ids === knownIds) return;
+       knownIds = ids;
+       const missing = state.accounts.filter((account) => !(account.id in wanted.get()));
+       if (missing.length) void loadWanted(missing);
+     };
+     toolblox.onStateChange(syncAccounts);
+     syncAccounts(toolblox.getState());
+     void checkFeed().then(schedule);
+
+     const useReady = () => {
+       const { accounts } = toolblox.useAppState();
+       const { items } = use(feed);
+       const lists = use(wanted);
+       const inStock = new Set(items.filter((item) => item.stock > 0).map((item) => item.name));
+       return accounts
+         .map((account) => ({ account, items: (lists[account.id] ?? []).filter((name) => inStock.has(name)) }))
+         .filter((entry) => entry.items.length);
+     };
+
+     toolblox.addToSlot("accounts.row", function WantedBadges({ account }) {
+       const { items } = use(feed);
+       const list = use(wanted)[account.id] ?? [];
+       const ready = items.filter((item) => item.stock > 0 && list.includes(item.name));
+       return ready.length ? h(React.Fragment, null, ready.map((item) =>
+         h(ui.Badge, { key: item.name, variant: "secondary", className: "text-success" }, `${item.name} in stock`))) : null;
+     });
+
+     toolblox.addToSlot("dashboard.stats", function ReadyTile() {
+       return h(ui.StatTile, { icon: bagIcon, label: "Wanted items in stock", value: useReady().length, onClick: () => toolblox.navigate(pageRoute) });
+     });
+
+     toolblox.addToSlot("dashboard.sections", function StockSection() {
+       const { items, error } = use(feed);
+       const ready = useReady();
+       const join = ready.length > 0 && h(ui.Button, { variant: "outline", size: "sm", onClick: () => toolblox.join(ready.map(({ account }) => account.id)) },
+         `Join ${ready.length} ${ready.length === 1 ? "account" : "accounts"}`);
+       return h("section", { className: "flex flex-col gap-2" },
+         h(ui.SectionTitle, { action: join }, "Shop stock"),
+         error && h("p", { className: "text-sm text-destructive" }, `The stock feed failed to load. Is the connection working? (${error})`),
+         items.length > 0 && h(ui.Panel, { className: "divide-y" }, items.map((item) =>
+           h("div", { key: item.name, className: "flex items-center justify-between gap-3 px-4 py-2 text-sm" },
+             h("span", null, item.name),
+             h(ui.Badge, { variant: "secondary", className: item.stock ? "text-success" : "text-muted-foreground" }, item.stock ? `${item.stock} in stock` : "Sold out")))));
+     });
+
+     toolblox.registerPage(function WantedPage() {
+       const { accounts } = toolblox.useAppState();
+       const { items } = use(feed);
+       const lists = use(wanted);
+       if (!items.length) return h(ui.Panel, null, h(ui.EmptyState, {
+         icon: bagIcon, title: "No items", text: "The stock feed hasn't loaded yet.",
+         action: h(ui.Button, { variant: "outline", onClick: () => void checkFeed() }, "Check now"),
+       }));
+       return h(ui.Panel, { className: "divide-y" }, accounts.map((account) =>
+         h("div", { key: account.id, className: "flex flex-col gap-2 px-4 py-3" },
+           h("p", { className: "text-sm font-medium" }, accountName(account)),
+           h("div", { className: "flex flex-wrap gap-x-4 gap-y-2", role: "group", "aria-label": `Wanted items for ${accountName(account)}` }, items.map((item) =>
+             h("label", { key: item.name, className: "flex items-center gap-2 text-sm" },
+               h(ui.Checkbox, { checked: (lists[account.id] ?? []).includes(item.name), onCheckedChange: () => void toggleWanted(account.id, item.name) }),
+               item.name))))));
+     });
+
+     toolblox.registerSettings(function WatchSettings() {
+       const current = use(saved);
+       const { checkedAt, error } = use(feed);
+       return h(ui.Panel, { className: "divide-y" },
+         h(ui.ChoiceRow, {
+           title: "Check every", description: "Minutes between stock feed checks.", value: String(current.intervalMinutes),
+           options: INTERVALS.map((value) => ({ value, label: `${value} min` })),
+           change: (value) => { save({ intervalMinutes: Number(value) }); schedule(); },
+         }),
+         h(ui.SwitchRow, { title: "Restock alerts", description: "Show a message when an item comes back in stock.", checked: current.notify, change: (notify) => save({ notify }) }),
+         h("div", { className: "flex items-center gap-3 px-4 py-3" },
+           h("div", { className: "min-w-0 flex-1" },
+             h("p", { className: "text-sm font-medium" }, "Stock feed"),
+             h("p", { className: "text-xs text-muted-foreground" }, error ? "The last check failed." : checkedAt ? `Checked at ${new Date(checkedAt).toLocaleTimeString()}.` : "Not checked yet.")),
+           h(ui.Button, { variant: "outline", size: "sm", onClick: () => void checkFeed() }, "Check now")));
+     });
+   }
+
+   export function deactivate() {
+     stop();
+   }
+   ```
+
+4. **Reload and try it.** Reload the window. With a working feed, the Dashboard gains a
+   **Wanted items in stock** tile and a **Shop stock** section. Open **Restock Watch**, tick a few
+   items for an account, and go to Accounts: each wanted item that's in stock appears as a badge
+   under the account's name. Back on the Dashboard, **Join 1 account** joins it.
+
+</Steps>
+
+The sections below go through each kind of state in the order the module uses it.
+
+## The widget store
+
+```js
+const saved = createStore({ intervalMinutes: 5, notify: true, lastStock: null, ...((await toolblox.storage.get()) ?? {}) });
+```
+
+`toolblox.storage` holds one JSON value for the widget:
+
+- `storage.get()` resolves to the stored value, or `null` when nothing is stored.
+- `storage.set(value)` replaces the whole value. Setting `null` deletes it.
+- The value is at most 1 MB once serialized to JSON. A larger value rejects with "The widget data is
+  larger than 1 MB. Can the widget store less?"
+- It's kept in Toolblox's `settings.json` on this device, survives updates and being turned off, and
+  is deleted when the widget is uninstalled.
+- Both calls go straight to Rust commands, not through IPC, so they don't count toward the IPC rate
+  limit.
+
+Because `set` replaces everything, keep the value in memory and write the whole object, as `save`
+does. Spreading the stored value over the defaults means a stored value from an older version of the
+widget picks up new fields with their defaults.
+
+Each `set` rewrites the settings file, so write when something changed, not on every keystroke or
+timer tick. `checkFeed` compares the new `lastStock` with the stored one before saving.
+
+<Aside>
+Use the widget store for settings and small caches. Values that belong to a specific account, and
+should go away when that account is removed, belong in account data.
+</Aside>
+
+## Stores for the interface
+
+`createStore` is a few lines of glue between plain data and React: a value, a `set` that notifies
+listeners, and a `subscribe` for `React.useSyncExternalStore`. The `use` helper subscribes a
+component to a store, so `WantedBadges`, `ReadyTile`, `StockSection`, and the page all re-render
+the moment a store changes, wherever they are on screen.
+
+Restock Watch keeps three stores because the data has three lifetimes: `saved` mirrors the widget
+store, `feed` holds the last feed result in memory only, and `wanted` caches account data loaded
+over IPC. The rogue_lineage demo uses the same pattern with a single object.
+
+## Account data
+
+```js
+const value = await toolblox.request("widgetData.get", { accountId: account.id });
+await toolblox.request("widgetData.set", { accountId, value: { wanted: next } });
+```
+
+`widgetData.get` and `widgetData.set` keep one JSON value per widget per account. Toolblox stores it
+with the account in `accounts.json`, keyed by your widget's ID, so widgets can't read each other's
+account data:
+
+- `accountId` is the account's `id` from app state.
+- `widgetData.get` returns `null` when nothing is stored.
+- `widgetData.set` requires `value` and replaces the stored value. The value is at most 1 MB as
+  JSON.
+- An unknown account fails with "The account wasn't found. Can you refresh the widget?"
+- The data is deleted with the account. It isn't deleted when the widget is uninstalled, so a
+  reinstalled widget finds it again.
+
+`toggleWanted` shows the usual write pattern: update the store first, so the checkbox responds
+immediately, then send the request, and roll back with a message if it fails.
+
+### Staying under the rate limit
+
+Every `toolblox.request` call goes through the widget's IPC session, which accepts at most 30
+requests in any rolling second. A request over the limit fails with "The widget is sending requests
+too quickly." Loading account data with `Promise.all` over 40 accounts would trip it, so
+`loadWanted` loads one account at a time with a 50-millisecond pause, which stays near 20 requests
+a second and leaves room for the feed check.
+
+`loadWanted` is called once for every account at activation and again for accounts that appear
+later. `syncAccounts` runs on every `onStateChange`, but it only acts when the list of account IDs
+changes, which is the comparison [App state](#app-state) recommends.
+
+## Fetching from the web
+
+```js
+const response = await toolblox.request("network.fetch", { url: FEED_URL });
+```
+
+The app's Content Security Policy only lets the window connect to the Rust host, so `fetch()` from a
+widget fails. `network.fetch` makes the request from Rust instead:
+
+- The URL must be HTTPS without a user name or password.
+- It sends a `GET` with Toolblox's user agent and no cookies or custom headers.
+- Redirects aren't followed. A redirect comes back as its 3xx status.
+- The request times out after 20 seconds.
+- The body must be UTF-8 text of at most 1 MB.
+- It resolves to `{ status, body }` for any status. A 404 or 500 doesn't throw; check `status`
+  yourself, as `checkFeed` does.
+- Failures to connect, oversized bodies, and non-UTF-8 bodies throw, with messages such as "The
+  widget network request failed. Is the connection working?"
+
+The body is untrusted input from the network. `parseFeed` validates its shape, drops entries with
+the wrong types, caps the number of items, and trims names, so a broken or hostile feed can't put
+unexpected values into the interface or the store. React escapes text, so names are safe to render
+as children.
+
+Failed requests are logged automatically as "Request network.fetch failed: …" under
+`widget:restock_watch`. A non-200 status isn't a failed request, so `checkFeed` logs its own
+warning.
+
+## Timers and cleanup
+
+```js
+let timer;
+let active = true;
+const schedule = () => {
+  clearTimeout(timer);
+  if (active) timer = setTimeout(() => void checkFeed().then(schedule), saved.get().intervalMinutes * 60_000);
+};
+stop = () => { active = false; clearTimeout(timer); };
+```
+
+Toolblox tracks everything registered through the host API and removes it when the widget unloads.
+It doesn't know about timers, intervals, or event listeners you add to `window`. Those keep running,
+and once the widget's IPC session is closed every `request` they make fails with "The widget
+session isn't active."
+
+`deactivate` is where to stop them. It runs when Toolblox unloads the widget, such as when it's
+turned off or uninstalled, before Toolblox removes the widget's registrations. It doesn't run when
+the window reloads or the app quits, because the whole page goes away. `stop` is a module-level variable because
+`deactivate` is a separate export with no access to `activate`'s scope. The `active` flag covers a
+check that's in flight when the widget unloads: when it finishes, `schedule` sees the flag and
+doesn't start another timer.
+
+A chain of `setTimeout` calls also avoids overlapping checks: the next check is only scheduled after
+the previous one finishes. Changing the interval in settings calls `schedule` to restart the wait.
+
+## Notifying the user
+
+```js
+toolblox.notify(`Back in stock: ${restocked.map((item) => item.name).join(", ")}.`);
+```
+
+`notify(message)` shows the app's toast, the same one Toolblox uses for "Copied." and errors, at the
+bottom of the window for four seconds. A newer message replaces the current one. It's an in-app
+message, not a system notification, so it isn't seen while the window is hidden in the tray. Keep
+messages to one short sentence, and offer an off switch for anything that repeats, as **Restock
+alerts** does.
+
+## Joining accounts
+
+```js
+toolblox.join(ready.map(({ account }) => account.id));
+```
+
+`toolblox.join(accountIds)` runs the same flow as the Join buttons in Toolblox:
+
+1. If any account has no place of its own and no default place is set, it asks the user for one
+   with the place dialog, then saves it as the default.
+2. It launches each account at its own place, or the default place, one after another with at least
+   a second between launches.
+3. If a launch fails, it shows "Join failed. Is Roblox installed and the account signed in?" with
+   the reason. After a successful launch it reloads app state, and minimizes the window when the
+   user's **Minimize on join** setting is on.
+
+It returns nothing; the flow reports its own errors. For a button the user presses, this is what
+you want.
+
+The `roblox.join` IPC method, `request("roblox.join", { accountIds })`, skips the interface flow: it
+never asks for a place, it fails with "No place is set to join. Can you set one on the Accounts
+screen?" when there isn't one, and it resolves or rejects so your code can handle the result. Use
+it for flows that report their own results. Both record the join as the account's last play;
+only `toolblox.join` minimizes the window.
+
+## Common mistakes
+
+| Symptom | Cause |
+| --- | --- |
+| "The widget is sending requests too quickly." | More than 30 IPC requests in a second, usually from a `Promise.all` over accounts or a request in every rendered row. |
+| "The widget session isn't active." in the log after turning the widget off | A timer kept running. Clear it in `deactivate`. |
+| `fetch()` fails with a Content Security Policy error | Use `request("network.fetch", { url })`. |
+| A failing feed never shows an error | `network.fetch` resolves for every status. Check `response.status`. |
+| Stored settings lose new fields after an update | Spread the stored value over defaults instead of using it as is. |
+| The UI doesn't update after a change | The component reads a plain variable. Subscribe to a store with `useSyncExternalStore`. |
+
+## Next steps
+
+- [Processes](/docs/widgets/tutorials/processes/) runs a bundled native executable from a widget.
+- [IPC](/docs/widgets/reference/ipc/) lists every method's parameters, results, and errors.

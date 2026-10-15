@@ -1,0 +1,317 @@
+---
+title: Iframe widgets
+description: Sandboxed widget pages, the postMessage protocol they use, the widget asset protocol, and the Content Security Policies that apply.
+sidebar:
+  order: 6
+---
+
+import { Aside, FileTree } from '@astrojs/starlight/components';
+
+An iframe widget, or the iframe part of a widget, is a set of static HTML pages that Toolblox shows
+in sandboxed frames. Frames can't touch the app's DOM or JavaScript. They talk to the host only
+through `postMessage`, and their IPC session holds only the permissions their manifest declares.
+
+A widget can be iframe-only, module-only, or both. A module widget gets far more reach; frames
+suit self-contained tools that only need a few IPC methods, and are the right choice when a widget
+should run with less than full trust.
+
+Sources:
+[`src/shared.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/shared.tsx) (`WidgetFrame`),
+[`src-tauri/src/widget_protocol.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widget_protocol.rs)
+([rustdoc](/api/toolblox_lib/widget_protocol/index.html)),
+the `open_widget` command in
+[`src-tauri/src/app_commands.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/app_commands.rs),
+and [`src-tauri/tauri.conf.json`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/tauri.conf.json).
+
+## Surfaces
+
+| Manifest field | File | Surface | Where it appears | Minimum height |
+| --- | --- | --- | --- | --- |
+| `entry` | `index.html` | `main` | The widget's page at `/widgets/<id>`, unless a module registered a page. Fills the remaining window height. | none (flexes) |
+| `settingsEntry` | `settings.html` | `settings` | The widget's settings page at `/widgets/<id>/settings`, below any module settings component. | 256 px |
+| `dashboardEntry` | `dashboard.html` | `dashboard` | A Dashboard section titled with the widget's name, after the `dashboard.sections` slot, while the widget is enabled. | 176 px |
+
+File names are fixed; see the [manifest reference](/docs/widgets/reference/manifest/#entry).
+
+<FileTree>
+- widget.json
+- index.html
+- settings.html
+- dashboard.html
+- app.js
+- styles.css
+- images/
+  - logo.svg
+</FileTree>
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "session_notes",
+  "name": "Session Notes",
+  "version": "1.1.0",
+  "entry": "index.html",
+  "settingsEntry": "settings.html",
+  "dashboardEntry": "dashboard.html",
+  "permissions": ["accounts.read.basic", "widgetData.read", "widgetData.write"]
+}
+```
+
+Each frame renders as
+`<iframe sandbox="allow-scripts" src="<asset URL>" title="…">` with the app's card surface, a
+12 px radius, and full width. Frames don't resize to their content; the main frame grows with the
+window, and the other two keep their minimum height. Scroll inside the page for longer content.
+
+## Frame lifecycle
+
+```text
+ frame mounts
+   └─ open_widget(id, surface)
+        ├─ safe mode?          → "Widgets are off in safe mode. Can you restart Toolblox normally?"
+        ├─ widget disabled?    → "The widget is disabled. Can you enable it first?"
+        ├─ surface not in manifest → "The widget doesn't provide a page." (or settings/dashboard view)
+        └─ ok → { sessionId, url }   session holds the manifest's permissions
+   └─ iframe loads url
+   └─ messages from this iframe's window are forwarded with sessionId
+ frame unmounts (navigation, widget disabled, app reload)
+   └─ close_widget_session(sessionId)
+```
+
+While a session opens, the frame area shows **Opening widget…**. If it can't open, it shows
+`The widget failed to open. Does reinstalling it help? (<error>)`.
+
+Every mount creates a new session, so navigating away and back reloads the page from scratch.
+Keep state in [`widgetData`](/docs/widgets/reference/ipc/#widgetdataset), not in page memory.
+
+## Message protocol
+
+### Sending a request
+
+Post a `toolbloxRequest` message to the parent window. The `request` is an
+[IPC envelope](/docs/widgets/reference/ipc/#envelope):
+
+```js
+window.parent.postMessage({
+  type: "toolbloxRequest",
+  request: { protocol: 1, requestId: crypto.randomUUID(), method: "accounts.list", params: {} },
+}, "*");
+```
+
+The target origin must be `"*"`: a sandboxed frame has an opaque origin and the app's origin
+differs by platform.
+
+### Receiving the response
+
+The host posts a `toolbloxResponse` message back to the frame:
+
+```js
+{ type: "toolbloxResponse", response: { protocol: 1, requestId: "…", result: [/* … */] } }
+```
+
+or, on failure:
+
+```js
+{ type: "toolbloxResponse", response: { protocol: 1, requestId: "…", error: "…" } }
+```
+
+Match responses to requests by `requestId`. A small helper:
+
+```js
+// app.js
+const pending = new Map();
+
+window.addEventListener("message", (event) => {
+  if (event.source !== window.parent || event.data?.type !== "toolbloxResponse") return;
+  const { requestId, result, error } = event.data.response ?? {};
+  const entry = pending.get(requestId);
+  if (!entry) return;
+  pending.delete(requestId);
+  error ? entry.reject(new Error(error)) : entry.resolve(result);
+});
+
+export function request(method, params = {}) {
+  const requestId = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    pending.set(requestId, { resolve, reject });
+    window.parent.postMessage({ type: "toolbloxRequest", request: { protocol: 1, requestId, method, params } }, "*");
+  });
+}
+```
+
+```js
+import { request } from "./app.js";
+
+const accounts = await request("accounts.list");
+for (const account of accounts) {
+  const note = await request("widgetData.get", { accountId: account.id });
+  render(account, note);
+}
+```
+
+### How the host handles messages
+
+- The host listens on the app window and accepts a message only when `event.source` is this
+  frame's own window and `event.data.type` is `"toolbloxRequest"`. Other messages are ignored
+  without a response.
+- `event.data.request` is serialized as JSON and sent to `widget_request` with the frame's session
+  ID and widget ID. The frame never sees or sends its session ID, so it can't borrow another
+  session.
+- Method failures come back as `{ error }` with the method's message. Failures before dispatch
+  (session gone, message over 64 KB, more than 30 requests per second, bad envelope, missing
+  permission) also come back as `{ error }`, with `requestId` copied from the request, or `""` if
+  there was none.
+- There's no timeout. Every forwarded request gets exactly one response, unless the frame unmounts
+  first.
+
+### Permissions in frames
+
+Frame sessions hold exactly the manifest's `permissions`, and the same list applies to all three
+frame surfaces. `log.write` is always available. See
+[Permissions](/docs/widgets/reference/permissions/).
+
+```js
+await request("log.write", { level: "warn", message: "Price list is empty" });
+```
+
+## The widget asset protocol
+
+Installed widget files are served by a read-only custom URI scheme named `widget`, registered in
+the Rust host. Frame pages, `main.js`, and every file they reference load through it.
+
+### Origin
+
+| Platform | Asset URL |
+| --- | --- |
+| Windows | `http://widget.localhost/<id>/<path>` |
+| macOS | `widget://localhost/<id>/<path>` |
+
+WebView2 on Windows serves custom schemes over `http://<scheme>.localhost`. Build URLs relative to
+the current document or module (`./images/logo.svg`, or
+`new URL("./images/logo.svg", import.meta.url)` in a module) rather than hard-coding either
+origin.
+
+### Request rules
+
+The handler checks, in order:
+
+| Check | Status | Body |
+| --- | --- | --- |
+| The request comes from the main window. Other webviews are refused. | 403 | `Widget assets aren't available here.` |
+| The first path segment is a widget ID: non-empty ASCII letters, digits, `_`, or `-`. | 400 | `The widget path isn't valid.` or `The widget ID isn't valid.` |
+| The rest of the path is non-empty and made only of normal segments: no `.`, `..`, root, or drive components. | 400 | `The widget file path isn't valid.` |
+| `<widgets folder>/<id>` exists. | 404 | `The widget isn't installed.` |
+| The file exists. | 404 | `The widget file wasn't found.` |
+| After resolving symbolic links, the file is still inside the widget folder and is a regular file. | 403 | `The widget file path isn't allowed.` |
+| The file can be read. | 500 | `The widget file couldn't be read.` |
+
+The handler only reads files; nothing can be written through the protocol. A directory path is
+refused with 403, so there are no listings and no default document: request `index.html`
+explicitly. Query strings are ignored for file lookup.
+
+The protocol serves any installed widget's files to the main window, by ID. It doesn't check
+whether the widget is enabled or whether the app is in safe mode; those checks happen when a
+surface opens.
+
+### Content types
+
+| Extension | `Content-Type` |
+| --- | --- |
+| `html` | `text/html; charset=utf-8` |
+| `css` | `text/css; charset=utf-8` |
+| `js`, `mjs` | `text/javascript; charset=utf-8` |
+| `json` | `application/json; charset=utf-8` |
+| `svg` | `image/svg+xml` |
+| `png` | `image/png` |
+| `jpg`, `jpeg` | `image/jpeg` |
+| `gif` | `image/gif` |
+| `webp` | `image/webp` |
+| `woff` | `font/woff` |
+| `woff2` | `font/woff2` |
+| anything else | `application/octet-stream` |
+
+Extensions are matched case-sensitively, so use lowercase. Every successful response also carries:
+
+| Header | Value |
+| --- | --- |
+| `X-Content-Type-Options` | `nosniff` |
+| `Cache-Control` | `no-store` |
+| `Access-Control-Allow-Origin` | `*` |
+| `Content-Security-Policy` | The asset policy below. |
+
+`nosniff` means a script or stylesheet served with the wrong type is refused, so keep to the
+extensions above. `Access-Control-Allow-Origin: *` lets opaque-origin frames load module scripts
+and fonts from their own package.
+
+## Content Security Policy
+
+Two policies apply.
+
+### Frame pages
+
+Every asset response carries this policy, which governs the frame documents:
+
+```text
+default-src 'self';
+script-src 'self';
+style-src 'self';
+img-src 'self' data:;
+font-src 'self';
+connect-src 'none';
+object-src 'none';
+base-uri 'none';
+form-action 'none'
+```
+
+In practice:
+
+- Scripts and stylesheets must be separate files in the package. Inline `<script>` elements,
+  `on*` attributes, `<style>` elements, `style` attributes, and `eval` don't run.
+- Images come from the package or `data:` URLs. Remote images are blocked.
+- `fetch`, `XMLHttpRequest`, `WebSocket`, and `EventSource` are blocked. Use
+  [`network.fetch`](/docs/widgets/reference/ipc/#networkfetch).
+- Forms can't submit, and `<base>` is ignored.
+
+The `sandbox="allow-scripts"` attribute adds more limits. Without `allow-same-origin`,
+`allow-forms`, `allow-popups`, `allow-modals`, or `allow-top-navigation`, a frame has an opaque
+origin, so `localStorage`, `IndexedDB`, and cookies are unavailable; it can't open windows or
+dialogs such as `alert`; and it can't navigate the app.
+
+### The app window
+
+Module widgets run under the app's own policy from `tauri.conf.json`:
+
+```text
+default-src 'self';
+img-src 'self' asset: https: data: widget: http://widget.localhost;
+style-src 'self' widget: http://widget.localhost;
+font-src 'self' data: widget: http://widget.localhost;
+connect-src ipc: http://ipc.localhost;
+script-src 'self' widget: http://widget.localhost;
+frame-src widget: http://widget.localhost
+```
+
+In practice:
+
+- Modules can import scripts only from the app and the widget asset origin, so relative imports
+  within the package work and CDN imports don't.
+- Images can come from the package, `data:` URLs, or any HTTPS URL, such as Roblox avatar URLs.
+- Inline `<style>` elements are blocked. Use
+  [`addStyles`](/docs/widgets/reference/host-api/#addstyles), which uses constructable stylesheets.
+  Stylesheet and font files from the package also load.
+- Network connections go only to Tauri IPC. Use `network.fetch` for HTTP.
+- Frames can only show widget assets, so a widget can't embed a remote page.
+
+## Mixing frames and a module
+
+A widget may declare `module` and any frame entries together. Both use the same widget ID,
+storage, and per-account data, but different sessions: the module's holds every permission, the
+frames hold the manifest's list. If the module calls `registerPage`, that page replaces the
+`index.html` frame on the widget's page. The settings page shows the module's settings component
+first and then the `settings.html` frame. A `dashboard.html` frame and module contributions to
+`dashboard.sections` can coexist.
+
+<Aside>
+Frames and the module can't message each other directly. To share data, write it through
+`widgetData.set` from one side and read it from the other, or keep frame-side data in per-account
+entries that the module also reads.
+</Aside>

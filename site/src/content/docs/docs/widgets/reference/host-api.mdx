@@ -1,0 +1,568 @@
+---
+title: Host API
+description: Every member of the toolblox object that a module widget's activate function receives.
+sidebar:
+  order: 2
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+A module widget is an ES module named `main.js` that Toolblox imports into the app window. It runs
+in the same JavaScript context as the Toolblox interface, renders with the app's own React
+instance, and receives a host API object with every widget capability. This page documents that
+object member by member. The implementation is
+[`src/widgets/host.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/widgets/host.tsx);
+the TypeScript type is exported from it as `ToolbloxApi`.
+
+Module widgets are full-trust. Nothing in this API is narrowed for them: they receive every
+[permission](/docs/widgets/reference/permissions/), can replace core screens, and can restyle the
+whole app. The one thing no widget can reach is a Roblox session cookie. Cookies never leave Rust,
+for widgets or for the Toolblox interface itself.
+
+## Module shape
+
+```js
+// main.js
+export async function activate(toolblox) {
+  // Register pages, slots, styles, and listeners here.
+}
+
+export function deactivate() {
+  // Optional. Clean up anything the host doesn't track.
+}
+```
+
+| Export | Required | Signature | Called |
+| --- | --- | --- | --- |
+| `activate` | No, but nothing happens without it | `(toolblox: ToolbloxApi) => unknown` | Once per load, with a fresh API object. May return a promise, which the host awaits. |
+| `deactivate` | No | `() => void` | When the widget unloads, before its registrations are removed. Its return value is ignored and it isn't awaited. |
+
+## Lifecycle
+
+```text
+ app state loads or changes
+          │
+          ▼
+ syncWidgetModules(installedWidgets, safeMode)
+          │
+          ├── safe mode? ──────────────► load nothing, unload everything
+          │
+          ├── widget no longer enabled, installed, or has no module ──► unload(id)
+          │
+          └── enabled module not yet loaded
+                  │
+                  ├─ open_widget(id, "module")     → session with every permission
+                  ├─ import(moduleUrl)             → widget://…/<id>/main.js
+                  ├─ activate(toolblox)            → awaited
+                  └─ on any throw: log "Module failed to load: …", mark the card "Failed to load"
+
+ unload(id)
+   1. deactivate()                 errors are logged as "Deactivate failed: …"
+   2. every tracked disposer runs  pages, settings, screens, slots, styles, listeners
+   3. the IPC session is closed
+   4. the load error is cleared
+```
+
+The details that matter when building on it:
+
+- **Loading.** Toolblox loads enabled module widgets one at a time, in widget ID order, after the
+  app state first loads. Each load opens an IPC session (`open_widget` with the `module` surface),
+  imports `main.js` from the [widget asset origin](/docs/widgets/reference/iframe-widgets/#the-widget-asset-protocol),
+  and awaits `activate`. A slow `activate` delays the widgets after it, so do long work in the
+  background and return.
+- **What triggers a reload.** The host re-syncs when the set of `[id, enabled, moduleUrl]` triples
+  or the safe mode flag changes. Disabling a widget unloads it. Enabling it loads it again.
+  Uninstalling removes it from the list, which unloads it.
+- **Load failures.** If importing the module or `activate` throws, the error is logged under
+  `widget:<id>` as `Module failed to load: <stack>`, the widget's card on the Widgets page shows
+  **Failed to load**, and the widget stays marked as loaded until it's disabled. Registrations made
+  before the throw stay in place.
+- **Safe mode.** In safe mode no module loads, and any loaded module is unloaded. See
+  [Logs and failures](/docs/widgets/reference/logs-and-failures/#safe-mode).
+
+<Aside type="caution" title="Module instances persist for the page's lifetime">
+The browser imports each module URL once per page load. Disabling and re-enabling a widget calls
+`activate` again on the same module instance, so top-level variables keep their values. Keep
+per-activation state inside `activate`, or reset it in `deactivate`.
+
+The module URL is `<origin>/<id>/main.js` and doesn't include the version. After an in-app update,
+the URL and enabled state don't change, so the running session keeps the previously loaded code.
+The new version's `main.js` runs the next time Toolblox starts.
+</Aside>
+
+### Cleanup
+
+Every registration method returns a disposer function. Calling it removes that registration and
+re-renders the app. Toolblox also records every disposer per widget and runs them all when the
+widget unloads, so a widget that only uses tracked registrations needs no `deactivate`.
+
+Tracked: `onStateChange`, `replaceScreen`, `registerPage`, `registerSettings`, `addToSlot`, and
+`addStyles`.
+
+Not tracked, so clean these up in `deactivate`: timers, `window` or `document` event listeners,
+DOM nodes created outside React, `fetch`-like work in flight, and anything else the widget starts
+itself. Running [processes](/docs/widgets/reference/ipc/#process-lifecycle) also aren't stopped by
+an unload; they stop when the widget is disabled, updated, or uninstalled, or when Toolblox quits.
+
+```js
+let timer;
+
+export function activate(toolblox) {
+  timer = setInterval(() => void toolblox.refresh(), 5 * 60_000);
+}
+
+export function deactivate() {
+  clearInterval(timer);
+}
+```
+
+## React and JSX
+
+Use `toolblox.React`. Never bundle a second copy of React: hooks rely on a single React instance,
+and components from a second copy break as soon as they call a hook or render a host component.
+
+Without a build step, use `createElement` directly:
+
+```js
+export function activate({ React, ui, registerPage }) {
+  const h = React.createElement;
+  registerPage(() => h(ui.Panel, { className: "p-4" }, "Hello from a widget"));
+}
+```
+
+JSX works with any bundler that can use `toolblox.React.createElement` as the JSX factory and
+`toolblox.React.Fragment` as the fragment factory, with React marked external. Because `React`
+only exists inside `activate`, a common pattern is to bind it to a module-level variable that the
+compiled JSX references:
+
+```js
+// esbuild main.jsx --bundle --format=esm --outfile=main.js
+//   --jsx-factory=h --jsx-fragment=Fragment
+let h, Fragment;
+
+export function activate(toolblox) {
+  ({ createElement: h, Fragment } = toolblox.React);
+  toolblox.registerPage(() => <toolblox.ui.Panel className="p-4">Hello</toolblox.ui.Panel>);
+}
+```
+
+The output must be a single ES module named `main.js`, or `main.js` plus other files it imports
+with relative paths. The app's
+[Content Security Policy](/docs/widgets/reference/iframe-widgets/#content-security-policy) only
+allows scripts from the app and the widget asset origin, so a module can't import code from a CDN.
+
+## Members
+
+The object passed to `activate` has these members. Each is described in detail below.
+
+| Member | Kind |
+| --- | --- |
+| [`widget`](#widget) | `{ id, name, version }` |
+| [`React`](#react) | The app's React namespace |
+| [`ui`](#ui) | The app's components and `cn` |
+| [`getState()`](#getstate) | Current app state |
+| [`useAppState()`](#useappstate) | React hook for app state |
+| [`onStateChange(listener)`](#onstatechange) | Subscribe to changes |
+| [`navigate(route)`](#navigate) | Change the route |
+| [`notify(message)`](#notify) | Show a toast |
+| [`refresh()`](#refresh) | Reload app state |
+| [`join(accountIds)`](#join) | Run the Join flow |
+| [`registerPage(Component)`](#registerpage) | The widget's page |
+| [`registerSettings(Component)`](#registersettings) | The widget's settings page |
+| [`replaceScreen(screen, Component)`](#replacescreen) | Replace a core screen |
+| [`addToSlot(slot, Component, options)`](#addtoslot) | Extend a slot |
+| [`addStyles(css)`](#addstyles) | App-wide stylesheet |
+| [`storage.get()`, `storage.set(value)`](#storage) | One JSON value per widget |
+| [`log.debug`, `log.info`, `log.warn`, `log.error`](#log) | Write to the Toolblox log |
+| [`request(method, params)`](#request) | Every IPC method |
+
+### `widget`
+
+```ts
+widget: { id: string; name: string; version: string | undefined }
+```
+
+This widget's ID, display name, and installed version, from its manifest. Use `widget.id` to build
+routes such as `` `/widgets/${toolblox.widget.id}` ``.
+
+### `React`
+
+The app's React module namespace (`import * as React from "react"`), including hooks such as
+`useState`, `useEffect`, and `useSyncExternalStore`, plus `createElement` and `Fragment`. See
+[React and JSX](#react-and-jsx).
+
+### `ui`
+
+The app's own components, so widget interfaces match the rest of Toolblox. They're the same
+component references the app renders, built on [Base UI](https://base-ui.com/) in the shadcn/ui
+`base-nova` style.
+
+| Component | Source | Notes |
+| --- | --- | --- |
+| `Avatar` | `src/shared.tsx` | `{ account, className? }`. Round avatar with a presence dot when the account isn't offline. |
+| `Badge` | `src/components/ui/badge.tsx` | `variant`: `default`, `secondary`, `destructive`, `outline`, `ghost`, `link`. |
+| `Button` | `src/components/ui/button.tsx` | `variant`: `default`, `outline`, `secondary`, `ghost`, `destructive`, `link`. `size`: `default`, `xs`, `sm`, `lg`, `icon`, `icon-xs`, `icon-sm`, `icon-lg`. |
+| `Checkbox` | `src/components/ui/checkbox.tsx` | Base UI checkbox root props. |
+| `ChoiceRow` | `src/shared.tsx` | `{ title, description?, value, options: { value, label }[], change }`. A settings row with a segmented choice. |
+| `DropdownMenu`, `DropdownMenuContent`, `DropdownMenuItem`, `DropdownMenuSeparator`, `DropdownMenuTrigger` | `src/components/ui/dropdown-menu.tsx` | Base UI menu parts. |
+| `EmptyState` | `src/shared.tsx` | `{ icon, title, text, action? }`. |
+| `IconButton` | `src/shared.tsx` | `{ label, ...Button props }`. Icon-only button with a tooltip and `aria-label`. |
+| `Input` | `src/components/ui/input.tsx` | Native `<input>` props. |
+| `Panel` | `src/shared.tsx` | `<div>` props. The app's 12 px rounded, hairline-ringed surface. Add `divide-y` for row groups. |
+| `SectionTitle` | `src/shared.tsx` | `{ children, action? }`. The small heading above a group. |
+| `Spinner` | `src/shared.tsx` | `{ className? }`. |
+| `StatTile` | `src/shared.tsx` | `{ icon, label, value, onClick? }`. Matches the Dashboard stat tiles. |
+| `Switch` | `src/components/ui/switch.tsx` | Base UI switch root props, such as `checked` and `onCheckedChange`. |
+| `SwitchRow` | `src/shared.tsx` | `{ title, description?, checked, change }`. A labelled settings row with a switch. |
+| `Tabs`, `TabsContent`, `TabsList`, `TabsTrigger` | `src/components/ui/tabs.tsx` | Base UI tabs parts. |
+| `ToggleGroup`, `ToggleGroupItem` | `src/components/ui/toggle-group.tsx` | Base UI toggle group parts with `variant` and `size`. |
+| `Tooltip`, `TooltipContent`, `TooltipTrigger` | `src/components/ui/tooltip.tsx` | The app already renders a `TooltipProvider` around every screen. |
+| `cn` | `src/lib/utils.ts` | Joins class names and merges conflicting Tailwind classes. |
+
+```js
+const { React, ui } = toolblox;
+const h = React.createElement;
+
+toolblox.registerSettings(function Settings() {
+  const [on, setOn] = React.useState(true);
+  return h(ui.Panel, { className: "divide-y" },
+    h(ui.SwitchRow, { title: "Race icons", description: "Show race icons on the Accounts page.", checked: on, change: setOn }),
+    h(ui.ChoiceRow, { title: "Units", value: "k", options: [{ value: "k", label: "Thousands" }, { value: "m", label: "Millions" }], change: () => {} }));
+});
+```
+
+<Aside title="Tailwind classes">
+Tailwind is compiled into the app ahead of time, so a widget can only use utility classes the app
+already uses somewhere. A class that appears nowhere in the app's source has no CSS behind it. Ship
+any other styling with [`addStyles`](#addstyles), as plain CSS or as your own prefixed classes.
+</Aside>
+
+### `getState()`
+
+```ts
+getState(): AppState
+```
+
+Returns the current app state. Throws `Error("Toolblox state isn't loaded yet.")` if the host
+hasn't received state, which doesn't happen during or after `activate` in the running app because
+modules load only after state arrives.
+
+`AppState` is defined in
+[`src/types.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/types.ts):
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `version` | `string` | Toolblox version, such as `0.2.0-beta`. |
+| `channel` | `"stable" \| "canary"` | `canary` in development builds. |
+| `platform` | `"windows" \| "macos"` | The operating system. |
+| `widgetsPath` | `string` | Absolute path of the widgets folder. |
+| `logsPath` | `string` | Folder holding the log files, or empty when logging didn't start. |
+| `accounts` | `Account[]` | Saved accounts with presence. See below. |
+| `installedWidgets` | `WidgetSummary[]` | Every readable installed widget. |
+| `widgetErrors` | `string[]` | One message per widget folder that failed to load. |
+| `catalogue` | `CatalogueEntry[]` | Catalogue widgets that aren't installed. |
+| `catalogueError` | `string \| undefined` | Why the catalogue failed to load. |
+| `settings` | `Settings` | The app's settings, without widget data. |
+| `recentPlaces` | `{ placeId, name? }[]` | Recently used places. |
+| `safeMode` | `boolean` | Whether this session runs without widgets. |
+
+Each `Account` has `id` (Roblox user ID), `name`, `displayName`, `avatarUrl?`, `notes`, `addedAt`,
+`lastPlayedAt?`, `presence` (`"offline"`, `"playing"`, or `"warning"` when status couldn't be
+read), `gameName?`, `gamePlaceId?`, `placeId?` (the account's place override), and
+`lastPlaceId?`. Accounts carry display data and IDs only. No account field holds a session
+cookie, and no host method returns one.
+
+The `Settings` fields are `sidebarPosition`, `themeMode`, `showAvatars`, `compactMode`,
+`sortOrder`, `placeId`, `multiInstance`, `autoRejoin`, `openOnLaunch`, `runInBackground`,
+`minimizeOnJoin`, `showGameNames`, `notifyOnDrop`, and `alwaysOnTop`.
+
+The app reloads state every 60 seconds, when the window gains focus, and after most actions.
+
+```js
+const { accounts } = toolblox.getState();
+const inGame = accounts.filter((account) => account.presence === "playing").length;
+```
+
+### `useAppState()`
+
+```ts
+useAppState(): AppState
+```
+
+A React hook that returns the current state and re-renders the calling component whenever the
+host emits a change. Call it only inside components, under the rules of hooks.
+
+```js
+toolblox.registerPage(function AccountsCount() {
+  const state = toolblox.useAppState();
+  return h(ui.Panel, { className: "p-4" }, `${state.accounts.length} accounts`);
+});
+```
+
+The host emits a change when it receives a new state object and whenever any widget adds or
+removes a registration, so components may re-render without the state changing.
+
+### `onStateChange`
+
+```ts
+onStateChange(listener: (state: AppState) => void): () => void
+```
+
+Calls `listener` with the current state every time the host emits a change, for code outside
+React. As with `useAppState`, emits include registration changes, so compare the state reference
+or the fields you care about before doing work. Returns a disposer. The subscription is tracked
+and removed on unload.
+
+```js
+let previous;
+toolblox.onStateChange((state) => {
+  if (state === previous) return;
+  previous = state;
+  void toolblox.log.debug(`State has ${state.accounts.length} accounts`);
+});
+```
+
+### `navigate`
+
+```ts
+navigate(route: AppRoute): void
+```
+
+Changes the route. `AppRoute` is `"/"`, `"/accounts"`, `"/widgets"`, `"/settings"`, or any
+`` `/widgets/${string}` `` path, such as this widget's page or settings page. The route is stored
+in the URL hash.
+
+```js
+toolblox.navigate(`/widgets/${toolblox.widget.id}/settings`);
+```
+
+### `notify`
+
+```ts
+notify(message: string): void
+```
+
+Shows a toast at the bottom of the window for four seconds, replacing any toast already showing.
+Follow the app's voice: one short, factual sentence.
+
+```js
+toolblox.notify("Prices updated.");
+```
+
+### `refresh()`
+
+```ts
+refresh(): Promise<void>
+```
+
+Reloads the full app state from Rust and resolves when it's applied. A failed reload doesn't
+reject; the app shows its own load error instead. Use it after an action that changes accounts or
+settings outside the app's own flows.
+
+```js
+await toolblox.request("roblox.join", { accountIds: [101] });
+await toolblox.refresh();
+```
+
+### `join`
+
+```ts
+join(accountIds: number[]): void
+```
+
+Runs the same Join flow as the app's own buttons. When no default place is set and one of the
+accounts has no place override, it first opens the place prompt (with recent places) and saves
+the result as the default place. Then it launches each account in turn and reloads state. Failures
+appear as a toast. It returns immediately and doesn't report the outcome.
+
+For a promise that settles when every launch finishes, with no prompt, use
+[`request("roblox.join", { accountIds })`](/docs/widgets/reference/ipc/#robloxjoin).
+
+### `registerPage`
+
+```ts
+registerPage(component: React.ComponentType): () => void
+```
+
+Sets the component for the widget's page at `/widgets/<id>`, which the sidebar entry opens. The
+component receives no props. The host renders it inside the standard screen layout, under a
+header with the widget's name and, when the widget has settings, a settings button. A registered
+page takes precedence over an `entry` frame. Calling it again replaces the previous page. Returns
+a disposer. See [Slots and screens](/docs/widgets/reference/slots/#widget-pages).
+
+### `registerSettings`
+
+```ts
+registerSettings(component: React.ComponentType): () => void
+```
+
+Sets the component for the widget's settings page at `/widgets/<id>/settings`, reached from the
+widget page's settings button and from the widget card's menu on the Widgets page. Toolblox's own
+Settings page stays separate and can't be extended this way. Calling it again replaces the
+previous component. Returns a disposer.
+
+### `replaceScreen`
+
+```ts
+replaceScreen(screen: "dashboard" | "accounts" | "widgets", component: React.ComponentType): () => void
+```
+
+Renders `component` instead of a core screen. `"dashboard"` is `/`, `"accounts"` is
+`/accounts`, and `"widgets"` is `/widgets`. Toolblox Settings can't be replaced, so a widget can
+never lock users out of safe mode controls, diagnostics, or updates.
+
+The replacement receives no props and replaces the whole screen, including its header, so render
+your own layout. The core screen's slots aren't rendered while it's replaced. The most recent
+registration for a screen wins. The disposer restores the core screen only if this widget still
+owns it.
+
+```js
+toolblox.replaceScreen("dashboard", function Dashboard() {
+  const state = toolblox.useAppState();
+  return h("div", { className: "mx-auto flex max-w-5xl flex-col gap-4 px-6 pb-6" },
+    h("h1", { className: "flex h-14 items-center text-lg font-semibold tracking-tight" }, "Dashboard"),
+    h(ui.StatTile, { icon: null, label: "Accounts", value: state.accounts.length }));
+});
+```
+
+### `addToSlot`
+
+```ts
+addToSlot<S extends SlotName>(
+  slot: S,
+  component: React.ComponentType<SlotProps[S]>,
+  options?: { order?: number },
+): () => void
+```
+
+Adds a component to a named slot in a core screen. The component receives the slot's props.
+Contributions render in ascending `order` (default `0`); equal orders keep registration order. A
+widget may add any number of components to the same slot. Returns a disposer.
+
+| Slot | Props |
+| --- | --- |
+| `accounts.row` | `{ account: Account }` |
+| `accounts.toolbar` | none |
+| `dashboard.stats` | none |
+| `dashboard.sections` | none |
+| `sidebar.footer` | `{ collapsed: boolean }` |
+
+Placement, wrappers, and examples for each slot are on
+[Slots and screens](/docs/widgets/reference/slots/).
+
+### `addStyles`
+
+```ts
+addStyles(css: string): () => void
+```
+
+Adds a stylesheet to the whole app. The host creates a constructable `CSSStyleSheet`, fills it with
+`replaceSync(css)`, and appends it to `document.adoptedStyleSheets`, after the app's own styles.
+The disposer removes it. A syntax error in individual rules drops those rules, as in any
+stylesheet; `@import` rules aren't supported by `replaceSync`.
+
+The app's Content Security Policy doesn't allow inline `<style>` elements, so libraries that
+inject them at runtime don't work. `addStyles` is the supported way to ship CSS.
+
+Overriding theme tokens restyles every screen. The tokens are CSS custom properties on `:root`,
+with a `.dark` class on the root element in dark mode:
+
+```js
+const remove = toolblox.addStyles(`
+  :root, :root.dark {
+    --primary: #c9a44c;
+    --ring: #c9a44c;
+  }
+  .my-widget-tag { font-variant: small-caps; }
+`);
+```
+
+Images and fonts referenced from widget CSS can use the widget's asset URLs. Build them with
+`new URL("./icons/a.svg", import.meta.url).href` inside the module.
+
+### `storage`
+
+```ts
+storage.get(): Promise<unknown>
+storage.set(value: unknown): Promise<void>
+```
+
+One free-form JSON value per widget, kept in Toolblox's settings file under the widget's ID.
+
+- `get()` resolves to the stored value, or `null` when nothing is stored.
+- `set(value)` replaces the whole value. Setting `null` deletes it.
+- The serialized value may be at most 1 MB. Larger values reject with
+  `The widget data is larger than 1 MB. Can the widget store less?`
+- Both reject with `The widget isn't installed. Can you refresh the list?` if the widget folder
+  can't be read.
+- The value is removed when the widget is uninstalled. It's kept across disable, enable, and
+  update.
+
+Storage calls go straight to Rust commands, not through an IPC session, so they don't count
+toward the request rate limit and work even if the session failed to open. Writes rewrite the
+settings file atomically, so batch frequent changes.
+
+```js
+const saved = (await toolblox.storage.get()) ?? { showIcons: true };
+await toolblox.storage.set({ ...saved, showIcons: false });
+```
+
+For data tied to a specific account, use
+[`widgetData.get` and `widgetData.set`](/docs/widgets/reference/ipc/#widgetdataget) instead.
+
+### `log`
+
+```ts
+log.debug(message: string): Promise<void>
+log.info(message: string): Promise<void>
+log.warn(message: string): Promise<void>
+log.error(message: string): Promise<void>
+```
+
+Writes a record to the Toolblox log under the target `widget:<id>`. The promise never rejects.
+Messages are redacted and cut at 8 KB before they're written, and `debug` records are dropped in
+release builds. See [Logs and failures](/docs/widgets/reference/logs-and-failures/).
+
+```js
+void toolblox.log.info("Price list refreshed");
+```
+
+### `request`
+
+```ts
+request(method: string, params?: Record<string, unknown>): Promise<unknown>
+```
+
+Sends a widget IPC request through the module's session, which holds every permission. Resolves
+with the method's `result`; rejects with an `Error` whose message is the method's `error`. See
+[IPC methods](/docs/widgets/reference/ipc/) for every method, its parameters, and its errors.
+
+```js
+const { status, body } = await toolblox.request("network.fetch", { url: "https://api.example.com/prices" });
+```
+
+Behaviour specific to modules:
+
+- `params` defaults to `{}`. The host builds the envelope (`protocol: 1` and a random
+  `requestId`) for you.
+- If the session failed to open, the call throws `Error("The widget session isn't open.")`.
+- Requests rejected before dispatch, such as when the message is larger than 64 KB, the rate
+  limit is hit, or the session is gone, reject with the host's message as a plain string rather
+  than an `Error`. Catch both:
+
+```js
+try {
+  await toolblox.request("widgetData.set", { accountId, value });
+} catch (error) {
+  toolblox.notify(`The note wasn't saved. (${error instanceof Error ? error.message : String(error)})`);
+}
+```
+
+## Development without the desktop host
+
+`npm run dev` serves the interface in a browser with sample data instead of the Rust host, and
+`npm run demo` runs the desktop shell on that sample data. In both, the two example modules in
+[`src/demo-widgets/`](https://github.com/BakedAleska/Toolblox/tree/main/src/demo-widgets) load
+through this same host API, storage is kept in memory, logs go to the browser console with the
+widget ID as a prefix, and every `request` resolves with `null`. Test IPC behaviour in a
+development build of the desktop app.

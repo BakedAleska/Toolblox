@@ -1,0 +1,522 @@
+---
+title: Startup and updates
+description: How release builds refuse to open until a signed update manifest confirms they're current, and how legacy data is imported once afterwards.
+sidebar:
+  order: 1
+---
+
+import { Aside, Steps, FileTree } from '@astrojs/starlight/components';
+
+Toolblox release builds are **fail-closed**. Every launch downloads a signed release manifest,
+verifies it, and compares it with the installed version before any account data, settings, or
+widgets are loaded. If the manifest can't be fetched, doesn't verify, has expired, or names a
+newer version, the main interface never appears: the window shows an update screen instead, and
+the app either installs the newer release and restarts, or stops with an error and a **Retry**
+button.
+
+Only after the gate passes does the host import data from the legacy Flet app (once), create the
+widget folder, and start the background services described in
+[Background services](/docs/app/background-services/). Widgets therefore never run on an
+outdated or unverified build.
+
+This page covers the gate end to end: the manifest format, the decision logic, the installer
+verification, what the interface shows, how the manifest is produced and kept fresh, and the
+one-way legacy migration that runs once the gate opens.
+
+## Where the code lives
+
+<FileTree>
+- src-tauri/
+  - src/
+    - lib.rs the builder; spawns the startup task and waits on it before starting services
+    - startup.rs the gate: download, verify, install, prepare local data, Tauri commands
+    - update.rs pure decision logic: manifest schema, signature trait, release decisions
+    - migration.rs one-way import from the legacy Flet app
+  - tauri.conf.json updater plugin configuration and public key
+  - windows/installer-hooks.nsh
+- scripts/
+  - publish-updates.mjs builds and signs `updates/stable.json`
+- .github/workflows/
+  - release.yml builds the installer with the update endpoint and keys baked in
+  - pages.yml re-signs and deploys the manifest daily
+- src/
+  - App.tsx `UpdaterGate` and the startup polling loop
+  - bridge.ts `startupStatus`, `retryStartupUpdate`, `quitStartup`
+  - types.ts `StartupStatus`
+</FileTree>
+
+`update.rs` is deliberately free of I/O. It defines the manifest types, two small traits
+(`ManifestSignatureVerifier` and `HighestSeenStore`), and the functions that judge a manifest.
+`startup.rs` supplies the real implementations of those traits (Ed25519 and a file on disk), does
+the network calls, and drives the state machine the interface polls. That split keeps every
+security decision unit-testable without a network or a signing key. See the rustdoc for
+[`update`](/api/toolblox_lib/update/) and [`startup`](/api/toolblox_lib/startup/).
+
+## Sequence
+
+The diagram follows a release build from launch to either the main interface or a restart into
+the newer version.
+
+```text
+ Interface (App.tsx)        Host (lib.rs / startup.rs)                  toolblox.dev
+ ───────────────────        ──────────────────────────                  ────────────
+                            setup(): logs, Runtime, tray, close handler
+                            show main window
+                            spawn startup::run ──┐
+                            spawn services task ─┼─ wait_until_ready (250 ms poll)
+ poll startup_status ─────▶ phase = checking     │
+ (every 500 ms)             │                    │
+ "Checking for updates"     ├─ GET updates/stable.json ───────────────▶ manifest bytes (≤ 1 MB)
+                            ├─ GET updates/stable.json.sig ───────────▶ base64 signature (≤ 8 KB)
+                            ├─ Ed25519 verify (manifest public key)
+                            ├─ parse JSON (deny unknown fields)
+                            ├─ decide_and_record
+                            │    load  v2/highest-update-version
+                            │    check schema, channel, dates, floor, artifact
+                            │    store newer verified version
+                            │
+                            ├── Current ──────────────────────────────┐
+                            │                                         ▼
+                            │                       prepare_local_data: legacy import once,
+                            │                       create v2/widgets
+ phase = ready ◀────────────┤                       phase = ready
+ get_app_state, render app  │                       services task continues (autostart,
+                            │                       always on top, profiles, widgets,
+                            │                       auto-rejoin)
+                            │
+                            ├── UpdateRequired ───────────────────────┐
+ "Installing Toolblox X" ◀──┤  phase = installing { version }         │
+                            │  updater plugin check() ───────────────▶ same stable.json
+                            │  compare version, URL, signature
+                            │  download installer ───────────────────▶ Toolblox-Update.exe
+                            │  SHA-256 must match manifest
+                            │  install(bytes): run installer, exit
+                            │
+                            └── Err(message) ─────────────────────────┐
+ "Update verification  ◀────   phase = failed { message }             │
+  failed" + Quit / Retry       services task keeps waiting            ▼
+```
+
+## The signed manifest
+
+The manifest is a JSON file served at the URL compiled into the build, with a detached signature
+at the same URL plus `.sig`. Official builds use `https://toolblox.dev/updates/stable.json` and
+`https://toolblox.dev/updates/stable.json.sig`.
+
+A real manifest looks like this (written by `scripts/publish-updates.mjs`):
+
+```json
+{
+  "schemaVersion": 1,
+  "channel": "stable",
+  "version": "0.2.0-beta",
+  "publishedAt": 1791990000,
+  "expiresAt": 1792594800,
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://github.com/BakedAleska/Toolblox/releases/download/v0.2.0-beta/Toolblox-Update.exe",
+      "sha256": "<64 lowercase hex characters>",
+      "signature": "<contents of Toolblox-Setup.exe.sig>"
+    }
+  }
+}
+```
+
+### Fields
+
+`ReleaseManifest` and `UpdateArtifact` in
+[`update.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/update.rs) are
+deserialized with `deny_unknown_fields`, so any extra key at either level makes the manifest
+invalid.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `schemaVersion` | integer | Must equal `MANIFEST_SCHEMA_VERSION`, currently `1`. |
+| `channel` | string | Must equal the build's channel. Release builds pass `"stable"`. |
+| `version` | semver string | The release every install on this channel must run. Parsed with the `semver` crate, so pre-release tags such as `-beta` order correctly. |
+| `publishedAt` | Unix seconds | When the manifest was signed. |
+| `expiresAt` | Unix seconds | After this moment the manifest is refused. |
+| `platforms` | object | Installers keyed by Tauri updater target, such as `windows-x86_64`. |
+| `platforms.*.url` | string | Download URL. Must start with `https://`. |
+| `platforms.*.sha256` | string | SHA-256 of the installer, exactly 64 hex characters. |
+| `platforms.*.signature` | string | The Tauri updater (minisign) signature of the installer. Must not be blank. |
+
+The manifest doubles as a static Tauri updater manifest: the updater plugin reads `version` and
+each platform's `url` and `signature` from the same file during installation (see
+[Installing a required update](#installing-a-required-update)).
+
+### Signature
+
+The `.sig` file is the base64 encoding of a raw 64-byte Ed25519 signature over the **exact bytes**
+of `stable.json`. The public key is a base64 raw 32-byte Ed25519 key compiled into the build
+(`TOOLBLOX_MANIFEST_PUBLIC_KEY`). `Ed25519Verifier` in `startup.rs` decodes both, and
+`verify_and_parse` checks the signature **before** parsing anything, so unsigned bytes are never
+interpreted as JSON. Every signature failure, whatever the detail (bad base64, wrong length,
+mismatch), is reported to the user as the same `BadSignature` message, so verifier internals
+don't leak into the interface.
+
+The manifest key is separate from the Tauri updater key. The manifest key signs the
+release *decision*; the updater key (minisign, from `plugins.updater.pubkey` in
+`tauri.conf.json`) signs the installer *bytes*. A compromise of one isn't enough to push an
+installer.
+
+### Validity window and clock allowance
+
+Three constants in `update.rs` bound when a manifest is acceptable:
+
+| Constant | Value | Effect |
+| --- | --- | --- |
+| `MAX_CLOCK_SKEW_SECONDS` | 300 (5 minutes) | `publishedAt` may be at most this far ahead of the local clock. |
+| `MAX_MANIFEST_LIFETIME_SECONDS` | 604 800 (7 days) | `expiresAt − publishedAt` must be positive and at most this. |
+| — | — | `expiresAt` must be strictly later than the local clock. |
+
+The publisher adds its own allowance on top: `publish-updates.mjs` sets
+`publishedAt = now − 3600` (`CLOCK_ALLOWANCE`, one hour) and
+`expiresAt = publishedAt + 7 days`. Back-dating by an hour lets a client whose clock runs up to
+about 65 minutes slow still accept a freshly signed manifest. The trade-off is that a manifest is
+usable for just under seven days after it's signed, which is why the Pages workflow re-signs it
+daily (see [Keeping the manifest fresh](#keeping-the-manifest-fresh)).
+
+### Rollback protection
+
+Toolblox stores the highest version it has ever verified in
+`v2/highest-update-version` inside the data folder (a single semver string and a newline). The
+`FileHighestSeen` store writes it through a temporary file and `storage::replace_file`, which is an
+atomic `MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)` on Windows and `rename`
+elsewhere.
+
+The **floor** for a manifest is the higher of the installed version and the stored version. A
+manifest below the floor is a rollback and is refused, even if it's correctly signed and
+in date. This stops an attacker who captured an older signed manifest (still within its seven days)
+from steering installs back to an older, possibly vulnerable, release.
+
+A side effect worth knowing: the stored version is raised as soon as a newer manifest is verified,
+**before** the installer is downloaded. If that install then fails and the release is later
+withdrawn, the installed version is still refused as below the floor until a manifest at or above
+the recorded version is published.
+
+## Decision logic
+
+`decide_release` checks a verified manifest in a fixed order and stops at the first failure.
+`decide_and_record` wraps it: it loads the stored highest version, runs `decide_release`, and on a
+successful decision stores the manifest's version if it's newer than what was stored.
+
+| Step | Condition | Outcome | Message shown |
+| --- | --- | --- | --- |
+| 0 | Highest-seen file exists but isn't a valid version | `Persistence` | The verified version couldn't be saved (The saved update security state isn't valid. Reinstall Toolblox to repair it?). Try again? |
+| 0 | Highest-seen file can't be read (other than missing) | `Persistence` | …(The update security state couldn't be read. Is the data folder available?)… |
+| 1 | `schemaVersion ≠ 1` | `UnsupportedSchema` | This updater can't read update format N. Would reinstalling Toolblox help? |
+| 2 | `channel ≠ "stable"` | `WrongChannel` | The update channel is X, not stable. Would reinstalling Toolblox help? |
+| 3 | `publishedAt > now + 300` | `NotYetValid` | The update information is dated in the future. Is the system clock correct? |
+| 4 | `expiresAt ≤ now` | `Expired` | The update information has expired. Check the connection and try again? |
+| 5 | `expiresAt ≤ publishedAt`, or lifetime over 7 days | `ExcessiveLifetime` | The update information is valid for too long. Try again? |
+| 6 | `version < max(installed, highest seen)` | `Rollback` | The update service offered an older release. Try again later? |
+| 7 | No entry for this build's target | `MissingTarget` | No update is available for TARGET. Would reinstalling Toolblox help? |
+| 8 | Entry URL isn't `https://` | `InvalidManifest` | The update information is invalid (the artifact URL isn't HTTPS). Try again? |
+| 8 | `sha256` isn't 64 hex characters | `InvalidManifest` | …(the artifact SHA-256 is malformed)… |
+| 8 | `signature` is blank | `InvalidManifest` | …(the updater signature is missing)… |
+| 9 | `version == installed` | **`Current`** | The app opens. |
+| 10 | `version < installed` | `Rollback` | Defensive; already caught by step 6. |
+| 11 | `version > installed` | **`UpdateRequired`** | The installer runs. |
+| 12 | Storing the newer version fails | `Persistence` | The verified version couldn't be saved (The update security state couldn't be saved.). Try again? |
+
+Only an **exact** version match admits the app. A build that is *newer* than the manifest (for
+example a locally built release with a bumped version) is refused as a rollback, just like an old
+manifest.
+
+Before `decide_and_record` runs, `run_inner` in `startup.rs` can fail for reasons outside the
+manifest itself. Each produces a `failed` phase with its own message:
+
+| Failure | Message |
+| --- | --- |
+| `TOOLBLOX_UPDATE_MANIFEST_URL` missing or not `https://` at compile time | This build doesn't have a secure update endpoint. Reinstall Toolblox from the official release? |
+| `TOOLBLOX_MANIFEST_PUBLIC_KEY` missing | This build doesn't have an update manifest key. Reinstall Toolblox from the official release? |
+| `TOOLBLOX_UPDATER_PUBLIC_KEY` missing | This build doesn't have an updater key. Reinstall Toolblox from the official release? |
+| Manifest request fails | Toolblox couldn't check for updates. Is your connection working? |
+| Manifest HTTP status isn't 2xx | The update service returned status N. Can you try again? |
+| Manifest over 1 MB | The update information is larger than 1 MB. |
+| Signature request fails / non-2xx / over 8 KB | The update signature couldn't be downloaded… / isn't available… / is too large. |
+| Signature doesn't verify | The update information couldn't be verified. Try again? |
+| JSON doesn't parse or has unknown fields | The update information is invalid (serde error). Try again? |
+| Manifest public key malformed | The update manifest public key isn't valid. / …has the wrong length. |
+| `tauri_plugin_updater::target()` returns nothing | Updates aren't supported on this platform. Use Windows or macOS? |
+| System clock before 1970 | The system clock isn't valid. Can you correct it? |
+
+All requests go through the shared `reqwest` client built in `lib.rs`: HTTPS only, **no
+redirects**, a 20-second timeout, and the user agent `Toolblox/<version>`. Bodies are read with
+`read_response_limited`, which rejects an oversized `Content-Length` up front and stops reading as
+soon as the running total exceeds the limit.
+
+<Aside type="caution" title="No redirects">
+Because the client never follows redirects, the manifest URL must answer directly. `docs/RELEASING.md`
+explains why the `toolblox.dev` domain is served by a Cloudflare Worker that proxies GitHub Pages
+rather than by a `CNAME` or redirect rule: builds up to 0.2.0 beta fetch from
+`bakedaleska.github.io`, later builds from `toolblox.dev`, and a redirect on either host would
+leave one set of installs unable to open once their manifest expires.
+</Aside>
+
+## Installing a required update
+
+When the decision is `UpdateRequired { version, artifact }`, the phase changes to
+`installing { version }` and `run_inner` hands over to the Tauri updater plugin, with several
+cross-checks against the already verified manifest:
+
+<Steps>
+
+1. **Build an updater for the same endpoint.** `app.updater_builder()` is given the updater public
+   key (`TOOLBLOX_UPDATER_PUBLIC_KEY`) and a single endpoint, the manifest URL. `tauri.conf.json`
+   configures `endpoints: []` and `requireSignedVersion: true`, so the plugin never checks on its
+   own; only this code path triggers it.
+
+2. **Check.** `check()` fetches the manifest again and returns the plugin's `Update`. If it reports
+   no update, startup fails with "The verified update wasn't offered by the installer."
+
+3. **Compare with the verified manifest.** The plugin's `version`, `download_url`, and `signature`
+   must equal the verified `version`, `artifact.url`, and `artifact.signature`. Any difference, for
+   example because the file changed between the two fetches, fails with "The update changed during
+   verification. Can you try again?"
+
+4. **Download.** `update.download(...)` fetches the installer. The plugin (version 2.12.0 in
+   `Cargo.lock`) verifies the bytes against the updater signature with the updater public key
+   before returning them.
+
+5. **Hash.** The SHA-256 of the downloaded bytes must equal `artifact.sha256` (compared
+   case-insensitively). A mismatch fails with "The downloaded update checksum didn't match."
+
+6. **Install and restart.** `update.install(bytes)` hands the installer to the platform. On
+   Windows the plugin launches the NSIS installer with `ShellExecuteW` and ends the process with
+   `std::process::exit(0)`, so the installer takes over from there. On platforms where `install`
+   returns, `startup.rs` flushes the log and calls `app.restart()`. Either way, the next start of the new
+   version runs the gate again from the top.
+
+</Steps>
+
+Any error from the plugin in steps 1, 2, 4, or 6 is shown as the plugin's own error text in the
+`failed` phase.
+
+On Windows, `plugins.updater.windows.installMode` is `"passive"`, so the NSIS installer shows a
+progress window without prompts. The bundle is configured with `installMode: "currentUser"`, so
+installs and updates don't need administrator rights.
+
+The installer is therefore bound to the release decision three ways: the signed manifest names it
+by URL, by SHA-256, and by updater signature, and the plugin independently verifies that same
+updater signature with its own key.
+
+## Debug and release builds
+
+Almost everything above is compiled only into release builds (`#[cfg(not(debug_assertions))]`).
+
+| Behaviour | Debug build (`npm run tauri dev`) | Release build |
+| --- | --- | --- |
+| Update check | Skipped. Logs "Debug build: the update check is skipped" and goes straight to local data preparation and `ready`. | Full gate as described. |
+| Data folder | `TOOLBLOX_DATA_DIR` overrides the location when set. | Always the platform data folder. |
+| Autostart reconciliation at startup | Skipped. | The launch-at-login registration is corrected to match the `openOnLaunch` setting. |
+| Log level for Toolblox targets | `Debug` | `Info` |
+| Widget catalogue without `TOOLBLOX_CATALOGUE_URL` | Empty catalogue. | Catalogue error shown. |
+
+The interface also has a **demo mode** (`npm run demo`, or any browser build without the Tauri
+runtime) where `bridge.ts` never calls the host. In demo mode, Settings shows **Update** and
+**Failure** preview buttons that replay the gate screens with sample timing (`previewUpdater` and
+`demoStartupStatus`): two seconds of `checking`, then either a failure or four seconds of
+`installing`, then `ready`.
+
+## Build-time configuration
+
+The gate reads its endpoint and keys with `option_env!`, so they're fixed when the binary is
+compiled and can't be changed by editing files on disk.
+
+| Variable | Read by | Required in release | Official value |
+| --- | --- | --- | --- |
+| `TOOLBLOX_UPDATE_MANIFEST_URL` | `startup.rs` | Yes, and must start with `https://` | `https://toolblox.dev/updates/stable.json` |
+| `TOOLBLOX_MANIFEST_PUBLIC_KEY` | `startup.rs` | Yes | `EuDCNgMRTr2hMG4/aNBJH2gFK/i6VAkQRlc1YFSlh1U=` |
+| `TOOLBLOX_UPDATER_PUBLIC_KEY` | `startup.rs` | Yes | Copied from `plugins.updater.pubkey` in `tauri.conf.json` by the release workflow |
+| `TOOLBLOX_CATALOGUE_URL` | `app_commands.rs` | For the catalogue | `https://toolblox.dev/catalogue/v1.json` |
+| `TOOLBLOX_CATALOGUE_PUBLIC_KEY` | `app_commands.rs` | For the catalogue | `SRsx1ZzYpQGnV6NhPa00Mt5I6xubH3DXuNdGOfbQSVE=` |
+| `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Tauri CLI | To produce `.sig` updater artifacts | Repository secrets |
+| `TOOLBLOX_DATA_DIR` | `lib.rs` (runtime, debug only) | No | — |
+
+A release build made without the first three variables compiles, but every launch stops at the
+gate with a "Reinstall Toolblox from the official release?" message. That's intentional: an
+unofficial release build can't silently run without update enforcement.
+
+## Producing the manifest
+
+<Steps>
+
+1. **Release workflow** ([`release.yml`](https://github.com/BakedAleska/Toolblox/blob/main/.github/workflows/release.yml)).
+   Run manually on `main` with a version. It sets the version everywhere, runs `npm run check`,
+   `npm test`, and `cargo test`, then builds the NSIS installer with the endpoint and keys above.
+   It publishes `Toolblox-Setup.exe`, `Toolblox-Setup.exe.sig` (the updater signature),
+   `Toolblox-Update.exe` (identical bytes, used by updates so the download count of the setup file
+   counts manual downloads only), and `THIRD-PARTY-NOTICES.txt`, then calls the Pages workflow.
+
+2. **Publish script** ([`publish-updates.mjs`](https://github.com/BakedAleska/Toolblox/blob/main/scripts/publish-updates.mjs)).
+   Reads the latest GitHub release, requires a semver tag, downloads `Toolblox-Update.exe`
+   (falling back to `Toolblox-Setup.exe` for older releases) to compute its SHA-256, reads the
+   updater signature from `Toolblox-Setup.exe.sig`, and writes `_site/updates/stable.json` with
+   a `windows-x86_64` entry. It signs the exact bytes with `MANIFEST_PRIVATE_KEY` (a base64
+   32-byte Ed25519 seed) and writes the base64 signature to `stable.json.sig`. The widget
+   catalogue (`catalogue/v1.json`) is signed the same way with `CATALOGUE_PRIVATE_KEY`.
+
+3. **Pages workflow** ([`pages.yml`](https://github.com/BakedAleska/Toolblox/blob/main/.github/workflows/pages.yml)).
+   Builds the Astro site, runs the publish script, adds the rustdoc output under `/api/`, and
+   deploys GitHub Pages.
+
+</Steps>
+
+### Keeping the manifest fresh
+
+Because installed apps refuse to open once the manifest expires, `pages.yml` runs on a daily
+schedule (`17 6 * * *`), after every release, and on demand. Its last step re-enables the workflow
+through the GitHub API on every run, because GitHub disables scheduled workflows after 60 days
+without repository activity. If the manifest ever does expire, running **Actions → Pages → Run
+workflow** restores it, and installs open again at their next launch.
+
+<Aside type="note" title="macOS">
+The manifest currently contains only a `windows-x86_64` entry. A macOS release build would compute
+a `darwin-*` target and stop with "No update is available for …". `docs/RELEASING.md` notes that
+macOS builds aren't published yet and would need a `darwin-*` manifest entry.
+</Aside>
+
+## What the interface shows
+
+The startup phase lives in `StartupState` (a mutex-guarded `StartupView` plus an `in_progress`
+flag) and is serialized with a `phase` tag. The TypeScript mirror is `StartupStatus` in
+[`src/types.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/types.ts):
+
+```ts
+export type StartupStatus =
+  | { phase: "checking" }
+  | { phase: "installing"; version: string }
+  | { phase: "ready" }
+  | { phase: "failed"; message: string };
+```
+
+Three Tauri commands back the gate, exposed through `bridge.ts`:
+
+| Command | Bridge method | Effect |
+| --- | --- | --- |
+| `startup_status` | `bridge.startupStatus()` | Returns the current `StartupView`. |
+| `retry_startup_update` | `bridge.retryStartupUpdate()` | Runs `startup::run` again. Does nothing if a check is already running. |
+| `quit_startup` | `bridge.quitStartup()` | Exits the app with code 0. |
+
+`App.tsx` polls `startupStatus` immediately and then every 500 ms while the phase is unknown,
+`checking`, or `installing`. Until the phase is `ready`, it renders `UpdaterGate` instead of the
+app:
+
+| Phase | Heading | Body | Controls |
+| --- | --- | --- | --- |
+| `checking` | Checking for updates | Toolblox opens only after the latest verified release is installed. | Spinner |
+| `installing` | Installing Toolblox *version* | Same as above | Spinner |
+| `failed` | Update verification failed | The error message | **Quit**, **Retry** |
+
+**Retry** calls `retryStartupUpdate`, reads the status once more, and reloads the page so the
+polling loop starts fresh. If the `startup_status` call itself throws, the gate shows
+"The updater failed to start. Does reopening Toolblox help?" with the error.
+
+When the phase becomes `ready`, `App.tsx` calls `get_app_state` and renders the app. From then on
+it reloads the app state every 60 seconds and whenever the window regains focus.
+
+### The "Check now" button
+
+Settings → General → About has a **Check now** button that calls the `check_for_updates`
+command. That command simply runs `startup::run` again and reads the resulting phase:
+
+- If the manifest still names the installed version, the phase returns to `ready` and Settings
+  shows "Up to date."
+- If a newer version is required, the same install-and-restart path runs.
+- If the check fails, the command returns the failure message and Settings shows
+  "The update check failed. Is the connection working?" with it.
+
+While the check runs, the host phase is `checking`, and after a failure it stays `failed`. The
+interface doesn't poll again once it has seen `ready`, so the open window keeps working, but
+host code that reads the phase treats the app as not ready. In particular, closing the window
+exits instead of hiding to the tray (see
+[Close behaviour](/docs/app/background-services/#close-behaviour)) until a later check succeeds.
+
+### What widgets see
+
+Widget modules are loaded only from `getAppState` data, which isn't requested until the phase is
+`ready`, and the services task in `lib.rs` waits on `startup::wait_until_ready` (a 250 ms poll)
+before starting widget processes marked to start on launch. A widget can therefore assume the
+installed build is the current verified release and that legacy data has already been imported.
+For startup ordering of widget modules and processes, see
+[Logs and failures](/docs/widgets/reference/logs-and-failures/) and
+[Processes](/docs/widgets/tutorials/processes/).
+
+## Legacy migration
+
+Toolblox replaces an earlier Flet (Python) app. That app stored its files directly in the Toolblox
+data folder; the current app stores everything one level deeper in `v2`:
+
+| Platform | Legacy root | Current data |
+| --- | --- | --- |
+| Windows | `%LOCALAPPDATA%\Toolblox` (falling back to `%USERPROFILE%\AppData\Local\Toolblox`) | `…\Toolblox\v2` |
+| macOS | `~/Library/Application Support/Toolblox` | `…/Toolblox/v2` |
+
+### When it runs
+
+`prepare_local_data` in `startup.rs` runs right after the gate decides `Current` (or immediately
+in debug builds), before the phase becomes `ready`. It imports legacy data when **all** of these
+hold:
+
+- `v2/.legacy-migration-complete` doesn't exist, and
+- `accounts.json` or `settings.json` exists in the legacy root.
+
+After a successful import it writes the marker file (`1\n`), so the import never runs again. It
+then creates `v2/widgets`. Because `check_for_updates` and **Retry** reuse the same path, they
+also call `prepare_local_data`, but the marker makes the import a no-op.
+
+If the import fails, startup stops at the gate with the import error (for example "Toolblox
+couldn't read the old account data. Is the file intact?"), no marker is written, and **Retry**
+attempts the import again.
+
+### What is imported
+
+`migrate_legacy` in [`migration.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/migration.rs)
+does the following:
+
+1. **Settings.** If `settings.json` exists, it's deserialized into the current `Settings` model
+   and saved to `v2`. Keys the current model doesn't know are kept in its `extra` map rather than
+   dropped.
+
+2. **Accounts.** `accounts.json` is read as a list of legacy accounts. For each one:
+
+   | Legacy field | Imported as |
+   | --- | --- |
+   | `id`, `name` | Same |
+   | `display_name` | Same, or `name` when missing or blank |
+   | `avatar_url`, `notes`, `added_at`, `last_played_at`, `play_count`, `widget_data` | Same (`notes`, `play_count`, `widget_data` default when absent) |
+   | — | `place_id` and `last_place_id` start empty |
+   | `security_cookie` | Moved to the OS credential store, never written to JSON |
+   | Any other key | Preserved in the account's `extra` map |
+
+3. **Sessions.** Each account's session is resolved per platform:
+
+   | Platform | Source |
+   | --- | --- |
+   | Windows | `security_cookie` is base64 DPAPI ciphertext, decrypted for the current user with `CryptUnprotectData`. A value that isn't valid base64 is taken as plaintext. |
+   | macOS | The login Keychain item with service `Toolblox` and account `account-<id>` is read with the `security` tool. If there's none, a non-empty plaintext `security_cookie` is used. |
+   | Other | Any non-empty session fails the import as unsupported. |
+
+   Resolved sessions are written to Windows Credential Manager or the macOS Keychain. Session
+   values are wrapped in `Secret`, which is redacted in `Debug` output and zeroed on drop.
+
+4. **Rollback.** Before writing each session, the previous stored session (if any) is read. If a
+   credential write or the final `save_accounts` fails, every session written by this import is
+   restored to its previous value or deleted, newest first, and the error is returned.
+
+The log records a summary such as `Imported legacy data: 3 accounts, 3 sessions, settings imported`
+with counts only.
+
+### Why it's one-way
+
+The import only **reads** the legacy folder. It never modifies or deletes `accounts.json`,
+`settings.json`, or legacy Keychain entries, and nothing in the current app writes back to them.
+The marker stops later launches from importing again, so changes made in the new app aren't
+overwritten by old data, and changes made in the legacy app after the import aren't picked up.
+Imported accounts have their missing avatars and names filled in later by the profile backfill
+described in [Background services](/docs/app/background-services/#after-startup).
+
+For how accounts and sessions are stored after the import, see
+[Accounts](/docs/app/accounts/).

@@ -1,7 +1,7 @@
 name: Docs
 
 # Generates the Rust API docs with rustdoc, replaces the docs branch with a single commit of the
-# output, and redeploys Pages, which serves it under /docs/.
+# output, and redeploys Pages, which serves it under /api/.
 on:
   push:
     branches: [main]

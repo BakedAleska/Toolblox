@@ -1,0 +1,431 @@
+---
+title: Slots and styles
+description: Add components to the Accounts page, Dashboard, and sidebar, order them, and restyle Toolblox with your own CSS and theme tokens.
+sidebar:
+  order: 3
+---
+
+import { Aside, Steps, FileTree } from '@astrojs/starlight/components';
+
+Pages are one way for a widget to show up. Slots are the other: named places on the core screens
+where Toolblox renders whatever components widgets add. This tutorial builds **Account Tags**, a
+widget that lets you give each account a short tag and then shows those tags across the app, in all
+five slots. It finishes with `addStyles`, first for the widget's own CSS and then for an opt-in
+theme that restyles the whole app.
+
+It assumes you've finished [Your first widget](/docs/widgets/tutorials/first-widget/) and
+[Pages and screens](/docs/widgets/tutorials/pages-and-screens/).
+
+## The slots
+
+| Slot | Props | Where it renders | Wrapper |
+| --- | --- | --- | --- |
+| `accounts.row` | `{ account }` | Under each account's name and status on the Accounts page, above the notes field. | `div` with `mt-1 flex flex-wrap items-center gap-1.5` |
+| `accounts.toolbar` | none | Start of the Accounts page header, before the place and search fields. | None. Items sit in the header's `flex` row with an 8-pixel gap. |
+| `dashboard.stats` | none | After the core stat tiles on the Dashboard. | None. Each root element is a cell in the stat grid. |
+| `dashboard.sections` | none | Below Recently played on the Dashboard, above sandboxed dashboard tiles. | `div` with `flex flex-col gap-4` |
+| `sidebar.footer` | `{ collapsed }` | Bottom of the sidebar, below the GitHub button and version. | None. Items stack in the sidebar column with a 4-pixel gap. |
+
+The props and placements come from `SlotProps` in
+[`src/widgets/host.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/widgets/host.tsx)
+and the `WidgetSlot` elements in
+[`src/screens/Accounts.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Accounts.tsx),
+[`src/screens/Dashboard.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Dashboard.tsx),
+and [`src/App.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/App.tsx). The
+[Slots reference](/docs/widgets/reference/slots/) has the full details.
+
+`addToSlot(slot, Component, { order })` adds a component to a slot and returns a function that
+removes it. Each contribution renders inside its own error boundary, so one that throws shows an
+inline "… failed to render." alert in its place and the rest of the screen keeps working. A slot with no
+contributions renders nothing at all, not even its wrapper.
+
+## Build Account Tags
+
+<Steps>
+
+1. **Create the folder and manifest.**
+
+   <FileTree>
+   - widgets/
+     - account_tags/
+       - widget.json
+       - main.js
+   </FileTree>
+
+   ```json title="account_tags/widget.json"
+   {
+     "schemaVersion": 1,
+     "id": "account_tags",
+     "name": "Account Tags",
+     "version": "1.0.0",
+     "description": "Adds a short tag to each account and shows it across Toolblox.",
+     "module": "main.js"
+   }
+   ```
+
+2. **Write the module.**
+
+   ```js title="account_tags/main.js"
+   const WIDGET_CSS = `
+   .account-tags-footer {
+     display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 10px;
+     border-radius: 8px; font-size: 12px; color: var(--muted-foreground);
+   }
+   .account-tags-footer[data-collapsed="true"] { justify-content: center; padding: 0; }
+   .account-tags-footer svg { width: 16px; height: 16px; flex: none; }
+   .account-tags-input { width: 160px; flex: none; }
+   `;
+
+   const WARM_THEME_CSS = `
+   :root:not(.dark) {
+     --background: oklch(0.985 0.006 75); --card: oklch(0.995 0.004 75); --popover: oklch(0.995 0.004 75);
+     --muted: oklch(0.95 0.012 75); --secondary: oklch(0.95 0.012 75); --accent: oklch(0.95 0.012 75);
+     --primary: oklch(0.42 0.08 50); --ring: oklch(0.65 0.08 50);
+     --sidebar: oklch(0.96 0.014 75); --sidebar-accent: oklch(0.92 0.018 75); --sidebar-border: oklch(0.9 0.02 75);
+   }
+   :root.dark {
+     --background: oklch(0.17 0.01 60); --card: oklch(0.21 0.012 60); --popover: oklch(0.23 0.012 60);
+     --muted: oklch(0.27 0.014 60); --secondary: oklch(0.27 0.014 60); --accent: oklch(0.27 0.014 60);
+     --primary: oklch(0.86 0.07 75); --primary-foreground: oklch(0.2 0.02 60); --ring: oklch(0.6 0.07 60);
+     --sidebar: oklch(0.145 0.01 60); --sidebar-accent: oklch(0.25 0.014 60);
+   }
+   `;
+
+   const svg = (h, ...paths) => h("svg", {
+     viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
+     strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true,
+   }, ...paths.map((d) => h("path", { key: d, d })));
+
+   export async function activate(toolblox) {
+     const { React, ui } = toolblox;
+     const h = React.createElement;
+     const pageRoute = `/widgets/${toolblox.widget.id}`;
+     const tagIcon = svg(h, "M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4Z", "M7.5 7.5h.01");
+     const listIcon = svg(h, "M8 6h13", "M8 12h13", "M8 18h13", "M3 6h.01", "M3 12h.01", "M3 18h.01");
+
+     toolblox.addStyles(WIDGET_CSS);
+
+     let data = { tags: {}, warmTheme: false, ...((await toolblox.storage.get()) ?? {}) };
+     const listeners = new Set();
+     const subscribe = (listener) => { listeners.add(listener); return () => listeners.delete(listener); };
+     const useData = () => React.useSyncExternalStore(subscribe, () => data);
+
+     let removeTheme;
+     const applyTheme = () => {
+       if (data.warmTheme && !removeTheme) removeTheme = toolblox.addStyles(WARM_THEME_CSS);
+       if (!data.warmTheme && removeTheme) { removeTheme(); removeTheme = undefined; }
+     };
+     const save = (next) => {
+       data = next;
+       applyTheme();
+       listeners.forEach((listener) => listener());
+       toolblox.storage.set(next).catch((error) => toolblox.notify(`Account Tags weren't saved. Does retrying help? (${error})`));
+     };
+     const setTag = (accountId, value) => {
+       const tags = { ...data.tags };
+       const tag = value.trim().slice(0, 24);
+       if (tag) tags[accountId] = tag; else delete tags[accountId];
+       save({ ...data, tags });
+     };
+     const useTagged = () => {
+       const { accounts } = toolblox.useAppState();
+       const { tags } = useData();
+       return accounts.filter((account) => tags[account.id]).map((account) => ({ account, tag: tags[account.id] }));
+     };
+     const accountName = (account) => account.displayName || account.name;
+     applyTheme();
+
+     toolblox.addToSlot("accounts.row", function TagBadge({ account }) {
+       const tag = useData().tags[account.id];
+       return tag ? h(ui.Badge, { variant: "outline" }, tagIcon, tag) : null;
+     });
+
+     toolblox.addToSlot("accounts.toolbar", function EditTagsButton() {
+       return h(ui.IconButton, { label: "Edit tags", variant: "outline", onClick: () => toolblox.navigate(pageRoute) }, tagIcon);
+     });
+
+     toolblox.addToSlot("dashboard.stats", function TaggedTile() {
+       return h(ui.StatTile, { icon: tagIcon, label: "Tagged accounts", value: useTagged().length, onClick: () => toolblox.navigate(pageRoute) });
+     }, { order: 10 });
+
+     toolblox.addToSlot("dashboard.stats", function TagCountTile() {
+       const count = new Set(useTagged().map(({ tag }) => tag.toLowerCase())).size;
+       return h(ui.StatTile, { icon: listIcon, label: "Tags", value: count });
+     }, { order: -10 });
+
+     toolblox.addToSlot("dashboard.sections", function TagSection() {
+       const tagged = useTagged();
+       if (!tagged.length) return null;
+       const groups = new Map();
+       for (const { account, tag } of tagged) groups.set(tag, [...(groups.get(tag) ?? []), accountName(account)]);
+       return h("section", { className: "flex flex-col gap-2" },
+         h(ui.SectionTitle, { action: h(ui.Button, { variant: "ghost", size: "sm", onClick: () => toolblox.navigate(pageRoute) }, "Edit") }, "Tags"),
+         h(ui.Panel, { className: "divide-y" }, [...groups].map(([tag, names]) =>
+           h("div", { key: tag, className: "flex items-center gap-3 px-4 py-3" },
+             h(ui.Badge, { variant: "secondary" }, tag),
+             h("p", { className: "min-w-0 flex-1 truncate text-sm text-muted-foreground" }, names.join(", "))))));
+     });
+
+     toolblox.addToSlot("sidebar.footer", function TagFooter({ collapsed }) {
+       const count = useTagged().length;
+       const text = `${count} tagged ${count === 1 ? "account" : "accounts"}`;
+       return h("p", { className: "account-tags-footer", "data-collapsed": collapsed, title: collapsed ? text : undefined },
+         tagIcon, collapsed ? h("span", { className: "sr-only" }, text) : text);
+     });
+
+     toolblox.registerPage(function TagsPage() {
+       const { accounts, settings } = toolblox.useAppState();
+       const { tags } = useData();
+       if (!accounts.length) return h(ui.Panel, null, h(ui.EmptyState, { icon: tagIcon, title: "No accounts", text: "Add a Roblox account to tag it." }));
+       return h(ui.Panel, { className: "divide-y" }, accounts.map((account) =>
+         h("div", { key: account.id, className: "flex items-center gap-3 px-4 py-3" },
+           settings.showAvatars && h(ui.Avatar, { account, className: "size-8" }),
+           h("p", { className: "min-w-0 flex-1 truncate text-sm font-medium" }, accountName(account)),
+           h("div", { className: "account-tags-input" },
+             h(ui.Input, {
+               key: tags[account.id] ?? "", defaultValue: tags[account.id] ?? "", placeholder: "Add a tag", maxLength: 24,
+               "aria-label": `Tag for ${accountName(account)}`,
+               onBlur: (event) => { if (event.currentTarget.value.trim() !== (tags[account.id] ?? "")) setTag(account.id, event.currentTarget.value); },
+               onKeyDown: (event) => { if (event.key === "Enter") event.currentTarget.blur(); },
+             })))));
+     });
+
+     toolblox.registerSettings(function TagsSettings() {
+       const current = useData();
+       return h(ui.Panel, { className: "divide-y" },
+         h(ui.SwitchRow, { title: "Warm theme", description: "Tint Toolblox's neutral surfaces warm.", checked: current.warmTheme, change: (warmTheme) => save({ ...current, warmTheme }) }));
+     });
+   }
+   ```
+
+3. **Reload and tag some accounts.** Reload the window, open **Account Tags**, and type a tag for one
+   or two accounts. Press <kbd>Enter</kbd> or move focus away to save.
+
+4. **Look around the app.**
+   - **Accounts**: each tagged account has an outlined badge under its name, and the header starts
+     with a tag button that opens the widget's page.
+   - **Dashboard**: two new tiles follow the core tiles, **Tags** first, then **Tagged accounts**.
+     Below Recently played there's a **Tags** section grouping accounts by tag.
+   - **Sidebar**: the bottom shows "2 tagged accounts". Drag the sidebar narrow until it snaps to
+     icons and the footer shrinks to the tag icon, with the text in a tooltip and for screen readers.
+
+5. **Turn on the theme.** Open the widget's settings and turn on **Warm theme**. Every surface in the
+   app picks up the new tokens at once. Switch Toolblox between light and dark in **Settings** to see
+   both halves of the theme, then turn it off again.
+
+</Steps>
+
+## Writing slot components
+
+Every slot component is an ordinary React component, rendered by Toolblox wherever the slot is.
+Some rules follow from that.
+
+**Contributions re-render with the screen.** A slot component re-renders whenever the screen around
+it does, and whenever its own hooks ask it to. Account Tags reads its data with
+`useSyncExternalStore` so a tag saved on the widget's page updates every badge, tile, and the
+footer immediately, and reads accounts with `toolblox.useAppState()` so new accounts and presence
+changes show up on the next state load.
+
+**`accounts.row` renders once per account.** The component receives `{ account }`, the same account
+object the row shows. Keep it cheap: a badge or two. Don't send an IPC request from each row as it
+renders; load what you need once and share it through a store, as the
+[storage and state](/docs/widgets/tutorials/storage-and-state/) tutorial does. Return `null` for
+accounts with nothing to show. The wrapper `div` is still rendered when the slot has any
+contribution, so the row gains a 4-pixel top margin even when every contribution returns `null`.
+
+**`accounts.toolbar` is part of a fixed-height header.** The header is 56 pixels high and also holds
+the default place field, the search field, the selection button, and the **Add** button, and the window can be as narrow as
+720 pixels. Use `ui.IconButton`, which puts its label in a tooltip and in `aria-label`, rather than
+a text button.
+
+**`dashboard.stats` contributions become grid cells.** The stat grid is
+`grid-cols-[repeat(auto-fit,minmax(170px,1fr))]`, and each element your component returns is one
+cell, so return one `ui.StatTile`. A fragment with two tiles would add two cells; use two
+contributions instead so each has its own order and error boundary. `ui.StatTile` takes `icon`,
+`label`, `value`, and an optional `onClick` that turns the tile into a button, which is how the core
+tiles link to their screens.
+
+**`dashboard.sections` holds full sections.** Use the same section shape as the core Dashboard: a
+`<section className="flex flex-col gap-2">` with a `ui.SectionTitle` and a `ui.Panel`. Return `null`
+when there's nothing to show rather than an empty panel.
+
+**`sidebar.footer` must handle both widths.** `collapsed` is `true` when the sidebar is in icon-only
+mode, 56 pixels wide with 40 pixels of usable width. Expanded, it's between 160 and 320 pixels
+wide. Render an icon with an accessible label when collapsed, as `TagFooter` does with the `sr-only`
+span.
+
+**Name the component functions.** `TagBadge`, `TaggedTile`, and the rest show up by name in React's
+error messages and in the component stack Toolblox logs when a render fails.
+
+## Ordering contributions
+
+`order` is a number, `0` by default. Within one slot, Toolblox sorts all contributions from all
+widgets by `order`, lowest first. Ties keep the order they were added in, and widgets activate one
+after another in order of ID, so for equal orders the widget whose ID sorts first comes first.
+
+Account Tags adds **Tagged accounts** before **Tags**, but **Tags** renders first because its order
+is `-10` and the other's is `10`.
+
+Ordering only applies among contributions. Core content always keeps its place: `dashboard.stats`
+contributions always follow the three core tiles, and `accounts.toolbar` contributions always come
+before the core header controls.
+
+Each `addToSlot` call returns a remover. Use it to take a contribution away while the widget keeps
+running, for example when a setting turns a feature off:
+
+```js
+let removeFooter;
+const applyFooter = (show) => {
+  if (show && !removeFooter) removeFooter = toolblox.addToSlot("sidebar.footer", TagFooter);
+  if (!show && removeFooter) { removeFooter(); removeFooter = undefined; }
+};
+```
+
+You don't need removers for cleanup. Toolblox removes every contribution, page, settings page,
+stylesheet, and state listener a widget registered when it unloads the widget, such as when it's
+turned off or uninstalled.
+
+## Styling with Tailwind classes
+
+The app's Tailwind CSS is compiled when Toolblox is built, from the class names in its own source.
+Your widget's code isn't part of that build, so:
+
+- a class that appears somewhere in the Toolblox source works in your widget;
+- a class that doesn't appear anywhere does nothing, without an error.
+
+Arbitrary values count only if the exact string appears: `grid-cols-[repeat(auto-fit,minmax(170px,1fr))]`
+exists because the Dashboard uses it, but changing `170px` to `200px` gives a class that doesn't.
+
+The safest approach is to copy class strings from the app's source, as these tutorials do. To check
+a class, search the repository's `src/` folder for it, or apply it in the developer tools and look
+for its rule under **Styles**.
+
+The `ui` components carry their own classes, and the `className` you pass is merged with them, so
+`h(ui.Panel, { className: "divide-y" })` keeps the panel's radius, background, and hairline ring.
+
+## Shipping your own CSS
+
+`toolblox.addStyles(css)` parses a stylesheet and adds it to the whole app. Under the hood it
+creates a constructable `CSSStyleSheet`, calls `replaceSync(css)`, and appends the sheet to
+`document.adoptedStyleSheets`. It returns a remover that takes the sheet out again.
+
+Constructable stylesheets are the supported route. The app's Content Security Policy blocks inline
+`<style>` elements, so libraries that inject `<style>` tags at run time don't work, and
+neither does a `<style>` element in your component. React's `style` prop does work, since it sets
+properties through the DOM rather than inline markup.
+
+Account Tags adds `WIDGET_CSS` once, with every selector prefixed by `account-tags-`. It styles the
+sidebar footer, and it sizes the tag fields on the page with `account-tags-input`, because the app
+doesn't use a Tailwind width class of that size. The rogue_lineage demo takes the same approach much further: its entire page,
+badges, and stat tile are plain elements with `rl-` classes and a stylesheet of their own, to show
+that a widget isn't limited to the app's look.
+
+### How your CSS meets the app's
+
+Three facts decide which rules win:
+
+1. **Adopted stylesheets come after the app's stylesheets.** With equal specificity, your rule
+   wins.
+2. **Your rules aren't in a cascade layer; Tailwind's are.** Tailwind puts its utilities, component
+   classes, and base styles in `@layer`, and unlayered rules beat layered rules whatever their
+   specificity. A widget rule such as `button { border-radius: 0 }` overrides `rounded-lg` on every
+   button in Toolblox.
+3. **The theme tokens are unlayered.** The token blocks in
+   [`src/index.css`](https://github.com/BakedAleska/Toolblox/blob/main/src/index.css), `:root` and
+   `.dark`, are plain rules, so overriding them follows the normal specificity and order rules.
+
+Consequences for widget CSS:
+
+- Prefix every selector with a class only your widget uses. Unprefixed element selectors restyle
+  the whole app, not just your widget.
+- For low-priority defaults that Tailwind classes should be able to override, put them in the app's
+  base layer: `@layer base { … }`. Layer names are shared by every stylesheet in the document, so
+  your rules join that layer and lose to utilities.
+- Dark mode is the `dark` class on the `<html>` element, set from the user's theme setting. Write
+  dark variants as `.dark .your-class`, as rogue_lineage does with `.dark .rl-tag`.
+- The app's reduced-motion rule shortens every animation and transition, including yours, when the
+  user asks for reduced motion. Provide a static alternative for anything that relies on motion.
+
+### Fonts and images
+
+Relative `url()` values in an adopted stylesheet resolve against the app's address, not your
+widget's folder. Build absolute URLs from `import.meta.url` instead, as rogue_lineage does for its
+icons:
+
+```js
+const font = new URL("./fonts/display.woff2", import.meta.url).href;
+toolblox.addStyles(`
+@font-face { font-family: "Account Tags Display"; src: url("${font}") format("woff2"); }
+.account-tags-title { font-family: "Account Tags Display", var(--font-sans); }
+`);
+```
+
+The Content Security Policy allows fonts and images from the widget origin, and images from any
+HTTPS address. Toolblox serves `.woff`, `.woff2`, `.svg`, `.png`, `.jpg`, `.gif`, and `.webp` with the
+right content types.
+
+## Restyling the app
+
+The app's colours, borders, and radii all come from custom properties defined in
+[`src/index.css`](https://github.com/BakedAleska/Toolblox/blob/main/src/index.css):
+
+| Tokens | Used for |
+| --- | --- |
+| `--background`, `--foreground` | The window and default text. |
+| `--card`, `--card-foreground` | Panels, stat tiles, and the hero. |
+| `--popover`, `--popover-foreground` | Menus, tooltips, and dialogs. |
+| `--primary`, `--primary-foreground` | Default buttons, checked switches, and checkboxes. |
+| `--secondary`, `--muted`, `--accent` and their `-foreground` pairs | Secondary buttons and badges, muted text, hover states. |
+| `--border`, `--input`, `--ring` | Hairlines, field borders, and focus rings. |
+| `--success`, `--warning`, `--destructive` | Status colours. |
+| `--sidebar` and `--sidebar-*` | The sidebar. |
+
+The light values sit on `:root` and the dark values on `.dark`. Both selectors have the same
+specificity, and your adopted sheet comes later, so:
+
+- `:root { … }` in your sheet overrides the token in light **and** dark mode. rogue_lineage writes
+  `:root, :root.dark` for a theme that's dark in both, and adds `color-scheme: dark`.
+- `:root:not(.dark) { … }` overrides light mode only, and `:root.dark { … }` dark mode only. This is
+  what `WARM_THEME_CSS` does, so the theme follows the user's light or dark setting.
+
+Overriding tokens is the most robust way to restyle Toolblox. Every component reads them, they're
+part of the shadcn/ui theme contract the app is built on, and they don't depend on class names that
+can change between releases. Component internals are less stable: the `data-slot` attributes on
+`ui` components, such as `[data-slot=button]`, are fine for targeting, but markup and class strings
+inside screens can change in any release.
+
+Guidelines for a theme that doesn't hurt the app:
+
+- **Make it opt-in.** Both Account Tags and rogue_lineage add their theme only when a setting is
+  on, and remove it with the stored remover when it's turned off. A user who installs a widget for
+  its tags shouldn't find the whole app restyled.
+- **Override both modes or neither.** A light-only override on a dark-mode user's screen leaves the
+  dark tokens untouched, which is fine; an override on `:root` alone applies its light colours in
+  dark mode too, which usually isn't.
+- **Keep contrast.** Check `--muted-foreground` text on `--card` and `--background` in both modes.
+- **Keep status colours distinct.** `--success`, `--warning`, and `--destructive` mark status
+  across the app, always with text alongside.
+- **Keep focus visible.** Don't hide outlines or set `--ring` to match the background.
+- **Don't hide core controls.** CSS can hide anything, including the Settings link or the safe mode
+  banner. Catalogue [review](/docs/widgets/publishing/review/) rejects widgets that hide what they
+  do.
+
+If a stylesheet makes the app unusable, start in [safe mode](/docs/widgets/tutorials/first-widget/#when-a-widget-breaks):
+no module loads, so no widget stylesheet is added.
+
+## Common mistakes
+
+| Symptom | Cause |
+| --- | --- |
+| A Tailwind class has no effect | The class isn't used anywhere in the Toolblox source, so it isn't compiled. |
+| Widget CSS changes buttons or text across the app | A selector isn't prefixed, and unlayered widget rules beat Tailwind utilities. |
+| A theme looks wrong in dark mode | The override is on `:root` only. Use `:root:not(.dark)` and `:root.dark`. |
+| A font or image from the package doesn't load | A relative `url()` resolved against the app. Build the URL from `import.meta.url`. |
+| An empty gap under every account | An `accounts.row` contribution exists; the wrapper renders even when it returns `null`. |
+| The stat grid gains several cells from one contribution | The component returns a fragment. Use one contribution per tile. |
+
+## Next steps
+
+- [Storage and state](/docs/widgets/tutorials/storage-and-state/) builds a widget that loads data
+  per account, polls a web feed, and joins accounts.
+- [Slots reference](/docs/widgets/reference/slots/) lists every slot's exact placement.

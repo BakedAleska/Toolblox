@@ -1,0 +1,138 @@
+---
+title: Permissions
+description: Every widget permission, what it grants, and how module widgets and sandboxed frames receive permissions differently.
+sidebar:
+  order: 5
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+A permission names a group of [IPC methods](/docs/widgets/reference/ipc/) a widget may call.
+Widgets list the permissions they request in the manifest's `permissions` array. The catalogue
+pins that list, the Widgets page shows it, and sandboxed frames are held to it.
+
+The permission set is defined by
+[`WidgetPermission`](/api/toolblox_lib/widgets/enum.WidgetPermission.html) in
+[`src-tauri/src/widgets.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widgets.rs),
+and each method's requirement by `permission_for_method` in
+[`src-tauri/src/widget_ipc.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widget_ipc.rs).
+
+## Permission reference
+
+| Permission | Methods | Shown to users as |
+| --- | --- | --- |
+| `accounts.read.basic` | [`accounts.list`](/docs/widgets/reference/ipc/#accountslist) | read account names and avatars |
+| `widgetData.read` | [`widgetData.get`](/docs/widgets/reference/ipc/#widgetdataget) | read its own account data |
+| `widgetData.write` | [`widgetData.set`](/docs/widgets/reference/ipc/#widgetdataset) | write its own account data |
+| `roblox.status` | [`roblox.status`](/docs/widgets/reference/ipc/#robloxstatus) | read account presence |
+| `roblox.join` | [`roblox.join`](/docs/widgets/reference/ipc/#robloxjoin) | join games with your accounts |
+| `network.fetch` | [`network.fetch`](/docs/widgets/reference/ipc/#networkfetch) | contact approved websites |
+| `process.spawn` | [`process.spawn`](/docs/widgets/reference/ipc/#processspawn), [`process.send`](/docs/widgets/reference/ipc/#processsend), [`process.poll`](/docs/widgets/reference/ipc/#processpoll), [`process.stop`](/docs/widgets/reference/ipc/#processstop) | run native code as your user |
+
+`log.write` needs no permission. Every session may call it.
+
+### `accounts.read.basic`
+
+Grants the account list with each account's Roblox user ID, username, display name, and avatar
+URL. It doesn't grant notes, presence, places, play history, or other widgets' data, and nothing
+grants session cookies.
+
+### `widgetData.read` and `widgetData.write`
+
+Grant reading and writing this widget's own per-account data. Data is keyed by widget ID inside
+each account, so neither permission reaches another widget's entries. A widget that both reads and
+writes needs both.
+
+### `roblox.status`
+
+Grants the Roblox presence (`offline`, `online`, `in_game`, `in_studio`, or `unknown`) of every
+saved account. Rust uses a saved session to ask Roblox; the session itself isn't exposed.
+
+### `roblox.join`
+
+Grants launching Roblox as any saved account, at that account's place override or the default
+place. This is the most consequential account permission: it acts as the user in Roblox. Review
+rejects widgets that join or act in a game without the user.
+
+### `network.fetch`
+
+Grants `GET` requests to HTTPS URLs, returning text bodies up to 1 MB. A manifest that declares
+[`networkOrigins`](/docs/widgets/reference/manifest/#networkorigins) must also declare this
+permission. The current host doesn't restrict requests to those origins.
+
+### `process.spawn`
+
+Grants starting, messaging, polling, and stopping the executables the manifest declares under
+[`processes`](/docs/widgets/reference/manifest/#processes), with arguments from each declaration's
+allow list. A manifest that declares any process must also declare this permission. Processes run
+as the signed-in user, outside any sandbox, which is why the interface describes this permission
+as running native code.
+
+## Who receives which permissions
+
+Toolblox creates an IPC session each time a widget surface opens. The surface decides the
+session's permissions.
+
+| Surface | Session permissions |
+| --- | --- |
+| `module` (`main.js` in the app window) | Every permission, regardless of the manifest. |
+| `main` (`index.html` frame) | Exactly the manifest's `permissions`. |
+| `settings` (`settings.html` frame) | Exactly the manifest's `permissions`. |
+| `dashboard` (`dashboard.html` frame) | Exactly the manifest's `permissions`. |
+
+A frame calling a method outside its permissions gets:
+
+> The widget hasn't been granted permission for this action.
+
+### Why module widgets hold every permission
+
+A module runs in the same JavaScript context as the Toolblox interface. It renders with the app's
+React, can read the app's state, and shares the window's globals. A permission check on its IPC
+session couldn't stop code that already runs inside the interface, so Toolblox doesn't pretend to:
+the module session is opened with every permission, and the host API is unrestricted by design.
+
+The boundary that does hold for modules is the Rust boundary. Roblox session cookies, join
+tickets, and launch URLs stay in Rust, and no command returns them to JavaScript. Safety for
+modules comes from catalogue review, signed and hash-pinned packages, safe mode, and per-
+contribution error boundaries.
+
+### Why sandboxed frames are restricted
+
+Frames run in `<iframe sandbox="allow-scripts">` without `allow-same-origin`, so they have an
+opaque origin, can't touch the app's DOM or JavaScript, and can only reach the host through
+`postMessage`. Their session is therefore a real boundary, and it enforces the manifest's list.
+See [Iframe widgets](/docs/widgets/reference/iframe-widgets/).
+
+## Manifest rules
+
+- Values must come from the table above. An unknown value makes the manifest fail to parse.
+- Values must be unique: `The widget manifest contains duplicate permissions.`
+- `networkOrigins` requires `network.fetch`, and `processes` requires `process.spawn`, even for
+  module-only widgets.
+
+Declare the permissions the widget actually uses, including for module widgets. The list is what
+the catalogue, the install prompt, and the update prompt show users, and it's what reviewers read
+first.
+
+## Permissions in the catalogue
+
+Each [catalogue entry](/docs/widgets/publishing/catalogue/) carries a `permissions` array. The
+catalogue is signed, so the list can't change without a new signature.
+
+- **Catalogue cards** show `Permissions: <labels>.` or `No special permissions.` under the
+  description, using the labels in the table above.
+- **Installing** asks for confirmation:
+  `Requested permissions: <labels>. No other access is granted.`, or
+  `This widget requests no special permissions.`
+- **Install verification** requires the package manifest's permissions to equal the catalogue
+  entry's as a set. Any difference fails with
+  `The widget permissions don't match the catalogue.`
+- **Installed cards** show the installed manifest's permissions.
+- **Updating** shows the newer version's permissions from the catalogue in the confirmation, so a
+  widget that adds a permission in an update is shown with it before the user agrees.
+
+<Aside type="caution">
+For module widgets, the confirmation's "No other access is granted" describes the declared list,
+not a runtime limit. A module can call any method. Review is what ties a module's behaviour to
+its declared permissions and description.
+</Aside>

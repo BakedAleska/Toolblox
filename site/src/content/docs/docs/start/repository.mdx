@@ -1,0 +1,372 @@
+---
+title: Repository tour
+description: Every folder and configuration file in the Toolblox repository, and what each one is for.
+sidebar:
+  order: 2
+---
+
+import { Aside, FileTree } from '@astrojs/starlight/components';
+
+The repository holds the desktop app (a Vite project at the root and a Rust crate in
+`src-tauri`), the widget schemas, release scripts, the website and these docs in `site`, and the
+GitHub Actions workflows that test, release, and publish everything. This page walks through it
+from the top.
+
+## Overview
+
+<FileTree>
+- .github/
+  - workflows/
+    - ci.yml checks every pull request and push to main
+    - docs.yml generates the Rust API docs
+    - pages.yml the only workflow that deploys GitHub Pages
+    - release.yml builds, signs, and publishes a release
+- docs/
+  - RELEASING.md release, signing, and hosting runbook
+  - WIDGETS.md the widget contract
+- public/
+  - assets/ logo and icons served at /assets/
+- schemas/
+  - widget-manifest-v1.schema.json
+  - widget-ipc-v1.schema.json
+- scripts/
+  - publish-updates.mjs
+  - release-notes.mjs
+  - set-version.mjs
+  - third-party-notices.mjs
+- site/ Astro and Starlight website
+  - astro.config.mjs
+  - public/
+  - src/
+    - content/docs/docs/ these pages
+    - pages/index.astro the download page
+- src/ React interface
+  - components/ui/ shadcn/ui components
+  - demo-widgets/
+    - rogue_lineage/
+    - stock_notifier/
+  - lib/utils.ts
+  - screens/
+    - Accounts.tsx
+    - Dashboard.tsx
+    - Settings.tsx
+    - Widgets.tsx
+  - widgets/host.tsx module widget host
+  - App.tsx
+  - bridge.ts
+  - index.css
+  - logic.ts
+  - logic.test.ts
+  - main.tsx
+  - shared.tsx
+  - types.ts
+- src-tauri/ Rust host
+  - capabilities/default.json
+  - icons/
+  - resources/multi-instance/
+  - src/ one file per module
+  - windows/installer-hooks.nsh
+  - build.rs
+  - Cargo.toml
+  - tauri.conf.json
+  - tauri.demo.conf.json
+  - tauri.macos.conf.json
+  - tauri.preview.conf.json
+  - tauri.windows.conf.json
+- AGENTS.md
+- components.json
+- CONTRIBUTING.md
+- index.html
+- package.json
+- PRIVACY.md
+- PRODUCT.md
+- README.md
+- SECURITY.md
+- tsconfig.json
+- vite.config.ts
+</FileTree>
+
+## Root files
+
+| File | Contents |
+| --- | --- |
+| [`README.md`](https://github.com/BakedAleska/Toolblox/blob/main/README.md) | Install instructions, features, privacy summary, and the development and verification commands. |
+| [`PRODUCT.md`](https://github.com/BakedAleska/Toolblox/blob/main/PRODUCT.md) | The product authority: platform, stack, users, purpose, constraints, planned widget capabilities, brand commitments, and principles. When a behavior is in doubt, this file decides. |
+| [`AGENTS.md`](https://github.com/BakedAleska/Toolblox/blob/main/AGENTS.md) | Engineering rules for contributors and AI agents: stack boundaries, code style, UI parity rules, and required verification. |
+| [`CONTRIBUTING.md`](https://github.com/BakedAleska/Toolblox/blob/main/CONTRIBUTING.md) | How to propose changes, the expectation that every Rust item has a `///` comment, and what must stay in Rust. |
+| [`PRIVACY.md`](https://github.com/BakedAleska/Toolblox/blob/main/PRIVACY.md) | Every network connection the app makes and what data stays local. |
+| [`SECURITY.md`](https://github.com/BakedAleska/Toolblox/blob/main/SECURITY.md) | How to report a vulnerability. |
+| [`package.json`](https://github.com/BakedAleska/Toolblox/blob/main/package.json) | Interface dependencies and the npm scripts (`dev`, `build`, `check`, `test`, `tauri`, `demo`, `preview:installer`). |
+| [`index.html`](https://github.com/BakedAleska/Toolblox/blob/main/index.html) | The Vite entry page. It holds only `<div id="root">` and loads `/src/main.tsx`. |
+| [`vite.config.ts`](https://github.com/BakedAleska/Toolblox/blob/main/vite.config.ts) | Vite with the React and Tailwind CSS plugins, the `@` alias for `/src`, a fixed dev port of 1420 (`strictPort`), and `src-tauri` excluded from file watching. |
+| [`tsconfig.json`](https://github.com/BakedAleska/Toolblox/blob/main/tsconfig.json) | Strict TypeScript for `src`, with `noUnusedLocals`, `noUnusedParameters`, and the `@/*` path alias. `tsconfig.node.json` covers `vite.config.ts`. |
+| [`components.json`](https://github.com/BakedAleska/Toolblox/blob/main/components.json) | The shadcn/ui configuration used by `npx shadcn@latest add <name>`. |
+| `LICENSE` | The MIT license. |
+
+`.gitignore` excludes `node_modules`, `dist`, logs, `_site` (the assembled Pages output),
+`THIRD-PARTY-NOTICES.txt`, and `.astro`. `.vscode/extensions.json` recommends the Tauri and
+rust-analyzer extensions.
+
+## `src`: the interface
+
+The React interface. The [architecture page](/docs/start/architecture/#frontend-map) maps each
+file; this section adds what lives in the folders.
+
+### `src/components/ui`
+
+The shadcn/ui components the app is built from, generated in the `base-nova` style on
+[Base UI](https://base-ui.com/): `alert-dialog`, `badge`, `button`, `checkbox`, `dropdown-menu`,
+`input`, `switch`, `tabs`, `toggle`, `toggle-group`, and `tooltip`. New components are added with
+`npx shadcn@latest add <name>`, which reads `components.json`:
+
+- `style: "base-nova"`, `baseColor: "neutral"`, CSS variables on, no prefix.
+- `tailwind.css: "src/index.css"`, where theme tokens live.
+- `iconLibrary: "lucide"`, so icons come from `lucide-react`.
+- Aliases map `@/components`, `@/components/ui`, `@/lib`, `@/lib/utils`, and `@/hooks`.
+
+Most of these components are also handed to module widgets through `toolblox.ui`, alongside
+app-level pieces from `src/shared.tsx`. See [Host API](/docs/widgets/reference/host-api/).
+
+### `src/screens`
+
+One file per core screen. Each exports a component that receives `ScreenProps` from `App.tsx`:
+the current `state`, `refresh`, `navigate`, `notify`, `confirm`, `join`, `askPlace`, and
+`patchSettings`.
+
+| Screen | Contents |
+| --- | --- |
+| `Dashboard.tsx` | Account, In game, and enabled widget tiles, a Recently played list with one-click rejoin, iframe widget dashboard tiles, and the `dashboard.stats` and `dashboard.sections` slots. |
+| `Accounts.tsx` | The account list: add, remove, notes, per-account places, ordering, and joining, with the `accounts.toolbar` and `accounts.row` slots. |
+| `Widgets.tsx` | Installed widgets (enable, open, update, settings, uninstall), the catalogue with install confirmation, load errors, and in development builds the widgets folder path. |
+| `Settings.tsx` | Appearance, window, list, joining, and disconnect settings, the About group with update checks and privacy and legal links, and Diagnostics with the log viewer. Widgets can't replace it. |
+
+### `src/widgets`
+
+`host.tsx` is the module widget host. It keeps module-level registries of replaced screens,
+widget pages, widget settings pages, and slot contributions; builds the host API object
+(`createApi`) passed to each module's `activate`; loads and unloads modules as widgets are
+enabled, disabled, or removed (`syncWidgetModules`); and provides `WidgetBoundary` and
+`WidgetSlot`. Every widget-facing behavior in the interface starts here.
+
+### `src/demo-widgets`
+
+Two complete module widgets used by demo mode, where `bridge.ts` points their `moduleUrl` at
+these files on the Vite dev server:
+
+- **`stock_notifier/main.js`** contributes a `dashboard.stats` tile and a `dashboard.sections`
+  panel built from `toolblox.ui` components.
+- **`rogue_lineage/main.js`** (with SVG icons in `icons/`) uses its own markup and stylesheet
+  instead of the host components to show full visual control, and keeps per-account data in
+  widget storage.
+
+They're the best reference for real module code. They aren't shipped as installed widgets.
+
+### Other files
+
+`src/lib/utils.ts` re-exports `cn` for class name merging. `src/assets` is empty; static assets
+the interface references by URL, such as `/assets/logo.svg` and `/assets/github.svg`, live in
+`public/assets` and are served at the root.
+
+## `src-tauri`: the Rust host
+
+### `src-tauri/src`
+
+One file per module, described in the
+[Rust module map](/docs/start/architecture/#rust-module-map). `lib.rs` wires them together and
+`main.rs` is the executable entry point.
+
+### `Cargo.toml`
+
+The package is named `toolblox` and its library `toolblox_lib`, built as `staticlib`, `cdylib`,
+and `rlib`. The edition is 2024. Notable dependencies:
+
+| Crate | Used for |
+| --- | --- |
+| `tauri` (pinned to `=2.11.6`, `tray-icon`) | The application shell |
+| `tauri-plugin-opener`, `-autostart`, `-single-instance`, `-updater`, `-notification` | Opening URLs, launch at login, second-launch activation, installer updates, disconnect notifications |
+| `reqwest` (`rustls-tls`, `json`) | All HTTP |
+| `keyring` (`windows-native` or `apple-native`) | The OS credential store, per platform |
+| `windows-sys` | Legacy DPAPI decryption on Windows |
+| `ed25519-dalek`, `sha2`, `base64`, `hex` | Manifest and catalogue signatures, package hashes |
+| `zip` (`deflate` only) | Widget package extraction |
+| `semver`, `url`, `uuid`, `serde`, `serde_json` | Versions, URL validation, session IDs, JSON |
+| `zeroize` | Zeroing session memory |
+| `opener` | Opening launch URIs and the log folder |
+| `log`, `tokio` (`time`) | The logging facade and async sleeps |
+
+`tempfile` is the only dev dependency. The release profile uses one codegen unit, LTO,
+`opt-level = 3`, `panic = "abort"`, and stripped symbols. `build.rs` only calls
+`tauri_build::build()`.
+
+### Tauri configuration files
+
+Tauri merges platform and override files on top of
+[`tauri.conf.json`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/tauri.conf.json).
+
+| File | Purpose |
+| --- | --- |
+| `tauri.conf.json` | The base configuration. Identifier `com.bakedaleska.toolblox`. Runs `npm run dev` against `http://localhost:1420` in development and `npm run build` into `../dist` for builds. Declares one hidden `main` window, 900×500 with a 720×480 minimum. Sets the main window CSP and the `default` capability. Bundles the multi-instance helper resources, sets NSIS to `currentUser` install mode with `windows/installer-hooks.nsh`, and configures the updater public key with `requireSignedVersion` and passive Windows install mode. Updater `endpoints` are empty because `startup.rs` supplies the endpoint at runtime. |
+| `tauri.windows.conf.json` | Bundles only the NSIS installer on Windows. |
+| `tauri.macos.conf.json` | Bundles the `app` and `dmg` targets on macOS. |
+| `tauri.demo.conf.json` | Used by `npm run demo`. Changes `beforeDevCommand` to `npm run dev -- --mode demo` so the interface runs on sample data. |
+| `tauri.preview.conf.json` | Used by `npm run preview:installer`. Turns off `createUpdaterArtifacts` so a debug NSIS installer builds without signing keys. |
+
+### `capabilities/default.json`
+
+The only capability. It applies to the `main` window and grants `core:default` and
+`opener:default`. Toolblox's own commands are registered through `generate_handler!` in `lib.rs`.
+No capability names the Roblox sign-in window, which is what keeps remote pages away from IPC.
+
+### `resources/multi-instance`
+
+The Windows helper that lets several Roblox clients run at once:
+
+- `helper.c` is the source. It closes the `ROBLOX_singletonEvent` handle held by the Roblox
+  processes whose IDs it's given.
+- `multi_instance_helper.exe` is the built binary, bundled as a resource and located at runtime
+  under the app's resource directory.
+- `build.ps1` rebuilds the binary with MSVC.
+- `README.md` explains the technique in detail.
+
+All three of `helper.c`, the binary, and the README ship with the installer, so the bundled
+binary can be inspected against its source.
+
+### `windows/installer-hooks.nsh`
+
+An NSIS hook that runs before uninstall and removes the `Toolblox` value from
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, so launch at login doesn't outlive the app.
+
+### `icons`
+
+Application icons for every bundle target. `tauri.conf.json` uses the 32, 128, and 256 pixel PNGs,
+`icon.icns`, and `icon.ico`.
+
+## `schemas`
+
+JSON Schemas (draft 2020-12) for the widget contract, published with `$id`s under
+`https://toolblox.dev/schemas/`:
+
+- [`widget-manifest-v1.schema.json`](https://github.com/BakedAleska/Toolblox/blob/main/schemas/widget-manifest-v1.schema.json)
+  describes `widget.json`. It disallows additional properties.
+- [`widget-ipc-v1.schema.json`](https://github.com/BakedAleska/Toolblox/blob/main/schemas/widget-ipc-v1.schema.json)
+  describes widget IPC requests.
+
+The Rust types in `widgets.rs` and `widget_ipc.rs` are the source of truth at runtime. The schemas
+are for editor validation and tooling. See [Manifest](/docs/widgets/reference/manifest/) and
+[IPC](/docs/widgets/reference/ipc/).
+
+## `scripts`
+
+Node scripts used by the release and Pages workflows. All can also run locally.
+
+| Script | What it does |
+| --- | --- |
+| [`set-version.mjs`](https://github.com/BakedAleska/Toolblox/blob/main/scripts/set-version.mjs) | `node scripts/set-version.mjs 0.3.0-beta` writes the version into `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and the demo state in `src/bridge.ts`. With `--check` it only verifies the version is newer than the current one. Every file must agree because the update gate compares the Cargo version with the signed manifest. |
+| [`release-notes.mjs`](https://github.com/BakedAleska/Toolblox/blob/main/scripts/release-notes.mjs) | Prints release notes from the `feat`, `fix`, and `perf` commit subjects since the previous tag, under a fixed download section with the installer's SHA-256. |
+| [`publish-updates.mjs`](https://github.com/BakedAleska/Toolblox/blob/main/scripts/publish-updates.mjs) | Copies the built site from `site/dist` into `_site`, then writes `updates/stable.json` (for the latest release's installer, valid for seven days) and `catalogue/v1.json`, each with a detached Ed25519 `.sig`. The catalogue currently has no entries. |
+| [`third-party-notices.mjs`](https://github.com/BakedAleska/Toolblox/blob/main/scripts/third-party-notices.mjs) | Writes the license texts of every Rust crate and npm package that ships in a release build into `THIRD-PARTY-NOTICES.txt`. |
+
+## `site`
+
+The website at `toolblox.dev`, an [Astro](https://astro.build/) project with the
+[Starlight](https://starlight.astro.build/) docs integration.
+
+- `astro.config.mjs` sets `site: "https://toolblox.dev"` and configures Starlight: title, logo,
+  GitHub link, an edit link pointing into `site/` on GitHub, and the sidebar groups (Introduction,
+  Start here, The app, Widget tutorials, Widget reference, Publishing), each autogenerated from a
+  folder under `src/content/docs/docs/`.
+- `src/pages/index.astro` is the standalone download page at the site root.
+- `src/content/docs/docs/` holds these pages, so they're served under `/docs/`. Page order within
+  a group comes from each page's `sidebar.order` frontmatter.
+- `src/content.config.ts` registers the Starlight docs collection.
+- `public/logo.svg` is the site logo and favicon.
+
+It has its own `package.json` with `dev`, `build`, and `preview` scripts. Run them from `site/`.
+
+## `docs`
+
+Two Markdown documents kept beside the code:
+
+- [`docs/WIDGETS.md`](https://github.com/BakedAleska/Toolblox/blob/main/docs/WIDGETS.md) is the
+  concise widget contract: module and iframe widgets, the host API, slots, IPC methods, and
+  packaging. The widget reference pages here expand on it.
+- [`docs/RELEASING.md`](https://github.com/BakedAleska/Toolblox/blob/main/docs/RELEASING.md) is
+  the release runbook: publishing, the update manifest and its daily re-signing, Pages
+  deployments, the `toolblox.dev` domain, endpoints and public keys, release assets, and download
+  counts.
+
+## `.github/workflows`
+
+### `ci.yml`
+
+Runs on every pull request and every push to `main`, on both `windows-latest` and
+`macos-latest`. It installs Node.js 22 and stable Rust with `rustfmt` and `clippy`, then runs, in
+order:
+
+```sh
+npm ci
+npm audit
+npm run check
+npm test
+npm run build
+cargo fmt --check                                                # in src-tauri
+cargo clippy --all-targets -- -D warnings                        # in src-tauri
+cargo test                                                       # in src-tauri
+cargo doc --no-deps --document-private-items --lib               # RUSTDOCFLAGS=-D warnings
+cargo clippy --release --all-targets -- -D warnings              # in src-tauri
+npm run tauri build -- --debug --no-bundle
+```
+
+The `cargo doc` step fails on any rustdoc warning, such as a broken intra-doc link. The release
+clippy pass matters because much of `startup.rs` only compiles outside debug builds.
+
+### `docs.yml`
+
+Runs on pushes to `main` that change `src-tauri/src/**`, `src-tauri/Cargo.toml`, or the workflow
+itself, and on demand. On Windows it builds the interface first, because `tauri::generate_context!` embeds `dist`, then
+runs `cargo doc --no-deps --document-private-items --lib`, adds a redirect `index.html` to
+`toolblox_lib/index.html`, and force-pushes the output as a single commit to the `docs` branch.
+It then calls `pages.yml` to redeploy. Private items are documented, so module pages such as
+[`app_commands`](/api/toolblox_lib/app_commands/index.html) exist in the
+[API reference](/api/toolblox_lib/).
+
+### `pages.yml`
+
+The only workflow that deploys GitHub Pages. It runs daily at 06:17 UTC, when called by the
+release and docs workflows, and on demand. It:
+
+1. Checks out `main` and the `docs` branch.
+2. Builds the Astro site in `site/`.
+3. Runs `publish-updates.mjs` with the manifest and catalogue private keys, producing `_site`.
+4. Moves the API docs into `_site/api`.
+5. Uploads and deploys the Pages artifact.
+6. Deletes every Pages deployment except the one this run created.
+7. Re-enables its own schedule, because GitHub disables scheduled workflows after 60 days
+   without repository activity.
+
+<Aside type="caution">
+The daily run matters for every installed copy. The update manifest is valid for seven days and
+release builds refuse to open with an expired manifest, so if this workflow stopped running,
+installed apps would stop opening within a week.
+</Aside>
+
+### `release.yml`
+
+Started manually from `main` with a version and an optional **dry run**. On Windows it checks the
+version is new and untagged, sets it everywhere with `set-version.mjs`, runs `npm run check`,
+`npm test`, and `cargo test`, and builds the NSIS installer with `npm run tauri build -- --bundles nsis`.
+The build receives the endpoints and public keys as compile-time environment variables, which
+`startup.rs` and `app_commands.rs` read with `option_env!`:
+
+| Variable | Read by |
+| --- | --- |
+| `TOOLBLOX_UPDATE_MANIFEST_URL` | `startup::run_inner` |
+| `TOOLBLOX_MANIFEST_PUBLIC_KEY` | `startup::run_inner` |
+| `TOOLBLOX_UPDATER_PUBLIC_KEY` | `startup::run_inner` (taken from `tauri.conf.json`) |
+| `TOOLBLOX_CATALOGUE_URL` | `refresh_catalogue_data` |
+| `TOOLBLOX_CATALOGUE_PUBLIC_KEY` | `refresh_catalogue_data` |
+
+It then prepares `Toolblox-Setup.exe`, its `.sig`, the identical `Toolblox-Update.exe`, and
+`THIRD-PARTY-NOTICES.txt`, uploads them as a workflow artifact, and, unless it's a dry run,
+commits `chore(release): <version>`, tags `v<version>`, publishes the GitHub release, and calls
+`pages.yml` so installed apps move to the new version on their next launch.

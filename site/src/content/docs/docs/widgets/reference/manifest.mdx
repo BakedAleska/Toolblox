@@ -1,0 +1,329 @@
+---
+title: Manifest
+description: Every field of widget.json, the rules Toolblox enforces on it, and the errors it returns.
+sidebar:
+  order: 1
+---
+
+import { Aside, FileTree } from '@astrojs/starlight/components';
+
+Every widget package has a `widget.json` file at its root. Toolblox reads it when it installs a
+package, every time it lists installed widgets, and whenever a widget surface opens. The manifest
+decides which surfaces the widget has (a module, sandboxed pages, or both), which permissions it
+requests, which HTTPS origins it declares, and which native executables it may start.
+
+Two sources define the format, and both must be satisfied:
+
+- The JSON Schema,
+  [`schemas/widget-manifest-v1.schema.json`](https://github.com/BakedAleska/Toolblox/blob/main/schemas/widget-manifest-v1.schema.json),
+  published at `https://toolblox.dev/schemas/widget-manifest-v1.schema.json`. Point an editor at
+  it with `"$schema"` for completion while authoring, then remove the key before packaging (see
+  [Unknown fields](#unknown-fields)).
+- The host validation in
+  [`WidgetManifest::validate`](/api/toolblox_lib/widgets/struct.WidgetManifest.html) in
+  [`src-tauri/src/widgets.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widgets.rs).
+  This is what actually accepts or rejects a widget. Where it's stricter than the schema, this page
+  says so.
+
+## Complete example
+
+This manifest uses every field. Few widgets need all of them.
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "trade_tracker",
+  "name": "Trade Tracker",
+  "version": "1.2.0",
+  "description": "Logs trades per account and shows value changes over time.",
+  "icon": "icon.svg",
+
+  "module": "main.js",
+  "entry": "index.html",
+  "settingsEntry": "settings.html",
+  "dashboardEntry": "dashboard.html",
+
+  "permissions": [
+    "accounts.read.basic",
+    "widgetData.read",
+    "widgetData.write",
+    "network.fetch",
+    "process.spawn"
+  ],
+  "networkOrigins": ["https://api.example.com"],
+  "processes": [
+    {
+      "id": "price-worker",
+      "executable": "optional-bin/price-worker.exe",
+      "allowedArguments": ["--quiet", "--verbose"]
+    }
+  ]
+}
+```
+
+The package that goes with it looks like this:
+
+<FileTree>
+- widget.json
+- main.js the module, imported into the app window
+- index.html sandboxed page frame
+- settings.html sandboxed settings frame
+- dashboard.html sandboxed dashboard frame
+- icon.svg
+- optional-bin/
+  - price-worker.exe
+</FileTree>
+
+## Field reference
+
+| Field | Type | Required | Rule |
+| --- | --- | --- | --- |
+| `schemaVersion` | integer | Yes | Must be `1`. |
+| `id` | string | Yes | 1 to 64 characters from `a`–`z`, `0`–`9`, and `_`. |
+| `name` | string | Yes | 1 to 80 characters, not only whitespace. |
+| `version` | string | Yes | A valid SemVer 2.0 version, such as `1.2.0` or `2.0.0-beta.1`. |
+| `module` | string | One of `module` or `entry` | Must be exactly `main.js`. |
+| `entry` | string | One of `module` or `entry` | Must be exactly `index.html`. |
+| `settingsEntry` | string | No | Must be exactly `settings.html`. |
+| `dashboardEntry` | string | No | Must be exactly `dashboard.html`. |
+| `description` | string | No | Up to 500 characters (schema). Defaults to an empty string. |
+| `icon` | string | No | Free-form string. Not validated. |
+| `permissions` | array of strings | No | Values from the [permission list](/docs/widgets/reference/permissions/), no duplicates. Defaults to `[]`. |
+| `networkOrigins` | array of strings | No | Bare HTTPS origins. Requires `network.fetch`. Defaults to `[]`. |
+| `processes` | array of objects | No | Executables under `optional-bin/`. Requires `process.spawn`. Defaults to `[]`. |
+
+### `schemaVersion`
+
+The manifest format version. The only supported value is `1`. Any other value fails with:
+
+> This widget uses an unsupported manifest version.
+
+### `id`
+
+The widget's permanent identity. It names the install folder (`<widgets folder>/<id>/`), the
+widget's routes (`/widgets/<id>` and `/widgets/<id>/settings`), its asset URLs, its log target
+(`widget:<id>`), its storage key, and its per-account data key. The catalogue entry, the
+package manifest, and any installed copy must all use the same ID.
+
+The host accepts 1 to 64 bytes, each a lowercase ASCII letter, an ASCII digit, or `_`. Hyphens and
+uppercase letters are rejected, even though some other parts of the host (such as the asset
+protocol) would tolerate them. A bad ID fails with:
+
+> Widget IDs may contain only lowercase letters, numbers, and underscores.
+
+Pick the ID once. Changing it creates a different widget, with separate storage and data.
+
+### `name`
+
+The display name. It appears in the sidebar, as the title of the widget's page and settings
+page, on the Widgets page cards, in confirmation dialogs, and in render error messages. The host
+counts Unicode characters, not bytes, and rejects a name that's empty after trimming whitespace
+or longer than 80 characters:
+
+> The widget name must contain between 1 and 80 characters.
+
+### `version`
+
+Parsed with the Rust [`semver`](https://docs.rs/semver) crate. Leading `v` prefixes, two-part
+versions such as `1.2`, and other non-SemVer strings fail with:
+
+> The widget version isn't valid SemVer.
+
+Toolblox compares versions with SemVer precedence. An update is offered only when the catalogue
+version is strictly greater than the installed version, so pre-release versions sort before their
+release (`1.3.0-beta.1` is lower than `1.3.0`). The manifest version must also equal the catalogue
+entry's version exactly, or installation fails. See
+[Packaging](/docs/widgets/publishing/packaging/).
+
+### `module`
+
+Declares a [module widget](/docs/widgets/reference/host-api/). The value must be `main.js`; the
+file name is fixed so the host never resolves an author-supplied path. Toolblox imports the file
+as an ES module into the app window and calls its `activate` export with the host API.
+
+> The widget module must be main.js.
+
+### `entry`
+
+Declares a sandboxed page frame, shown on the widget's page at `/widgets/<id>` when no module page
+is registered. The value must be `index.html`.
+
+> The widget entry must be index.html.
+
+A manifest must declare `module`, `entry`, or both. With neither, validation fails with:
+
+> The widget must declare an entry page or a module.
+
+### `settingsEntry`
+
+Declares a sandboxed settings frame, shown on `/widgets/<id>/settings`. The value must be
+`settings.html`.
+
+> The widget settings entry must be settings.html.
+
+### `dashboardEntry`
+
+Declares a sandboxed dashboard frame, shown as its own section on the Dashboard while the widget
+is enabled. The value must be `dashboard.html`.
+
+> The widget dashboard entry must be dashboard.html.
+
+`settingsEntry` and `dashboardEntry` don't count toward the "entry or module" requirement. A
+widget with only a `dashboardEntry` is rejected. See
+[Iframe widgets](/docs/widgets/reference/iframe-widgets/) for how the three frame surfaces behave.
+
+### `description`
+
+One sentence describing what the widget does. It appears on the Widgets page cards (clamped to two
+lines). The schema caps it at 500 characters; the host doesn't check the length. The catalogue
+entry carries its own `description`, which is what users see before installing.
+
+The [review rules](/docs/widgets/publishing/review/) reject widgets that send data anywhere the
+description doesn't state, so the description is also a disclosure.
+
+### `icon`
+
+An optional string, passed through to the interface as the installed widget's `icon`. The host
+doesn't validate it, and the current interface doesn't display it: installed widget cards show a
+generic icon. The catalogue's `iconUrl` is what appears on catalogue cards. See
+[Catalogue](/docs/widgets/publishing/catalogue/).
+
+### `permissions`
+
+The permissions the widget requests, as an array of unique strings:
+
+| Permission | Grants |
+| --- | --- |
+| `accounts.read.basic` | `accounts.list` |
+| `widgetData.read` | `widgetData.get` |
+| `widgetData.write` | `widgetData.set` |
+| `roblox.status` | `roblox.status` |
+| `roblox.join` | `roblox.join` |
+| `network.fetch` | `network.fetch` |
+| `process.spawn` | `process.spawn`, `process.send`, `process.poll`, `process.stop` |
+
+An unknown value makes the whole manifest fail to parse, which surfaces as:
+
+> The widget manifest isn't valid JSON.
+
+A repeated value fails with:
+
+> The widget manifest contains duplicate permissions.
+
+Sandboxed frames receive exactly these permissions. Module widgets receive all of them regardless
+of this list, but the list still matters: the catalogue entry must match it exactly, it's what the
+install and update prompts show, and it gates `networkOrigins` and `processes`. See
+[Permissions](/docs/widgets/reference/permissions/).
+
+### `networkOrigins`
+
+Bare HTTPS origins the widget declares it will contact, such as `https://api.example.com` or
+`https://prices.example.com:8443`. Each value is parsed as a URL and must have:
+
+- the `https` scheme,
+- a host,
+- no path other than `/`, no query, and no fragment,
+- no username or password.
+
+Any violation fails with:
+
+> Widget network origins must be bare HTTPS origins.
+
+A value that isn't a URL at all fails with:
+
+> A widget network origin isn't valid.
+
+Declaring origins without `network.fetch` in `permissions` fails with:
+
+> The widget declares network origins without network.fetch permission.
+
+The schema only requires each value to be a URI and unique. The host is stricter.
+
+<Aside type="caution" title="Origins are declared, not enforced">
+In the current host, the `network.fetch` method doesn't compare the requested URL against
+`networkOrigins`. Any HTTPS URL without embedded credentials is fetched. Declare every origin the
+widget contacts anyway: the list documents the widget's network use for reviewers, and review
+rejects widgets that send data anywhere their description doesn't state.
+</Aside>
+
+### `processes`
+
+Native executables the widget may start through the
+[`process.*` methods](/docs/widgets/reference/ipc/#processspawn). Each entry is an object:
+
+| Field | Type | Required | Rule |
+| --- | --- | --- | --- |
+| `id` | string | Yes | 1 to 64 bytes of ASCII letters, digits, `_`, and `-`. Unique within the manifest. |
+| `executable` | string | Yes | A relative path that starts with `optional-bin/`. |
+| `allowedArguments` | array of strings | No | The only arguments the process may receive. Defaults to `[]`. |
+
+The host checks each entry in order:
+
+1. The ID's characters and length:
+   > Widget process IDs contain unsupported characters.
+2. The executable path must be non-empty, relative, and free of `..`, root, and drive components:
+   > The widget process executable path isn't safe.
+3. The path must start with `optional-bin/` (forward slash):
+   > Widget processes must live under optional-bin/.
+4. The ID must not repeat:
+   > The widget manifest contains duplicate process IDs.
+
+Declaring any process without `process.spawn` in `permissions` fails with:
+
+> The widget declares processes without process.spawn permission.
+
+At install time, every declared executable must exist as a file in the package, or installation
+fails with `Widget process <id> is missing.` At start time, the executable path is resolved again
+and must still be a file inside the widget folder.
+
+`allowedArguments` is a set, not a sequence. A start request may pass any number of arguments up
+to 32, in any order and with repeats, as long as each argument is up to 1 KB and appears in this
+list. Any widget that declares at least one process gets a **Start with Toolblox** switch on its
+settings page. When it's on, every declared process starts with the app, with no arguments.
+
+Executables run as the signed-in user, outside any sandbox. The
+[review rules](/docs/widgets/publishing/review/) forbid using them to read, change, or inject into
+the Roblox client.
+
+## Unknown fields
+
+The schema sets `additionalProperties: false` at the top level and in each process object, so a
+schema-aware editor flags unknown keys, including `$schema`. The host deserializer ignores
+unknown keys rather than rejecting them. Don't rely on that: keep packaged manifests to the fields
+on this page so they validate against both.
+
+## Size and encoding
+
+`widget.json` may be at most 128 KB:
+
+> The widget manifest is too large.
+
+It must be valid UTF-8 JSON, and every field must have the right type, or it fails with:
+
+> The widget manifest isn't valid JSON.
+
+## When the manifest is checked
+
+| Moment | What happens |
+| --- | --- |
+| Installation | The manifest is read from the extracted staging folder and validated. Its `id`, `version`, and `permissions` must match the catalogue entry, and every declared `module`, `entry`, `settingsEntry`, `dashboardEntry`, and process executable must exist as a file. |
+| After installation | Toolblox writes `.installed.json` next to the manifest, recording the package SHA-256 and the manifest's own SHA-256. |
+| Every listing | Each widget folder's manifest is read and validated again, and in release builds its SHA-256 must still match `.installed.json`. An edited manifest produces `Widget <id> has a modified manifest. Reinstall it from the Catalogue.` |
+| Development builds | A folder without `.installed.json` is accepted, so unpacked widgets load straight from the widgets folder. The manifest is still validated. |
+
+Manifest failures for installed widgets appear at the top of the Widgets page as
+`Widget <folder> couldn't load: <reason>`, and the widget is left out of the app until it's fixed.
+
+<Aside>
+The install folder is always named after the widget ID. For an unpacked development widget, name
+the folder after the manifest `id` too: asset URLs, process paths, and the enable switch all
+resolve `<widgets folder>/<id>`.
+</Aside>
+
+## Related pages
+
+- [Host API](/docs/widgets/reference/host-api/) for what `main.js` receives.
+- [Iframe widgets](/docs/widgets/reference/iframe-widgets/) for `entry`, `settingsEntry`, and
+  `dashboardEntry`.
+- [IPC methods](/docs/widgets/reference/ipc/) for what each permission unlocks.
+- [Packaging](/docs/widgets/publishing/packaging/) for the ZIP layout and install checks.

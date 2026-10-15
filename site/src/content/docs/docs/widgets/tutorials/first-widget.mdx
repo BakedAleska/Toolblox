@@ -1,0 +1,491 @@
+---
+title: Your first widget
+description: Build a module widget from an empty folder, load it in a development build, and recover when it breaks the app.
+sidebar:
+  order: 1
+---
+
+import { Aside, Steps, FileTree, Tabs, TabItem } from '@astrojs/starlight/components';
+
+This tutorial takes you from an empty folder to a module widget running inside a development build
+of Toolblox. The widget adds a page with two stat tiles and a button, built from the same
+components the app uses. Along the way it covers where Toolblox looks for unpacked widgets, what
+happens between dropping a folder in place and `activate` running, how to pick up code changes,
+where your log lines go, and how to get the app back when a widget breaks it.
+
+The finished widget is about 40 lines. Later tutorials build on it:
+[pages and screens](/docs/widgets/tutorials/pages-and-screens/),
+[slots and styles](/docs/widgets/tutorials/slots-and-styles/),
+[storage and state](/docs/widgets/tutorials/storage-and-state/), and
+[processes](/docs/widgets/tutorials/processes/).
+
+## What a module widget is
+
+A module widget is a folder (later, a ZIP package) with two required files:
+
+- `widget.json`, the manifest. It names the widget and declares `"module": "main.js"`.
+- `main.js`, an ES module that exports `activate` and, optionally, `deactivate`.
+
+Toolblox imports `main.js` into the app window itself, not into a sandboxed frame, and calls
+`activate` with the host API object. That object gives the widget the app's React instance, the
+app's UI components, live app state, navigation, storage, logging, and every
+[IPC method](/docs/widgets/reference/ipc/) with all permissions granted. Module widgets are
+full-trust by design: safety comes from catalogue review, signed and hash-pinned packages, safe
+mode, and error boundaries, not from limits on the API. The one thing a widget never receives is a
+Roblox session cookie; those stay in Rust for widgets and for the Toolblox interface alike.
+
+The two demo widgets in the repository use exactly this shape and are worth keeping open while you
+work:
+
+- [`src/demo-widgets/stock_notifier/main.js`](https://github.com/BakedAleska/Toolblox/blob/main/src/demo-widgets/stock_notifier/main.js)
+  adds a stat tile and a Dashboard section with the host components.
+- [`src/demo-widgets/rogue_lineage/main.js`](https://github.com/BakedAleska/Toolblox/blob/main/src/demo-widgets/rogue_lineage/main.js)
+  adds a page, a settings page, slot contributions, its own stylesheet, and an opt-in theme for the
+  whole app.
+
+<Aside>
+Widgets can instead, or also, ship sandboxed iframe pages. Those receive only the permissions their
+manifest declares and talk to Toolblox with `postMessage`. This tutorial covers module widgets
+only. See [Iframe widgets](/docs/widgets/reference/iframe-widgets/) for the other kind.
+</Aside>
+
+## Before you start
+
+You need a development build of Toolblox. Release builds only load widgets installed from the
+signed catalogue, so an unpacked folder never loads in a downloaded copy of the app. See
+[Development](/docs/start/development/) for prerequisites; the short version is:
+
+```sh
+npm install
+npm run tauri dev
+```
+
+`npm run tauri dev` compiles the Rust host in debug mode and starts the Vite dev server for the
+interface. Debug builds differ from release builds in three ways that matter here:
+
+- They skip the startup update check, so the app opens straight away.
+- They report the `canary` channel, which shows the widgets folder at the bottom of the Widgets
+  page and a `-canary` suffix on the version in the sidebar.
+- They accept widget folders without the `.installed.json` record that catalogue installs write.
+  A release build rejects such a folder with "Widget … is missing install metadata."
+
+<Aside type="caution">
+`npm run dev` starts only the web interface in a browser, and `npm run demo` runs the app on sample
+data. Neither loads widgets from the widgets folder. The demo build only loads the two widgets in
+`src/demo-widgets/`, and `request` returns `null` there because no Rust host answers it.
+</Aside>
+
+## Find the widgets folder
+
+Toolblox keeps its data in a `v2` folder inside its data folder, and widgets live in `v2/widgets`:
+
+| Platform | Widgets folder |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\Toolblox\v2\widgets` |
+| macOS | `~/Library/Application Support/Toolblox/v2/widgets` |
+
+In a development build you don't need to remember this: open **Widgets** in the sidebar and scroll
+to the bottom. A panel reads "Development builds also load unpacked widgets from this folder." with
+the exact path and a copy button.
+
+Debug builds also honour the `TOOLBLOX_DATA_DIR` environment variable. When it's set, Toolblox
+uses that folder as its data folder, so widgets live in `$TOOLBLOX_DATA_DIR/v2/widgets`. This is
+useful for keeping test accounts, settings, and widget data apart from the copy of Toolblox you use
+day to day. Accounts' Roblox sessions are still kept in the operating system's credential store.
+
+<Tabs>
+<TabItem label="Windows (PowerShell)">
+
+```powershell
+$env:TOOLBLOX_DATA_DIR = "$HOME\toolblox-dev-data"
+npm run tauri dev
+```
+
+</TabItem>
+<TabItem label="macOS">
+
+```sh
+TOOLBLOX_DATA_DIR="$HOME/toolblox-dev-data" npm run tauri dev
+```
+
+</TabItem>
+</Tabs>
+
+## Build the widget
+
+<Steps>
+
+1. **Create the folder.** Inside the widgets folder, create a folder named `hello_panel`.
+
+   The folder name must be identical to the widget ID you put in the manifest. Toolblox finds the
+   manifest by scanning every folder, but it serves the module from
+   `<widgets folder>/<id>/main.js`. If the names differ, the manifest loads and the import fails.
+
+   <FileTree>
+   - widgets/
+     - hello_panel/
+       - widget.json
+       - main.js
+   </FileTree>
+
+2. **Write the manifest.** Create `widget.json`:
+
+   ```json title="hello_panel/widget.json"
+   {
+     "schemaVersion": 1,
+     "id": "hello_panel",
+     "name": "Hello Panel",
+     "version": "1.0.0",
+     "description": "Shows account counts and says hello.",
+     "module": "main.js"
+   }
+   ```
+
+   Each field is checked by `WidgetManifest::validate` in
+   [`src-tauri/src/widgets.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widgets.rs):
+
+   - `schemaVersion` must be `1`.
+   - `id` is 1 to 64 lowercase letters, digits, and underscores. Hyphens and capitals are rejected.
+   - `name` is 1 to 80 characters. It's the sidebar label and the page title.
+   - `version` must be valid SemVer, such as `1.0.0`. `1.0` is rejected.
+   - `module` must be exactly `main.js` at the package root. Other names and paths are rejected.
+
+   This widget needs no permissions, so it declares none. Module widgets receive every permission
+   at run time regardless, but the catalogue requires the declared list to match what the widget
+   does, and the install dialog shows it to the user. The
+   [Manifest reference](/docs/widgets/reference/manifest/) covers every field.
+
+3. **Write the module.** Create `main.js`:
+
+   ```js title="hello_panel/main.js"
+   const svg = (h, ...paths) => h("svg", {
+     viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
+     strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round",
+   }, ...paths.map((d) => h("path", { key: d, d })));
+
+   export async function activate(toolblox) {
+     const { React, ui } = toolblox;
+     const h = React.createElement;
+     const usersIcon = svg(h, "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8");
+     const playIcon = svg(h, "M6 3v18l15-9Z");
+
+     void toolblox.log.info(`Activated version ${toolblox.widget.version}`);
+
+     toolblox.registerPage(function HelloPage() {
+       const state = toolblox.useAppState();
+       const [greetings, setGreetings] = React.useState(0);
+       const inGame = state.accounts.filter((account) => account.presence === "playing").length;
+
+       const greet = () => {
+         setGreetings((count) => count + 1);
+         toolblox.notify("Hello from Hello Panel.");
+         void toolblox.log.debug("Greeted");
+       };
+
+       return h(React.Fragment, null,
+         h("div", { className: "grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3" },
+           h(ui.StatTile, { icon: usersIcon, label: "Accounts", value: state.accounts.length, onClick: () => toolblox.navigate("/accounts") }),
+           h(ui.StatTile, { icon: playIcon, label: "In game", value: inGame })),
+         h("section", { className: "flex flex-col gap-2" },
+           h(ui.SectionTitle, null, "Greeting"),
+           h(ui.Panel, { className: "flex items-center gap-3 px-4 py-3" },
+             h("p", { className: "min-w-0 flex-1 text-sm" }, greetings ? `Greeted ${greetings} times.` : "No greetings yet."),
+             h(ui.Button, { variant: "outline", size: "sm", onClick: greet }, "Say hello"))));
+     });
+   }
+
+   export function deactivate() {}
+   ```
+
+   A few things in this file are deliberate:
+
+   - **`h` is `toolblox.React.createElement`.** The widget doesn't import or bundle React. It uses
+     the app's own React instance, which is what makes hooks such as `React.useState` work inside
+     the app's component tree. A second copy of React breaks hooks with "Invalid hook call".
+   - **Hooks run inside components, never in `activate`.** `activate` is a plain function that runs
+     once. `HelloPage` is a React component that Toolblox renders whenever the page is open, so
+     `toolblox.useAppState()` and `React.useState` belong there.
+   - **The component is a named function.** React shows `HelloPage` in error messages and in the
+     component stack that Toolblox writes to the log when a render fails.
+   - **The icons are inline SVG elements**, as in the stock_notifier demo. Icon libraries import
+     `react` themselves, so bundling one pulls in a second copy.
+   - **Every class name is one the app already uses.** Tailwind CSS is compiled into the app ahead
+     of time, so only classes that appear somewhere in the Toolblox source exist. The grid class
+     is copied from the Dashboard's stat row, and `flex-1`, `px-4`, and the rest appear throughout
+     the app. A class that doesn't exist does nothing, silently. See
+     [Slots and styles](/docs/widgets/tutorials/slots-and-styles/) for shipping your own CSS.
+   - **`deactivate` is optional.** Toolblox removes every page, settings page, slot contribution,
+     stylesheet, and state listener a widget registered when it unloads the widget, so `deactivate`
+     is only for things Toolblox doesn't track, such as timers. The
+     [storage and state](/docs/widgets/tutorials/storage-and-state/) tutorial uses it.
+
+4. **Bring Toolblox to the front.** Toolblox reloads its state when the window gains focus, every
+   60 seconds, and after most actions. On the next load the widget appears:
+
+   - in the **Installed** section of the Widgets page, enabled;
+   - in the sidebar under **Widgets**, as "Hello Panel".
+
+   New folders are enabled by default because Toolblox stores the list of disabled widgets, not
+   enabled ones. Turning the switch on the widget's card off adds it to that list, unloads the
+   module, and stops any processes it started.
+
+5. **Open the page.** Select **Hello Panel** in the sidebar, or **Open** on its card. The page
+   renders under a header with the widget's name. Select **Say hello**: the counter goes up and a
+   toast appears at the bottom of the window for four seconds.
+
+</Steps>
+
+## What happens when the widget loads
+
+Knowing the path from folder to `activate` makes failures much easier to place. Each step names the
+code that runs it.
+
+1. **Discovery.** `get_app_state` in
+   [`src-tauri/src/app_commands.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/app_commands.rs)
+   calls `discover_installed`, which reads every folder in the widgets folder whose name doesn't
+   start with `.`. For each one it reads `widget.json` (at most 128 KB), parses it, and validates
+   it. A folder that fails produces an entry in `widgetErrors`, which the Widgets page shows as a
+   red panel above the Installed section.
+2. **Summary.** Each valid widget becomes a `WidgetSummary` in app state. Its `moduleUrl` points at
+   the widget's custom protocol: `http://widget.localhost/hello_panel/main.js` on Windows, where
+   WebView2 serves custom schemes over HTTP, and `widget://localhost/hello_panel/main.js` on macOS.
+   The protocol handler in
+   [`widget_protocol.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widget_protocol.rs)
+   only serves files that resolve inside the widget's folder, only to the main window, and with
+   `Cache-Control: no-store`.
+3. **Session.** The app shell calls `syncWidgetModules` in
+   [`src/widgets/host.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/widgets/host.tsx)
+   whenever the set of enabled module widgets changes. For each newly enabled widget it calls
+   `open_widget` with the `module` surface. Rust creates a session with a random ID and every
+   permission, because modules run in the app window. `toolblox.request` sends that session ID
+   with each IPC call. If the session can't be opened, the module still loads, and every
+   `request` call throws "The widget session isn't open."
+4. **Import.** The shell runs `import(moduleUrl)`. The app's Content Security Policy allows scripts
+   from the widget origin, so the module and anything it imports from its own folder load.
+5. **Activation.** The shell builds the host API for this widget with `createApi` and calls
+   `activate(toolblox)`. It awaits the returned promise, so an `async` activate can load stored
+   data before it registers anything.
+6. **Rendering.** `registerPage` stores `HelloPage` in the widget registry and notifies the shell,
+   which re-renders. When the route is `/widgets/hello_panel`, the shell renders the component
+   inside an error boundary.
+
+If the import or `activate` throws, Toolblox writes "Module failed to load: …" with the stack to the
+log under `widget:hello_panel`, and the widget's card shows **Failed to load** with the error in its
+tooltip. Contributions registered before the throw stay registered.
+
+## Change the code and reload
+
+Edit `main.js`, for example change the toast to "Hello again." Then:
+
+<Steps>
+
+1. Open the developer tools. Development builds enable them: right-click anywhere in the window and
+   select **Inspect**.
+2. With the developer tools focused, press <kbd>Ctrl</kbd>+<kbd>R</kbd> on Windows or
+   <kbd>Cmd</kbd>+<kbd>R</kbd> on macOS, or run `location.reload()` in the console.
+
+</Steps>
+
+The window reloads, the startup gate passes immediately because Rust already finished it, and every
+enabled widget is imported fresh.
+
+<Aside type="caution" title="Toggling the widget isn't a reload">
+Turning a widget off and on again calls `deactivate`, removes its contributions, and calls
+`activate` again, but it doesn't run your new code. Browsers cache ES modules by URL for the life of
+the page, and the module URL doesn't change, so the second `import` returns the module that's
+already loaded. Module-level variables keep their values too. Reload the window to load new code.
+</Aside>
+
+Changes to `widget.json`, such as a new name or description, need no reload. They appear on the
+next state load, for example when the window regains focus. Changing the `id` also needs the folder
+renamed to match.
+
+## Read the logs
+
+Toolblox writes one log for the app and its widgets: `v2/logs/toolblox.log` in the data folder,
+rotated at 1 MB with three older files kept. To read it, open **Settings**, find **Diagnostics**,
+and select **Show** next to **Log**. The view shows the last 300 lines; **Copy** copies up to 2,000
+and **Open folder** opens the log folder.
+
+The widget's records use the target `widget:<id>`:
+
+```text
+2026-10-14T09:12:03.512Z INFO  widget:hello_panel: Activated version 1.0.0
+2026-10-14T09:12:09.880Z DEBUG widget:hello_panel: Greeted
+```
+
+`toolblox.log` has `debug`, `info`, `warn`, and `error`. Each returns a promise that never rejects.
+Development builds keep `debug` lines; release builds keep `info` and above. Besides your own
+lines, Toolblox writes these under your widget's target:
+
+- "Module failed to load: …" when the import or `activate` throws;
+- "Render failed: …" with the React component stack when a contribution throws while rendering;
+- "Deactivate failed: …" when `deactivate` throws;
+- "Request `<method>` failed: …" when an IPC request returns an error;
+- process starts and stops, and the first 200 lines of each process's error output.
+
+Before a line is written, Toolblox removes Roblox session cookies, join tickets, launch links, and
+the values of keys such as `authorization`, `cookie`, `token`, and `password`, and cuts messages
+over 8 KB. Redaction is a safety net; don't log secrets. `console.log` output only goes to the
+developer tools console and isn't kept. See
+[Logs and failures](/docs/widgets/reference/logs-and-failures/) for the full rules.
+
+## When a widget breaks
+
+Every contribution renders inside an error boundary. Make `HelloPage` throw to see it:
+
+```js
+toolblox.registerPage(function HelloPage() {
+  throw new Error("Not yet");
+});
+```
+
+After a reload, the page shows an inline alert, "Hello Panel failed to render. (Error: Not yet)",
+in place of the widget's content, and the rest of the app keeps working. The log gets a "Render
+failed" line with the component stack.
+
+Error boundaries can't help with everything a full-trust module can do. An infinite loop in
+`activate`, a stylesheet that hides the sidebar, or a replaced screen with no way back can make the
+app unusable. Safe mode starts Toolblox with every widget off for one session:
+
+- **From the tray**, select **Restart without widgets**.
+- **From a terminal**, start Toolblox with `--safe-mode`. For a development build, arguments after
+  a second `--` reach the app:
+
+  ```sh
+  npx tauri dev -- -- --safe-mode
+  ```
+
+- **From the data folder**, create an empty file named `safe-mode-next-launch` in the `v2` folder,
+  then start Toolblox. It deletes the file as it reads it.
+
+In safe mode a banner reads "Safe mode. Widgets are off for this session." No module is imported,
+`open_widget` refuses every surface, and no widget processes start with the app. The Widgets page
+still works, so you can turn the broken widget off, then select **Restart normally**.
+
+While developing you can also hide a widget from Toolblox without deleting it: rename its folder so
+it starts with a dot, such as `.hello_panel`. Discovery skips hidden folders.
+
+## Write it with JSX
+
+Calling `createElement` by hand gets unwieldy past a few components. Any bundler that can set the
+JSX factory works, as long as the factory is the app's React. The approach below uses
+[esbuild](https://esbuild.github.io/) and keeps the source in `src/`, building `main.js` at the
+widget root.
+
+<FileTree>
+- hello_panel/
+  - widget.json
+  - main.js (built)
+  - package.json
+  - src/
+    - host.js
+    - main.jsx
+    - HelloPage.jsx
+</FileTree>
+
+`host.js` holds the host API in live bindings that every other file imports. ES module exports are
+live, so the values assigned in `bind` are visible to every importer, and esbuild preserves that
+when it bundles.
+
+```js title="src/host.js"
+export let toolblox;
+export let React;
+export let ui;
+
+export function bind(api) {
+  toolblox = api;
+  React = api.React;
+  ui = api.ui;
+}
+```
+
+Each JSX file imports `React` from `host.js`, which puts it in scope for the JSX factory:
+
+```jsx title="src/HelloPage.jsx"
+import { React, toolblox, ui } from "./host.js";
+
+const playIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M6 3v18l15-9Z" /></svg>;
+
+export function HelloPage() {
+  const state = toolblox.useAppState();
+  const [greetings, setGreetings] = React.useState(0);
+  const inGame = state.accounts.filter((account) => account.presence === "playing").length;
+  return <>
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
+      <ui.StatTile icon={playIcon()} label="In game" value={inGame} />
+    </div>
+    <section className="flex flex-col gap-2">
+      <ui.SectionTitle>Greeting</ui.SectionTitle>
+      <ui.Panel className="flex items-center gap-3 px-4 py-3">
+        <p className="min-w-0 flex-1 text-sm">{greetings ? `Greeted ${greetings} times.` : "No greetings yet."}</p>
+        <ui.Button variant="outline" size="sm" onClick={() => { setGreetings((count) => count + 1); toolblox.notify("Hello from Hello Panel."); }}>Say hello</ui.Button>
+      </ui.Panel>
+    </section>
+  </>;
+}
+```
+
+```jsx title="src/main.jsx"
+import { bind, toolblox } from "./host.js";
+import { HelloPage } from "./HelloPage.jsx";
+
+export async function activate(api) {
+  bind(api);
+  void toolblox.log.info(`Activated version ${toolblox.widget.version}`);
+  toolblox.registerPage(HelloPage);
+}
+
+export function deactivate() {}
+```
+
+```json title="package.json"
+{
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/main.jsx --bundle --format=esm --target=es2022 --jsx-factory=React.createElement --jsx-fragment=React.Fragment --outfile=main.js",
+    "watch": "npm run build -- --watch"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
+```
+
+Run `npm install` once, then `npm run watch` while you work and reload the Toolblox window after
+each rebuild. The output must be a single ES module (`--format=esm`) that exports `activate`, and
+`--bundle` inlines your other files so `main.js` doesn't depend on `src/`.
+
+Notes on this setup:
+
+- `--jsx-factory=React.createElement` compiles `<div />` to `React.createElement("div")`, using
+  whatever `React` is in scope. Because components only render after `activate` has called
+  `bind`, `React` is always set by then.
+- Don't `import React from "react"` anywhere, and don't depend on packages that do. The bundle
+  would then contain a second React, and hooks would fail with "Invalid hook call".
+- `<ui.StatTile>` works because JSX treats a dotted name as a component reference.
+- TypeScript works the same way: esbuild compiles `.tsx` files with the same flags. Toolblox
+  doesn't publish a types package; the API's shape is `createApi` in
+  [`src/widgets/host.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/widgets/host.tsx),
+  documented on [Host API](/docs/widgets/reference/host-api/).
+- Leave `package.json`, `src/`, and `node_modules/` out of the package you publish. See
+  [Packaging](/docs/widgets/publishing/packaging/).
+
+## Common mistakes
+
+| Symptom | Cause |
+| --- | --- |
+| The widget doesn't appear, and the Widgets page shows "Widget … couldn't load: …" | The manifest failed validation. The message names the rule, such as "The widget version isn't valid SemVer." |
+| The widget doesn't appear and there's no error | The folder name starts with `.`, the folder isn't directly inside the widgets folder, or the window hasn't regained focus since you added it. |
+| The card shows **Failed to load** | The import or `activate` threw. Check the log for "Module failed to load". A folder name that doesn't match the `id` causes a failed import. |
+| "Invalid hook call" | A hook ran in `activate` instead of a component, or the bundle contains its own React. |
+| Code changes don't show | The window wasn't reloaded. Toggling the widget reuses the cached module. |
+| Styles don't apply | The Tailwind class isn't used anywhere in the app, so it isn't compiled. |
+| `fetch()` fails with a Content Security Policy error | The app's policy only allows connections to the Rust host. Use `toolblox.request("network.fetch", …)`. |
+| The widget works in development but a release build rejects it | Release builds load only catalogue installs. See [Publishing](/docs/widgets/publishing/packaging/). |
+
+## Next steps
+
+- [Pages and screens](/docs/widgets/tutorials/pages-and-screens/) adds a settings page, tabs, and a
+  replacement Dashboard.
+- [Host API](/docs/widgets/reference/host-api/) lists every member of `toolblox`.

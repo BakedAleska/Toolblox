@@ -1,7 +1,8 @@
 name: Pages
 
-# The only workflow that deploys GitHub Pages. It publishes the download page, the signed update
-# manifest and widget catalogue, and the API docs from the docs branch under /docs/.
+# The only workflow that deploys GitHub Pages. It publishes the Astro site (the download page and
+# the widget docs under /docs/), the signed update manifest and widget catalogue, and the API docs
+# from the docs branch under /api/.
 #
 # Installed apps refuse to open once the manifest expires (seven days), so it's re-signed daily.
 # Releases and docs builds call this workflow instead of deploying themselves, runs are queued
@@ -39,6 +40,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - run: npm ci && npm run build
+        working-directory: site
       - run: node scripts/publish-updates.mjs
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -47,7 +50,7 @@ jobs:
       - name: Add the API docs
         run: |
           rm -rf api-docs/.git
-          mv api-docs _site/docs
+          mv api-docs _site/api
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

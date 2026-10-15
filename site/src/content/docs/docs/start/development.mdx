@@ -1,0 +1,377 @@
+---
+title: Development setup
+description: How to build, run, test, and debug Toolblox from source, including demo mode, unpacked widgets, safe mode, logs, and the data folder.
+sidebar:
+  order: 3
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Everything in this page applies equally to working on Toolblox itself and to building widgets
+against it: widget development happens in a development build of the app, which loads unpacked
+widgets from disk.
+
+## Prerequisites
+
+- **Node.js 22.** CI and the release workflow use Node.js 22.
+- **Rust, stable toolchain,** with `rustfmt` and `clippy` for the verification commands. The crate
+  uses the 2024 edition, so the toolchain must support it.
+- **The Tauri prerequisites** for your platform, listed at
+  [tauri.app/start/prerequisites](https://tauri.app/start/prerequisites/): on Windows, the
+  Microsoft C++ Build Tools and WebView2; on macOS, the Xcode command line tools.
+
+Then install dependencies from the repository root:
+
+```sh
+npm install
+```
+
+## Running the app
+
+There are three ways to run the interface, each defined in
+[`package.json`](https://github.com/BakedAleska/Toolblox/blob/main/package.json).
+
+| Command | What runs | Data |
+| --- | --- | --- |
+| `npm run tauri dev` | The full app: a debug build of the Rust host and the Vite dev server with hot reload | Real data folder, real Roblox sign-in and joins |
+| `npm run demo` | The full app with `tauri.demo.conf.json`, which starts Vite in `demo` mode | Sample data in the interface |
+| `npm run dev` | Only the Vite dev server at `http://localhost:1420`, opened in a normal browser | Sample data |
+
+### `npm run tauri dev`
+
+The Tauri CLI first runs `beforeDevCommand` (`npm run dev`) to start Vite on port 1420, then builds
+and launches the debug Rust binary pointed at `http://localhost:1420`. Vite uses `strictPort`, so
+the command fails if another process holds port 1420. Interface changes hot-reload; Rust changes
+trigger a rebuild and restart. Vite ignores `src-tauri` when watching, so Rust edits don't cause
+interface reloads.
+
+Debug builds behave differently from installed releases in several deliberate ways:
+
+| Behavior | Debug build | Release build |
+| --- | --- | --- |
+| Startup update check | Skipped; startup goes straight to `ready` after preparing local data | Required; fails closed |
+| Data folder | `TOOLBLOX_DATA_DIR` when set, otherwise the normal folder | The normal folder |
+| Widget catalogue | Empty, unless `TOOLBLOX_CATALOGUE_URL` was set at compile time | Downloaded and verified |
+| Unpacked widgets | Loaded without install metadata | Rejected: "missing install metadata" |
+| Log level for Toolblox and widget records | `Debug` and up | `Info` and up |
+| Launch at login | Not reconciled with settings at startup | Reconciled |
+| Channel shown in the sidebar | `v<version>-canary` | `v<version>` |
+| Widgets folder path on the Widgets screen | Shown | Hidden |
+| Console window on Windows | Present (the GUI subsystem is set only for release in `main.rs`) | None |
+
+The **Check now** button in Settings re-runs startup, which in a debug build just reports
+"Up to date."
+
+<Aside type="caution" title="Development builds use your real accounts by default">
+Without `TOOLBLOX_DATA_DIR`, a debug build reads and writes the same data folder as an installed
+copy of Toolblox. Set it to keep development data separate:
+
+<Tabs>
+  <TabItem label="PowerShell">
+    ```powershell
+    $env:TOOLBLOX_DATA_DIR = "$PWD\.devdata"
+    npm run tauri dev
+    ```
+  </TabItem>
+  <TabItem label="bash or zsh">
+    ```sh
+    TOOLBLOX_DATA_DIR="$PWD/.devdata" npm run tauri dev
+    ```
+  </TabItem>
+</Tabs>
+
+`TOOLBLOX_DATA_DIR` replaces the `Toolblox` folder itself, so current data goes in
+`$TOOLBLOX_DATA_DIR/v2`. It has no effect on sessions: the credential store is shared by every
+build on the device, keyed only by account ID. Signing in an account in a development build
+replaces that account's session for the installed app too, and removing an account deletes its
+session for every build.
+</Aside>
+
+### `npm run demo`
+
+Demo mode runs the real Tauri window, but the interface never calls the Rust host for app data.
+[`src/bridge.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/bridge.ts) decides with:
+
+```ts
+const isTauri = () => "__TAURI_INTERNALS__" in window && import.meta.env.MODE !== "demo";
+```
+
+`npm run demo` starts Vite with `--mode demo`, so `isTauri()` is false even inside the Tauri
+window. A plain `npm run dev` opened in a browser has no `__TAURI_INTERNALS__` and behaves the
+same. In both cases every `bridge` method runs its demo implementation on in-memory sample data,
+which is reset on every reload.
+
+What demo mode simulates:
+
+| Area | Simulation |
+| --- | --- |
+| Accounts | Five sample accounts covering in game (with and without a game name), a presence warning, a per-account place, and a new account. **Add account** appends a `demo_user_<n>`; notes, removal, reordering, and per-account places edit the sample list. |
+| Joining | Updates `lastPlayedAt` and `lastPlaceId`. Nothing launches. |
+| Settings | Saved in memory. Setting a place adds it to recent places (six at most). |
+| Widgets | Five installed widgets with varied permissions, an available update, a disabled widget, and a start-on-launch widget. Two are real module widgets loaded from [`src/demo-widgets`](https://github.com/BakedAleska/Toolblox/tree/main/src/demo-widgets): `rogue_lineage` and `stock_notifier`. |
+| Catalogue | Six uninstalled entries. Installing moves an entry into the installed list. |
+| Widget storage | `storage.get/set` use an in-memory map. `rogue_lineage` starts with sample race and class data. |
+| Widget sessions and IPC | `openWidget` returns a random session and `about:blank`; `request` always resolves with `null`. Iframe surfaces render blank. |
+| Log | Six sample lines in Settings > Diagnostics. `writeLog` prints to the browser console instead. |
+| Updater | Settings > About shows **Demo previews**: **Update** replays checking (2 seconds) then installing until 6 seconds, and **Failure** replays checking then the failure screen with **Retry** and **Quit**. |
+
+<Aside>
+Demo mode only changes the interface. In `npm run demo` the Rust host still starts normally:
+it resolves the data folder, writes logs, installs the tray, and runs background services such as
+auto-rejoin against whatever real settings are saved. Use `TOOLBLOX_DATA_DIR` if that matters.
+</Aside>
+
+Demo mode is the fastest way to iterate on interface work and on module widget code that only
+needs host API calls, because the two demo widgets load through Vite with hot reload.
+
+## Verification
+
+These are the checks CI runs on Windows and macOS for every pull request. Run them before
+opening one.
+
+```sh
+npm run check        # tsc --noEmit over src
+npm test             # vitest run (src/logic.test.ts)
+cd src-tauri
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+What each covers:
+
+- **`npm run check`** type-checks the interface with the strict settings in `tsconfig.json`,
+  including unused locals and parameters.
+- **`npm test`** runs the Vitest suite in
+  [`src/logic.test.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/logic.test.ts):
+  relative times (accepting both legacy seconds and milliseconds), account sorting, place ID
+  parsing, and sidebar width snapping and keyboard stepping.
+- **`cargo fmt --check`** and **`cargo clippy --all-targets -- -D warnings`** enforce formatting
+  and treat every lint as an error, tests included.
+- **`cargo test`** runs the unit tests embedded in the Rust modules. Security-sensitive logic is
+  tested there: update decisions in `update.rs`, redaction and rotation in `logs.rs`, manifest and
+  archive validation in `widgets.rs`, message authorization in `widget_ipc.rs`, process handling in
+  `widget_process.rs`, legacy migration, storage, sign-in cookie matching, Roblox parsing, close
+  decisions, and the one-time safe mode marker.
+
+CI additionally runs `npm audit`, `npm run build`, `cargo doc --no-deps --document-private-items --lib`
+with `RUSTDOCFLAGS=-D warnings`, a release-profile clippy pass, and a debug
+`npm run tauri build -- --debug --no-bundle`. The rustdoc step fails on broken doc links, and the
+release clippy pass covers code such as the update check that only compiles outside debug builds.
+[`CONTRIBUTING.md`](https://github.com/BakedAleska/Toolblox/blob/main/CONTRIBUTING.md) asks for a
+`///` comment on every Rust function, type, and constant, since the
+[API reference](/api/toolblox_lib/) is generated from them.
+
+To build a debug Windows installer locally without signing keys:
+
+```sh
+npm run preview:installer
+```
+
+This runs `tauri build --debug --bundles nsis` with `tauri.preview.conf.json`, which turns off
+updater artifacts.
+
+## Loading unpacked widgets
+
+Development builds load widget folders from the widgets folder directly, without a package,
+catalogue entry, or install record. This is how widgets are built and tested.
+
+<Steps>
+
+1. Start a development build with `npm run tauri dev`, optionally with `TOOLBLOX_DATA_DIR` set.
+
+2. Open the **Widgets** screen. In development builds, a panel at the bottom reads "Development
+   builds also load unpacked widgets from this folder" and shows the path with a copy button. It's
+   `<data folder>/v2/widgets`, which is `%LOCALAPPDATA%\Toolblox\v2\widgets` on Windows and
+   `~/Library/Application Support/Toolblox/v2/widgets` on macOS unless `TOOLBLOX_DATA_DIR` is
+   set. Toolblox creates the folder during startup.
+
+3. Create a folder inside it named exactly after the widget's `id`, with a `widget.json`:
+
+   ```text
+   widgets/
+   └── my_widget/
+       ├── widget.json
+       └── main.js
+   ```
+
+   ```json
+   {
+     "schemaVersion": 1,
+     "id": "my_widget",
+     "name": "My widget",
+     "version": "0.1.0",
+     "module": "main.js"
+   }
+   ```
+
+   The folder name matters: asset URLs are built from the manifest `id` and served from the folder
+   with that name, and enabling or disabling checks for that folder.
+
+4. Add `main.js` exporting `activate(toolblox)`. The
+   [first widget tutorial](/docs/widgets/tutorials/first-widget/) walks through it.
+
+5. Bring the Toolblox window back into focus. The interface reloads app state on focus (and every
+   60 seconds), and `get_app_state` rediscovers installed widgets on every call, so the widget
+   appears in the sidebar and on the Widgets screen.
+
+</Steps>
+
+How discovery works, from `discover_installed` and `read_installed` in
+[`widgets.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widgets.rs):
+
+- Every non-hidden subfolder is read. Folders starting with `.` (such as install staging folders)
+  are skipped.
+- `widget.json` must exist, be at most 128 KB, parse as JSON, and pass `WidgetManifest::validate`.
+  The rules are strict: the `id` is 1 to 64 lowercase letters, digits, and underscores; the name is
+  1 to 80 characters; the version is valid SemVer; at least one of `entry` or `module` is set; and
+  entry files have fixed names (`index.html`, `main.js`, `settings.html`, `dashboard.html`). The
+  [manifest reference](/docs/widgets/reference/manifest/) lists every rule.
+- If `.installed.json` is missing, debug builds accept the widget with a placeholder hash. If it's
+  present, it's checked even in debug builds, including that `widget.json` hasn't changed since
+  install.
+- A folder that fails any check doesn't stop the others. Its error appears as a red panel at the
+  top of the Widgets screen, in the form `Widget <folder> couldn't load: <reason>`.
+
+### Iterating on a module
+
+Module code is imported with a dynamic `import()` of its `widget:` URL when the widget is first
+seen enabled. Browsers cache ES modules by URL for the life of the page, so editing `main.js`
+doesn't take effect until the page reloads. Reload the window to pick up changes; the `widget:`
+protocol responds with `Cache-Control: no-store`, so the reload fetches fresh files. Disabling and
+re-enabling the widget unloads its contributions and calls `deactivate`, but re-importing the same
+URL in the same page returns the cached module.
+
+Tauri enables the WebView developer tools in debug builds, which gives a console, the network and
+sources panels, and a reload command. Errors thrown by a module during import or `activate` are
+logged as `Module failed to load: …` under `widget:<id>`, and the widget's card on the Widgets
+screen shows **Failed to load** with the error as a tooltip.
+
+## Safe mode
+
+Safe mode starts Toolblox for one session without loading any widget. It exists so a widget that
+breaks the interface can always be removed.
+
+There are four ways to enter it:
+
+| Method | How |
+| --- | --- |
+| Command line | Start the executable with `--safe-mode`, for example `src-tauri/target/debug/toolblox --safe-mode` after a dev build. |
+| Tray | Choose **Restart without widgets** from the tray or menu bar icon. |
+| Command | `restart_app` with `safeMode: true`, which `bridge.restartApp(true)` calls. |
+| Marker file | Create an empty `safe-mode-next-launch` file in `<data folder>/v2`. |
+
+The tray item and `restart_app` both write the marker file and restart. On launch,
+`take_safe_mode` in [`lib.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/lib.rs)
+deletes the marker and enables safe mode if the marker existed or `--safe-mode` was passed. Because
+the marker is consumed, the following launch loads widgets again.
+
+With the Tauri CLI, arguments after a second `--` go to the app, so a dev session can also start in
+safe mode with:
+
+```sh
+npx tauri dev -- -- --safe-mode
+```
+
+In safe mode:
+
+- The startup log line ends with `in safe mode`.
+- `Runtime.safe_mode` is `true` and `AppStateDto.safeMode` reports it.
+- `syncWidgetModules` loads no modules, so no screen replacements, pages, slots, or styles are
+  registered.
+- `open_widget` fails with "Widgets are off in safe mode. Can you restart Toolblox normally?", and
+  widget routes show **Page unavailable**.
+- Widget processes marked to start on launch don't start.
+- A banner reads "Safe mode. Widgets are off for this session." with a **Restart normally**
+  button, which calls `restart_app` with `safeMode: false`.
+
+Installed widgets still appear in the Widgets screen, so they can be disabled or uninstalled.
+
+## Where data and logs live
+
+The data folder is resolved by `toolblox_data_root` in `lib.rs`:
+
+| Platform | Data folder |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\Toolblox` |
+| macOS | `~/Library/Application Support/Toolblox` |
+| Debug build with `TOOLBLOX_DATA_DIR` | `$TOOLBLOX_DATA_DIR` |
+
+The top level is where the legacy Flet app kept its data. Current data lives in `v2`:
+
+| Path under the data folder | Contents |
+| --- | --- |
+| `accounts.json`, `settings.json` | Legacy Flet files, imported once if present |
+| `v2/settings.json` | `Settings`, including disabled widgets, start-on-launch widgets, and each widget's `storage` value |
+| `v2/accounts.json` | `StoredAccount` records, including per-account `widgetData` |
+| `v2/widgets/<id>/` | Installed and unpacked widgets |
+| `v2/logs/toolblox.log` | The current log, with `toolblox.log.1` to `.3` as older files |
+| `v2/.legacy-migration-complete` | Written after the legacy import, so it runs once |
+| `v2/highest-update-version` | Rollback protection for the update gate (release builds) |
+| `v2/safe-mode-next-launch` | The one-time safe mode marker, when present |
+
+`settings.json` and `accounts.json` don't exist until first written; missing files load as
+defaults and an empty list. Both are written atomically through a temporary file, and validated on
+every load and save.
+
+Sessions are not in the data folder. They're in Windows Credential Manager or the macOS login
+Keychain, under the service `Toolblox` with one entry per account named `account-<id>`.
+Uninstalling keeps the data folder.
+
+### The log
+
+[`logs.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/logs.rs) writes one
+line per record in the form:
+
+```text
+<UTC time> <LEVEL> <target>: <message>
+```
+
+```text
+2026-09-24T18:04:37.020Z INFO  app_commands: Joining place 8737899170 as account 101
+2026-09-24T18:12:40.655Z WARN  widget:trade_tracker: Request network.fetch failed: The widget network request failed. Is the connection working?
+```
+
+- **Targets.** Rust records use the module name (`toolblox_lib::` is stripped). Records from the
+  interface use `interface`, panics use `panic`, and widget records use `widget:<id>`.
+- **Levels.** Toolblox, interface, and widget records are kept from `Debug` up in debug builds and
+  from `Info` up in release builds. Records from other crates, such as Tauri and its plugins, are
+  kept from `Warn` up.
+- **Redaction.** Every line is redacted before it's written: cookies, tickets, authorization
+  headers, and `roblox-player:`/`roblox-studio:` launch URLs become `[redacted]`.
+- **Limits.** Messages are cut at 8 KB with ` [truncated]`. Continuation lines are indented and
+  control characters escaped, so a message can't imitate another record.
+- **Rotation.** The file rotates at 1 MB and keeps three older files.
+
+Settings > Diagnostics shows the last 300 lines (**Show**), copies up to 2,000 lines (**Copy**),
+or opens the folder in Explorer or Finder (**Open folder**).
+
+## Debugging tips
+
+Most failures already leave a trace. Where to look:
+
+- **A command failed.** Every failed `bridge` call writes `Command <name> failed: <error>` at
+  `warn` level under the `interface` target before rethrowing, so the log shows which command
+  failed and the user-facing message it returned.
+- **The interface crashed.** `src/main.tsx` logs `Uncaught error:` and `Unhandled rejection:` with
+  stacks under `interface`.
+- **A widget contribution threw while rendering.** `WidgetBoundary` replaces it with
+  `<name> failed to render.` and logs `Render failed:` with the component stack under
+  `widget:<id>`.
+- **A widget request failed.** `widget_request` logs `Request <method> failed: <error>` under
+  `widget:<id>`. Failures are returned to the widget inside the response, not thrown as command
+  errors.
+- **A widget process misbehaves.** The first 200 stderr lines per start are logged under
+  `widget:<id>`, and the end of stdout is logged as `Process <id> closed its output`.
+- **Rust panicked.** The panic hook logs the panic message and a backtrace under `panic` and
+  flushes the file.
+- **Startup is stuck on the update screen.** Release builds log `Startup stopped: <message>`; the
+  same message is shown on the gate screen. Debug builds log `Debug build: the update check is
+  skipped`.
+- **Presence looks wrong.** Presence uses the first stored session Roblox accepts. If none is
+  accepted, accounts show a warning state, and the auto-rejoin monitor logs once that presence
+  checks are failing and again when they recover.
+- **The widget doesn't appear.** Check the red error panels on the Widgets screen, that the folder
+  name equals the manifest `id`, that the widget is enabled, and that safe mode isn't on.
+- **Rust items.** The [API reference](/api/toolblox_lib/) documents private items too, which helps
+  when following a command into its helpers.

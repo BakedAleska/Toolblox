@@ -1,0 +1,23 @@
+---
+/** An app screenshot that follows the visitor's color scheme. Files live in `public/screenshots/` as `<name>-light.png` and `<name>-dark.png`. */
+interface Props {
+  name: string;
+  alt: string;
+  eager?: boolean;
+}
+
+const { name, alt, eager = false } = Astro.props;
+---
+
+<picture>
+  <source srcset={`/screenshots/${name}-dark.png`} media="(prefers-color-scheme: dark)" />
+  <img
+    src={`/screenshots/${name}-light.png`}
+    alt={alt}
+    width="2000"
+    height="1200"
+    loading={eager ? "eager" : "lazy"}
+    decoding="async"
+    class="h-auto w-full rounded-xl bg-card ring-1 ring-border"
+  />
+</picture>

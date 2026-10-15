@@ -1,0 +1,82 @@
+---
+title: Review
+description: What submitting a widget confirms, what review rejects, and how widgets are removed or reported.
+sidebar:
+  order: 3
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Every widget in the catalogue passes review before it's listed. Module widgets run with full access
+to the Toolblox interface and every host method, and processes run native code as the user, so
+review is the main safeguard between a widget author and the people who install it. These rules
+come from the project's widget contract in
+[`docs/WIDGETS.md`](https://github.com/BakedAleska/Toolblox/blob/main/docs/WIDGETS.md).
+
+<Aside title="Release builds install only reviewed widgets">
+Release builds currently install widgets only from the signed catalogue, and only reviewed widgets
+are listed there. Unreviewed widgets load only in development builds, from unpacked folders. See
+[Packaging](/docs/widgets/publishing/packaging/#development-builds).
+</Aside>
+
+## What submitting confirms
+
+Submitting a widget to the catalogue confirms that:
+
+- you wrote it or have the right to distribute it, and its source is available under an
+  [OSI-approved license](https://opensource.org/licenses) named in the submission;
+- it follows the [Roblox Terms of Use](https://www.roblox.com/info/terms) and the rules of the
+  game it supports;
+- it doesn't use Roblox or Toolblox names, logos, or wording that suggests endorsement.
+
+## What review rejects
+
+Review rejects widgets that:
+
+- play, farm, or act in a game without the user, or automate input to the Roblox client;
+- read or change Roblox client memory or files, or inject code into the client, including
+  through `optional-bin/` executables;
+- send account names, user IDs, notes, or widget data anywhere the widget's description doesn't
+  state;
+- trade, sell, transfer, or share accounts, Robux, or items outside Roblox's own features;
+- collect personal information from users, include advertising, or charge for access;
+- hide what they do, such as through obfuscated code or downloaded scripts.
+
+### How the rules map to the platform
+
+The rules apply to everything a widget can reach. These capabilities are where each rule most
+directly applies:
+
+| Capability | Rule it falls under |
+| --- | --- |
+| [`roblox.join`](/docs/widgets/reference/ipc/#robloxjoin) and [`toolblox.join`](/docs/widgets/reference/host-api/#join) | Playing, farming, or acting in a game without the user. |
+| [`process.spawn`](/docs/widgets/reference/ipc/#processspawn) and `optional-bin/` executables | Automating input to the client, reading or changing its memory or files, or injecting code into it. |
+| [`network.fetch`](/docs/widgets/reference/ipc/#networkfetch) | Sending account names, user IDs, notes, or widget data anywhere the description doesn't state. [`networkOrigins`](/docs/widgets/reference/manifest/#networkorigins) is where the contacted origins are declared. |
+| [`accounts.list`](/docs/widgets/reference/ipc/#accountslist), [`getState()`](/docs/widgets/reference/host-api/#getstate), [`widgetData`](/docs/widgets/reference/ipc/#widgetdataget) | The same disclosure rule covers the data these return. |
+| Code the widget runs | Hiding what it does through obfuscated code or downloaded scripts. The app's policy already blocks remote script URLs, so this mainly concerns text fetched with `network.fetch` and then run as code. |
+
+### Permissions and descriptions
+
+A module widget holds every permission at run time, so the manifest's `permissions`,
+`networkOrigins`, and `processes`, together with the description, are the record of what it's
+expected to do. Users see the permissions and description before installing. Declare what the
+widget uses, and describe where its data goes.
+
+## Distribution and removal
+
+Listing a widget grants Toolblox the right to distribute the reviewed package. Toolblox can remove
+a widget from the catalogue at any time, including when it breaks these rules, when Roblox
+changes make it unsafe, or after a valid legal request.
+
+Removing an entry stops new installs and updates through the catalogue. The app doesn't
+uninstall widgets that are already installed when their entry disappears.
+
+## Reporting
+
+Report a widget, or request a copyright or trademark takedown, in a
+[GitHub issue](https://github.com/BakedAleska/Toolblox/issues).
+
+A useful report names the widget ID and version, describes what the widget did, and includes the
+relevant `widget:<id>` lines from **Settings > Diagnostics**. Toolblox redacts cookies, tickets,
+and secret values from the log, but check copied lines for personal information before posting
+them publicly.

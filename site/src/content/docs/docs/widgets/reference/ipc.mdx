@@ -1,0 +1,489 @@
+---
+title: IPC methods
+description: The widget IPC envelope, every method with its parameters, result, permission, limits, and errors, and the process lifecycle.
+sidebar:
+  order: 4
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Widget IPC is the request and response protocol between widget code and the Rust host. Module
+widgets reach it with [`toolblox.request`](/docs/widgets/reference/host-api/#request). Sandboxed
+frames reach it with [`postMessage`](/docs/widgets/reference/iframe-widgets/#message-protocol).
+Both arrive at the same Tauri command, `widget_request`, which authorizes the message against the
+caller's session and dispatches it.
+
+Sources:
+[`schemas/widget-ipc-v1.schema.json`](https://github.com/BakedAleska/Toolblox/blob/main/schemas/widget-ipc-v1.schema.json),
+[`src-tauri/src/widget_ipc.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widget_ipc.rs)
+([rustdoc](/api/toolblox_lib/widget_ipc/index.html)),
+the `dispatch_widget_request` function in
+[`src-tauri/src/app_commands.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/app_commands.rs),
+and [`src-tauri/src/widget_process.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widget_process.rs).
+
+## Method summary
+
+| Method | Permission | Params | Result |
+| --- | --- | --- | --- |
+| [`accounts.list`](#accountslist) | `accounts.read.basic` | none | `{ id, name, displayName, avatarUrl }[]` |
+| [`widgetData.get`](#widgetdataget) | `widgetData.read` | `{ accountId }` | stored value or `null` |
+| [`widgetData.set`](#widgetdataset) | `widgetData.write` | `{ accountId, value }` | `null` |
+| [`roblox.status`](#robloxstatus) | `roblox.status` | none | `{ [userId]: presence }` |
+| [`roblox.join`](#robloxjoin) | `roblox.join` | `{ accountIds }` | `null` |
+| [`network.fetch`](#networkfetch) | `network.fetch` | `{ url }` | `{ status, body }` |
+| [`log.write`](#logwrite) | none | `{ message, level? }` | `null` |
+| [`process.spawn`](#processspawn) | `process.spawn` | `{ processId, arguments? }` | `null` |
+| [`process.send`](#processsend) | `process.spawn` | `{ processId, message }` | `{ events }` |
+| [`process.poll`](#processpoll) | `process.spawn` | none | `{ events }` |
+| [`process.stop`](#processstop) | `process.spawn` | `{ processId }` | `null` |
+
+Module sessions hold every permission. Frame sessions hold the permissions in the widget's
+manifest. See [Permissions](/docs/widgets/reference/permissions/).
+
+## Envelope
+
+### Request
+
+```json
+{
+  "protocol": 1,
+  "requestId": "4f1d6c2e-5a0b-4d8e-9a43-1c2b3d4e5f60",
+  "method": "widgetData.get",
+  "params": { "accountId": 101 }
+}
+```
+
+| Field | Type | Rule |
+| --- | --- | --- |
+| `protocol` | integer | Must be `1`. |
+| `requestId` | string | 1 to 128 bytes, chosen by the widget and echoed in the response. A UUID from `crypto.randomUUID()` works. |
+| `method` | string | One of the methods above. |
+| `params` | any JSON | Method parameters. Omitted means `null`, which methods without parameters accept and others reject as a missing field. |
+
+The schema rejects other top-level fields. The host parser ignores them.
+
+### Response
+
+```json
+{ "protocol": 1, "requestId": "4f1d6c2e-…", "result": { "race": "vind" } }
+```
+
+```json
+{ "protocol": 1, "requestId": "4f1d6c2e-…", "error": "The account wasn't found. Can you refresh the widget?" }
+```
+
+Exactly one of `result` and `error` is present. `result` is present, possibly as `null`, when the
+method succeeded. `error` is a user-facing sentence in the app's style: what failed, then a
+question that points toward recovery where one applies.
+
+### Authorization
+
+Before a method runs, the host checks the message in this order. A failure here isn't a
+`{ error }` response: the `widget_request` command itself fails, which modules see as a rejected
+promise with a string and frames receive as a synthesized `{ error }` response. These failures
+are logged under the `interface` target as `Command widget_request failed: <error>`, not under
+`widget:<id>`.
+
+| Check | Error |
+| --- | --- |
+| The session ID exists. Sessions end when the frame unmounts or the module unloads. | `The widget session isn't active.` |
+| The widget ID sent with the message matches the session's widget. | `The widget session identity doesn't match.` |
+| The serialized message is at most 64 KB. | `The widget message is too large.` |
+| Fewer than 30 requests were accepted for this session in the last rolling second. | `The widget is sending requests too quickly.` |
+| The message is valid JSON with the envelope's fields and types. | `The widget message isn't valid JSON.` |
+| `protocol` is `1`. | `The widget protocol version isn't supported.` |
+| `requestId` is 1 to 128 bytes. | `The widget request ID isn't valid.` |
+| `method` is known. | `The widget method isn't supported.` |
+| The session holds the method's permission. `log.write` needs none. | `The widget hasn't been granted permission for this action.` |
+
+Requests that fail the size check or the rate limit don't count toward the rate limit; requests
+that fail later checks do.
+
+<Aside type="caution" title="The 64 KB message limit applies to parameters">
+The limit covers the whole serialized request, including `params`. Values sent with
+`widgetData.set` and messages sent with `process.send` are therefore capped near 64 KB in
+practice, even where the method itself allows more. For larger widget-wide data, use
+[`toolblox.storage`](/docs/widgets/reference/host-api/#storage), which isn't an IPC method and
+accepts up to 1 MB.
+</Aside>
+
+### Method errors
+
+When a method fails after authorization, the response carries `error`, and the host logs
+`Request <method> failed: <error>` at `warn` under `widget:<id>`.
+
+Parameter errors share these messages, where `<field>` is the parameter name:
+
+| Error | Raised when |
+| --- | --- |
+| `The widget parameter <field> isn't a positive integer.` | A required integer is missing, negative, fractional, or not a number. Zero passes this check. |
+| `The widget parameter <field> isn't a non-empty string.` | A required string is missing, empty, or not a string. |
+| `The widget parameter <field> isn't an array.` | An array parameter has another type. |
+| `The widget parameter <field> must contain account IDs.` | `accountIds` is empty or contains a non-integer. |
+| `The widget parameter <field> contains a non-string value.` | `arguments` contains a non-string. |
+
+Any method can also fail with `The widget process manager is busy. Can you try again?` or a
+storage error if an internal lock or file operation fails.
+
+## Methods
+
+### `accounts.list`
+
+Lists saved accounts with display data only.
+
+- **Permission:** `accounts.read.basic`
+- **Params:** none
+- **Result:** an array in the saved account order.
+
+```json
+[
+  { "id": 101, "name": "builderman_alt", "displayName": "Builder", "avatarUrl": "https://tr.rbxcdn.com/…" },
+  { "id": 105, "name": "new_account_2026", "displayName": "Fresh Start", "avatarUrl": null }
+]
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | integer | Roblox user ID. Use it as `accountId` in other methods. |
+| `name` | string | Roblox username. |
+| `displayName` | string | Roblox display name. |
+| `avatarUrl` | string or `null` | Headshot URL, or `null` before it's loaded. |
+
+Notes, presence, place overrides, and play history aren't included. Module widgets read those from
+[`getState()`](/docs/widgets/reference/host-api/#getstate).
+
+### `widgetData.get`
+
+Reads this widget's data for one account.
+
+- **Permission:** `widgetData.read`
+- **Params:** `{ "accountId": number }`
+- **Result:** the stored JSON value, or `null` if none is stored.
+- **Errors:** `The account wasn't found. Can you refresh the widget?`
+
+```js
+const entry = await toolblox.request("widgetData.get", { accountId: 101 });
+```
+
+Data is namespaced by widget ID, so a widget only ever reads its own entry.
+
+### `widgetData.set`
+
+Stores this widget's data for one account, replacing any previous value.
+
+- **Permission:** `widgetData.write`
+- **Params:** `{ "accountId": number, "value": any JSON }`
+- **Result:** `null`
+- **Limits:** the serialized `value` may be at most 1 MB, and the whole request at most 64 KB.
+- **Errors:** `The widget data value is missing.`, `The widget data is larger than 1 MB.`,
+  `The account wasn't found. Can you refresh the widget?`
+
+```js
+await toolblox.request("widgetData.set", { accountId: 101, value: { race: "vind", class: "shinobi" } });
+```
+
+The value is saved with the account in `accounts.json` in the data folder. Setting `null` stores
+`null`, which reads back the same as no value. Per-account data is removed when the account is
+removed. It isn't removed when the widget is uninstalled, so reinstalling the widget finds it
+again.
+
+### `roblox.status`
+
+Reads the Roblox presence of every saved account.
+
+- **Permission:** `roblox.status`
+- **Params:** none
+- **Result:** an object keyed by user ID (as a string), with one presence value per saved account.
+
+```json
+{ "101": "in_game", "102": "online", "103": "unknown", "104": "offline" }
+```
+
+| Value | Meaning |
+| --- | --- |
+| `offline` | Not on Roblox. |
+| `online` | On Roblox but not in a game. |
+| `in_game` | In a game. |
+| `in_studio` | In Roblox Studio. |
+| `unknown` | Roblox didn't return a known presence for the user. |
+
+Rust makes one presence request on behalf of all accounts, using the first saved account whose
+session Roblox accepts. The session itself never leaves Rust.
+
+- **Errors:** `No signed-in account could check Roblox status. Can you sign in again?` when no
+  account has a usable session (including when there are no accounts), or a Roblox network or
+  response error.
+
+### `roblox.join`
+
+Launches Roblox for one or more accounts.
+
+- **Permission:** `roblox.join`
+- **Params:** `{ "accountIds": number[] }`, non-empty.
+- **Result:** `null`, after every account has launched.
+
+Each account joins its own place override, or the default place when it has none. Unlike
+[`toolblox.join`](/docs/widgets/reference/host-api/#join), there's no place prompt: an account
+with no place fails the request. Accounts launch one at a time, one second apart. A failed join
+ticket is retried up to three times, and each failure doubles the gap between launches, up to
+five seconds, for the rest of the batch. When the user has multiple instances turned on, the
+host prepares each launch the same way the app's own Join does. Each launch is recorded as the
+account's last play.
+
+- **Errors:**
+  `An account wasn't found. Can you refresh the widget?`,
+  `No place is set to join. Can you set one on the Accounts screen?`,
+  `Roblox couldn't be opened. Is Roblox installed?`,
+  and Roblox, credential, place, and multi-instance errors. A failure stops the batch; accounts
+  before it have already launched.
+
+The [review rules](/docs/widgets/publishing/review/) reject widgets that play or act in a game
+without the user. Join only in response to a user action or a schedule the user set up.
+
+### `network.fetch`
+
+Fetches an HTTPS URL as text.
+
+- **Permission:** `network.fetch`
+- **Params:** `{ "url": string }`
+- **Result:** `{ "status": number, "body": string }`
+
+```js
+const { status, body } = await toolblox.request("network.fetch", { url: "https://api.example.com/stock.json" });
+if (status === 200) render(JSON.parse(body));
+```
+
+Behaviour and limits:
+
+- The request is always a `GET` with no request body and no widget-supplied headers. The
+  `User-Agent` is `Toolblox/<version>`.
+- The URL must use `https` and must not contain a username or password.
+- Redirects aren't followed. A `3xx` response comes back as its status and body.
+- Any HTTP status is a success at the IPC level. Check `status` yourself.
+- The request times out after 20 seconds.
+- The body must be at most 1 MB and valid UTF-8. Binary responses fail.
+- The request doesn't carry Roblox cookies or any other credentials.
+
+- **Errors:**
+  `The widget URL isn't valid.`,
+  `Widgets can only fetch HTTPS URLs without embedded credentials.`,
+  `The widget network request failed. Is the connection working?` (connection failures and
+  timeouts),
+  `The widget network response is larger than 1 MB.`,
+  `The widget network response couldn't be read.`,
+  `The widget network response isn't UTF-8 text.`
+
+<Aside>
+`network.fetch` doesn't currently restrict URLs to the manifest's
+[`networkOrigins`](/docs/widgets/reference/manifest/#networkorigins). Declare them anyway; they
+describe the widget's network use for review.
+</Aside>
+
+The app's Content Security Policy blocks `fetch` and `XMLHttpRequest` to the internet from the app
+window and from frames, so this method is how widgets reach the network.
+
+### `log.write`
+
+Writes a record to the Toolblox log under `widget:<id>`.
+
+- **Permission:** none
+- **Params:** `{ "message": string, "level"?: "debug" | "info" | "warn" | "error" }`
+- **Result:** `null`
+- **Errors:** `The widget parameter message isn't a non-empty string.`,
+  `The widget parameter level must be debug, info, warn, or error.`
+
+`level` defaults to `info`. Messages are cut at 64 KB on arrival, then redacted and cut at 8 KB
+when written. Module widgets can use [`toolblox.log`](/docs/widgets/reference/host-api/#log)
+instead, which doesn't go through the session. See
+[Logs and failures](/docs/widgets/reference/logs-and-failures/).
+
+### `process.spawn`
+
+Starts a process the manifest declares.
+
+- **Permission:** `process.spawn`
+- **Params:** `{ "processId": string, "arguments"?: string[] }`
+- **Result:** `null`
+
+```js
+await toolblox.request("process.spawn", { processId: "price-worker", arguments: ["--quiet"] });
+```
+
+Rules:
+
+- `processId` must match an `id` under [`processes`](/docs/widgets/reference/manifest/#processes)
+  in the widget's manifest.
+- `arguments` may hold at most 32 strings of up to 1 KB each, and every one must appear in that
+  process's `allowedArguments`. Order and repetition aren't checked.
+- The executable is resolved inside the widget's install folder and must be a file there.
+- The process starts with the widget's install folder as its working directory, with standard
+  input, output, and error piped to Toolblox. It runs as the signed-in user and isn't sandboxed.
+- One instance per process ID per widget. Starting a process that's still running fails; starting
+  one that has exited replaces it.
+
+- **Errors:**
+  `The widget process isn't declared.`,
+  `The widget requested unsupported process arguments.`,
+  `The widget process is already running.`,
+  `The widget process state couldn't be read.`,
+  `Couldn't resolve the widget directory.`,
+  `Couldn't resolve the widget process executable.`,
+  `The widget process executable is outside its package.`,
+  `Couldn't start the widget process. Is the package complete?`,
+  `Couldn't open the widget process input.`, `Couldn't open the widget process output.`,
+  `Couldn't open the widget process error stream.`
+
+### `process.send`
+
+Writes one line of JSON to a running process's standard input, then returns buffered output.
+
+- **Permission:** `process.spawn`
+- **Params:** `{ "processId": string, "message": any JSON }`
+- **Result:** `{ "events": ProcessEvent[] }`, the same as [`process.poll`](#processpoll).
+
+```js
+const { events } = await toolblox.request("process.send", { processId: "price-worker", message: { type: "refresh", item: "katana" } });
+```
+
+The host serializes `message` as compact JSON, which never contains a raw line break, and writes it
+followed by `\n`. A process reads one JSON value per line. The serialized message must be under
+64 KB.
+
+- **Errors:** `The process message is missing.`,
+  `Widget process messages must be one line under 64 KB.`,
+  `Widget process messages must be valid JSON.`,
+  `The widget process isn't running.`,
+  `Couldn't send data to the widget process.`
+
+### `process.poll`
+
+Returns and removes this widget's buffered process output.
+
+- **Permission:** `process.spawn`
+- **Params:** none
+- **Result:** `{ "events": ProcessEvent[] }`
+
+```json
+{
+  "events": [
+    { "widgetId": "trade_tracker", "processId": "price-worker", "stream": "stdout", "line": "{\"katana\":1200}" },
+    { "widgetId": "trade_tracker", "processId": "price-worker", "stream": "stderr", "line": "cache miss" }
+  ]
+}
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `widgetId` | string | Always this widget. |
+| `processId` | string | The process that wrote the line. |
+| `stream` | `"stdout"` or `"stderr"` | The stream the line came from. |
+| `line` | string | One line without its trailing `\n` or `\r\n`. |
+
+Events from every process of this widget come back in one list, in arrival order per stream. Other
+widgets' events are kept for them. Poll on an interval while a process runs:
+
+```js
+const timer = setInterval(async () => {
+  const { events } = await toolblox.request("process.poll");
+  for (const event of events) if (event.stream === "stdout") handle(JSON.parse(event.line));
+}, 500);
+```
+
+At 30 requests per second per session, an interval of a few hundred milliseconds leaves room for
+other calls.
+
+### `process.stop`
+
+Stops a running process.
+
+- **Permission:** `process.spawn`
+- **Params:** `{ "processId": string }`
+- **Result:** `null`
+- **Errors:** `Couldn't stop the widget process.`,
+  `Couldn't finish stopping the widget process.`
+
+The host kills the process and waits for it to exit. The kill is immediate: the process gets no
+chance to clean up, so send it a shutdown message with `process.send` first if it needs one.
+Stopping a process that isn't running, or has already exited, succeeds.
+
+## Process lifecycle
+
+```text
+ process.spawn ──► running ──► output lines ──► reader threads ──► shared buffer (1,024 events)
+                      │                                                   │
+                      │                                    process.poll / process.send
+                      │                                                   ▼
+                      │                                         this widget's events
+                      ▼
+ stopped by: process.stop · widget disabled · widget updated · widget uninstalled · Toolblox quits
+```
+
+### Output handling
+
+- Two background threads per process read standard output and standard error line by line.
+- Lines longer than 64 KB are cut at 64 KB; the rest of the line is discarded. Invalid UTF-8 is
+  replaced with U+FFFD.
+- Events wait in a buffer shared by all widgets until their widget polls. The buffer holds 1,024
+  events between polls. When it's full, the reader threads wait, the process's output pipes fill,
+  and the process blocks on its next write until a widget polls. Poll regularly while a process
+  is running.
+- When standard output closes, the host logs `Process <id> closed its output` at `info`.
+
+### Logging
+
+Under `widget:<id>`, the host logs:
+
+| Record | Level |
+| --- | --- |
+| `Started process <id> (pid <n>)` | `info` |
+| `<id>: <line>` for each of the first 200 standard error lines of each start | `warn` |
+| `<id>: further error output isn't logged` after the 200th | `warn` |
+| `Process <id> closed its output` | `info` |
+| `Stopped process <id>`, when a running process is killed | `info` |
+
+Standard error lines after the 200th still reach the widget through `process.poll`.
+
+### When processes stop
+
+| Event | Effect |
+| --- | --- |
+| `process.stop` | Stops that process. |
+| Widget disabled | Stops all of the widget's processes. |
+| Widget updated | Stops all of its processes before the new version installs. |
+| Widget uninstalled | Stops all of its processes before the folder is removed. |
+| Toolblox quits | Stops every process. |
+| Module unloads or a frame closes | Nothing. Processes keep running and output keeps buffering. |
+
+A process that exits by itself stays recorded until it's stopped or started again; starting it
+again replaces it.
+
+### Start with Toolblox
+
+Any widget that declares processes gets a **Start with Toolblox** switch on its settings page.
+When it's on and the widget is enabled, Toolblox starts every declared process, with no arguments,
+after the startup update check passes. This doesn't happen in safe mode. A process that fails to
+start is logged as `Widget <id> process <process> didn't start on launch: <error>`.
+
+## Schema
+
+The JSON Schema for requests is published at
+`https://toolblox.dev/schemas/widget-ipc-v1.schema.json`:
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "requestId", "method"],
+  "properties": {
+    "protocol": { "const": 1 },
+    "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "method": {
+      "enum": [
+        "accounts.list", "widgetData.get", "widgetData.set", "roblox.status", "roblox.join",
+        "network.fetch", "log.write", "process.spawn", "process.send", "process.poll", "process.stop"
+      ]
+    },
+    "params": {}
+  }
+}
+```

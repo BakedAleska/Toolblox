@@ -1,0 +1,266 @@
+---
+import "../styles/global.css";
+import GitHubIcon from "../components/GitHubIcon.astro";
+import Screenshot from "../components/Screenshot.astro";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { ArrowRight, ChevronDown, CircleHelp, Download, Eye, Hammer, Laptop, Lock, Monitor, Puzzle, Users } from "lucide-react";
+
+const repo = "https://github.com/BakedAleska/Toolblox";
+const installer = `${repo}/releases/latest/download/Toolblox-Setup.exe`;
+
+/** One card each for open source, security, and features. */
+const highlights = [
+  { icon: Eye, title: "Open source", text: "The complete source code is public on GitHub, and every release is built from it in the open. Free under the MIT License." },
+  { icon: Lock, title: "Private by default", text: "Accounts are added through Roblox's own sign-in page and kept in Windows' secure storage. Toolblox never sees your password and collects no data." },
+  { icon: Users, title: "Built for multiple accounts", text: "Join games with several accounts at once, each in its own Roblox window, with alerts and optional auto-rejoin on disconnect." },
+];
+
+const questions = [
+  { question: "Is Toolblox free?", answer: "Yes. Toolblox is free, with no advertisements or paid features, and is released under the MIT License." },
+  { question: "Can Toolblox see my password?", answer: "No. Accounts are added through Roblox's own sign-in page. Toolblox stores only the login token Roblox provides, keeps it in your computer's secure storage, and never sends it anywhere other than Roblox." },
+  { question: "Could using Toolblox affect my account?", answer: "Toolblox doesn't modify Roblox or provide any in-game advantage, and it launches Roblox the same way the Roblox website does. However, Roblox determines how its Terms of Use apply to third-party applications, so no outside app can guarantee an account's standing." },
+  { question: "Why does Windows show a warning?", answer: "Windows shows this warning for applications from publishers it doesn't recognize yet, and Toolblox doesn't currently have a paid code-signing certificate. Select More info, then Run anyway, but only for a file downloaded from this site or the official GitHub page." },
+  { question: "Is Toolblox made by Roblox?", answer: "No. Toolblox is an independent project and isn't affiliated with or endorsed by Roblox Corporation." },
+  { question: "Is a macOS version available?", answer: "Not yet. A macOS version is planned." },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Toolblox</title>
+    <meta name="description" content="A free, open-source desktop app for managing and launching Roblox accounts." />
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <script is:inline>
+      const scheme = matchMedia("(prefers-color-scheme: dark)");
+      const applyScheme = () => document.documentElement.classList.toggle("dark", scheme.matches);
+      applyScheme();
+      scheme.addEventListener("change", applyScheme);
+    </script>
+  </head>
+  <body>
+    <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-background focus:px-3 focus:py-2">Skip to content</a>
+
+    <header class="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
+      <nav class="mx-auto flex h-14 max-w-5xl items-center gap-4 px-4" aria-label="Main">
+        <a href="/" class="mr-auto flex items-center gap-2 font-semibold">
+          <img src="/logo.svg" alt="" width="24" height="24" />
+          Toolblox
+        </a>
+        <a href="#features" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">Features</a>
+        <a href="#widgets" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">Widgets</a>
+        <a href="#faq" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">FAQ</a>
+        <a href={repo} class={buttonVariants({ size: "sm", variant: "ghost" })} aria-label="Toolblox on GitHub"><GitHubIcon /><span data-stars hidden></span></a>
+        <a href="#download" class={buttonVariants({ size: "sm" })}>Download</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="mx-auto flex max-w-5xl flex-col items-center gap-6 px-4 pt-16 pb-12 text-center sm:pt-24">
+        <a href="#features"><Badge variant="secondary">Open source</Badge></a>
+        <h1 class="max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl">The open-source Roblox account manager.</h1>
+        <p class="max-w-2xl text-lg text-pretty text-muted-foreground">
+          Manage and launch all of your Roblox accounts from one desktop app. Every line of code is public, so anyone can verify how Toolblox handles account data.
+        </p>
+        <div class="flex flex-wrap justify-center gap-3">
+          <a href={installer} class={buttonVariants({ size: "lg", className: "h-10 px-4" })}><Download />Download for Windows</a>
+          <a href={repo} class={buttonVariants({ size: "lg", variant: "outline", className: "h-10 px-4" })}><GitHubIcon />View source code</a>
+        </div>
+        <p class="text-sm text-muted-foreground">
+          Free for Windows 10 and 11<span data-release-version hidden></span>
+        </p>
+        <div data-downloads hidden class="flex flex-col items-center">
+          <span data-downloads-count class="text-4xl font-semibold tracking-tight tabular-nums"></span>
+          <span class="text-sm text-muted-foreground">downloads, not counting updates</span>
+        </div>
+        <div class="mt-6 w-full">
+          <Screenshot name="dashboard" alt="The Toolblox home screen showing the last account played, account counts, and recently played accounts." eager />
+        </div>
+      </section>
+
+      <section id="features" class="scroll-mt-14 border-t bg-muted/40">
+        <div class="mx-auto flex max-w-5xl flex-col gap-12 px-4 py-24">
+          <div class="mx-auto flex max-w-2xl flex-col gap-4 text-center">
+            <p class="flex items-center justify-center gap-2 text-sm font-medium text-muted-foreground"><GitHubIcon />Open source</p>
+            <h2 class="text-3xl font-semibold tracking-tight text-balance sm:text-5xl">Transparent by design.</h2>
+            <p class="text-lg text-pretty text-muted-foreground">
+              An account manager handles Roblox logins, so its code shouldn't be a secret. Toolblox is open source: its code is public, and anyone can review exactly what it does.
+            </p>
+          </div>
+          <ul class="grid gap-4 md:grid-cols-3">
+            {highlights.map(({ icon: Icon, title, text }) => (
+              <li class="flex flex-col gap-3 rounded-xl bg-card p-6 ring-1 ring-border">
+                <span class="flex size-9 items-center justify-center rounded-lg bg-muted"><Icon className="size-4" /></span>
+                <h3 class="font-medium">{title}</h3>
+                <p class="text-sm text-muted-foreground">{text}</p>
+              </li>
+            ))}
+          </ul>
+          <details class="group rounded-xl bg-card ring-1 ring-border">
+            <summary class="flex cursor-pointer list-none items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+              <Hammer className="size-4" />For developers: build from source or verify a download
+              <ChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" />
+            </summary>
+            <div class="grid gap-4 border-t p-4 md:grid-cols-2">
+              <div class="flex flex-col gap-2">
+                <p class="text-sm font-medium">Build from source</p>
+                <pre class="overflow-x-auto rounded-lg bg-muted p-3 font-mono text-sm leading-6"><code><span class="text-muted-foreground select-none">$ </span>git clone {repo}
+<span class="text-muted-foreground select-none">$ </span>cd Toolblox
+<span class="text-muted-foreground select-none">$ </span>npm install
+<span class="text-muted-foreground select-none">$ </span>npm run tauri dev</code></pre>
+                <p class="text-xs text-muted-foreground">Needs Node.js 22, Rust, and the <a href="https://tauri.app/start/prerequisites/" class="underline underline-offset-4">Tauri prerequisites</a>.</p>
+              </div>
+              <div class="flex flex-col gap-2">
+                <p class="text-sm font-medium">Verify a download</p>
+                <pre class="overflow-x-auto rounded-lg bg-muted p-3 font-mono text-sm leading-6"><code><span class="text-muted-foreground select-none">PS&gt; </span>Get-FileHash .\Toolblox-Setup.exe</code></pre>
+                <p class="text-xs text-muted-foreground">Compare the result with the SHA-256 on the <a href={`${repo}/releases`} class="underline underline-offset-4">release page</a>.</p>
+                <div class="mt-auto flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                  <a href={`${repo}/blob/main/src-tauri/src/credentials.rs`} class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Login storage code<ArrowRight className="size-3" /></a>
+                  <a href={`${repo}/blob/main/.github/workflows/release.yml`} class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Release workflow<ArrowRight className="size-3" /></a>
+                  <a href={`${repo}/blob/main/CONTRIBUTING.md`} class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Contributing guide<ArrowRight className="size-3" /></a>
+                </div>
+              </div>
+            </div>
+          </details>
+          <div class="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm">
+            <a href={`${repo}/blob/main/PRIVACY.md`} class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Privacy policy<ArrowRight className="size-3.5" /></a>
+            <a href={`${repo}/blob/main/SECURITY.md`} class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Security policy<ArrowRight className="size-3.5" /></a>
+          </div>
+        </div>
+      </section>
+
+      <section id="widgets" class="scroll-mt-14 border-t">
+        <div class="mx-auto flex max-w-2xl flex-col items-center gap-4 px-4 py-24 text-center">
+          <p class="flex items-center gap-2 text-sm font-medium text-muted-foreground"><Puzzle className="size-4" />Widgets</p>
+          <h2 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Extensible with widgets.</h2>
+          <p class="text-pretty text-muted-foreground">
+            Widgets will add tools for specific games through a reviewed, signed catalogue. None are published yet, and the developer documentation explains how to build one.
+          </p>
+          <a href="/docs/" class={buttonVariants({ variant: "outline" })}>Widget documentation<ArrowRight /></a>
+        </div>
+      </section>
+
+      <section id="faq" class="scroll-mt-14 border-t bg-muted/40">
+        <div class="mx-auto flex max-w-3xl flex-col gap-12 px-4 py-24">
+          <div class="flex flex-col gap-4 text-center">
+            <p class="flex items-center justify-center gap-2 text-sm font-medium text-muted-foreground"><CircleHelp className="size-4" />Support</p>
+            <h2 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Frequently asked questions</h2>
+          </div>
+          <div class="divide-y rounded-xl bg-card ring-1 ring-border">
+            {questions.map(({ question, answer }) => (
+              <details class="group">
+                <summary class="flex cursor-pointer list-none items-center gap-4 px-4 py-4 font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+                  {question}
+                  <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                </summary>
+                <p class="px-4 pb-4 text-pretty text-muted-foreground">{answer}</p>
+              </details>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="download" class="scroll-mt-14 border-t">
+        <div class="mx-auto flex max-w-5xl flex-col gap-12 px-4 py-24">
+          <div class="mx-auto flex max-w-2xl flex-col gap-4 text-center">
+            <h2 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Download Toolblox</h2>
+            <div data-downloads hidden class="flex flex-col items-center">
+              <span data-downloads-count class="text-5xl font-semibold tracking-tight tabular-nums"></span>
+              <span class="text-sm text-muted-foreground">downloads, not counting updates</span>
+            </div>
+          </div>
+          <div class="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <Monitor className="mb-2 size-6" />
+                <CardTitle>Windows</CardTitle>
+                <CardDescription>For Windows 10 and 11<span data-release-version hidden></span></CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ol class="flex list-decimal flex-col gap-1 pl-5 text-sm text-muted-foreground">
+                  <li>Open <strong class="font-medium text-foreground">Toolblox-Setup.exe</strong> once the download completes.</li>
+                  <li>If Windows shows “Windows protected your PC”, select <strong class="font-medium text-foreground">More info</strong>, then <strong class="font-medium text-foreground">Run anyway</strong>.</li>
+                  <li>Complete the setup. Toolblox updates automatically from then on.</li>
+                </ol>
+              </CardContent>
+              <CardFooter className="mt-auto">
+                <a href={installer} class={buttonVariants({ className: "w-full" })}><Download />Download for Windows</a>
+              </CardFooter>
+            </Card>
+            <Card>
+              <CardHeader>
+                <Laptop className="mb-2 size-6" />
+                <CardTitle>macOS</CardTitle>
+                <CardDescription>Not available yet</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p class="text-sm text-muted-foreground">A macOS version is planned and will be listed here once released.</p>
+              </CardContent>
+              <CardFooter className="mt-auto">
+                <a href={`${repo}/releases`} class={buttonVariants({ variant: "outline", className: "w-full" })}>View all releases</a>
+              </CardFooter>
+            </Card>
+          </div>
+          <p class="text-center text-sm text-pretty text-muted-foreground">
+            Download Toolblox only from this site or its official GitHub page.{" "}
+            <a href={`${repo}/blob/main/SECURITY.md#verify-a-release`} class="underline underline-offset-4">How to verify a download</a>
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="border-t">
+      <div class="mx-auto flex max-w-5xl flex-col items-center gap-4 px-4 py-8 text-center text-sm text-muted-foreground">
+        <nav class="flex flex-wrap justify-center gap-x-6 gap-y-2" aria-label="Footer">
+          <a href={repo} class="hover:text-foreground">Source code</a>
+          <a href={`${repo}/releases`} class="hover:text-foreground">Releases</a>
+          <a href="/docs/" class="hover:text-foreground">Widget docs</a>
+          <a href="/api/" class="hover:text-foreground">API docs</a>
+          <a href={`${repo}/blob/main/SECURITY.md`} class="hover:text-foreground">Security</a>
+          <a href={`${repo}/blob/main/PRIVACY.md`} class="hover:text-foreground">Privacy</a>
+          <a href={`${repo}/blob/main/LICENSE`} class="hover:text-foreground">MIT License</a>
+        </nav>
+        <Separator />
+        <p>Toolblox isn't affiliated with or endorsed by Roblox Corporation. Roblox is a trademark of Roblox Corporation.</p>
+      </div>
+    </footer>
+
+    <script>
+      fetch("https://api.github.com/repos/BakedAleska/Toolblox")
+        .then((response) => (response.ok ? response.json() : Promise.reject()))
+        .then(({ stargazers_count: stars }: { stargazers_count: number }) => {
+          const element = document.querySelector<HTMLElement>("[data-stars]");
+          if (!stars || !element) return;
+          element.textContent = stars.toLocaleString("en-US");
+          element.hidden = false;
+          element.parentElement?.setAttribute("aria-label", `Toolblox on GitHub, ${element.textContent} stars`);
+        })
+        .catch(() => {});
+      fetch("https://api.github.com/repos/BakedAleska/Toolblox/releases?per_page=100")
+        .then((response) => (response.ok ? response.json() : Promise.reject()))
+        .then((releases: { tag_name: string; draft: boolean; assets: { name: string; download_count: number }[] }[]) => {
+          const latest = releases.find((release) => !release.draft);
+          if (latest) {
+            for (const element of document.querySelectorAll<HTMLElement>("[data-release-version]")) {
+              element.textContent = ` · Version ${latest.tag_name.replace(/^v/, "").replace("-", " ")}`;
+              element.hidden = false;
+            }
+          }
+          const total = releases
+            .filter((release) => release.assets.some((asset) => asset.name === "Toolblox-Update.exe"))
+            .flatMap((release) => release.assets)
+            .filter((asset) => asset.name === "Toolblox-Setup.exe")
+            .reduce((sum, asset) => sum + asset.download_count, 0);
+          if (!total) return;
+          for (const element of document.querySelectorAll<HTMLElement>("[data-downloads-count]")) element.textContent = total.toLocaleString("en-US");
+          for (const element of document.querySelectorAll<HTMLElement>("[data-downloads]")) element.hidden = false;
+        })
+        .catch(() => {});
+    </script>
+  </body>
+</html>

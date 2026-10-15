@@ -1,0 +1,405 @@
+---
+title: Architecture
+description: How the Rust host and the React interface divide responsibilities, where the trust boundaries are, and how a request travels through the app.
+sidebar:
+  order: 1
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Toolblox is a [Tauri 2](https://tauri.app/) application. One native process hosts a WebView
+window that renders a React interface, and the two halves talk over Tauri's IPC. The split is
+strict: Rust owns everything that touches secrets, the network, the file system, or other
+processes, and React owns rendering and interaction. This page explains that split, the trust
+boundaries it creates, how a request moves between the halves, the startup order, and what each
+source module is for.
+
+## Two halves
+
+```text
+┌──────────────────────────────── Toolblox process ────────────────────────────────┐
+│                                                                                   │
+│  WebView: main window (label "main")         Rust host (toolblox_lib)             │
+│  ─────────────────────────────────           ─────────────────────────            │
+│  React + TypeScript + Vite                   Tauri commands  (app_commands.rs)    │
+│  App shell, screens, shared UI               Storage: settings.json, accounts.json│
+│  Widget host (module widgets)     ── IPC ──▶ Credentials: OS keychain             │
+│  Sandboxed iframes (iframe widgets)          Roblox web APIs over HTTPS           │
+│                                   ◀── JSON ─ Update gate, catalogue, packages     │
+│                                              Widget processes, tray, logs         │
+│                                                                                   │
+│  WebView: "roblox-login" (on demand)                                              │
+│  Remote roblox.com page, no capabilities                                          │
+└───────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### What Rust owns
+
+The crate `toolblox_lib` in [`src-tauri/src`](https://github.com/BakedAleska/Toolblox/tree/main/src-tauri/src)
+is the native host. Its crate documentation in
+[`lib.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/lib.rs) states the
+rule directly: the crate "owns everything that touches secrets, the network, the file system, or
+other processes. The React interface receives display data and opaque IDs only."
+
+Concretely, Rust is responsible for:
+
+- **Persistence.** Settings and accounts are JSON files written atomically under one lock.
+- **Credentials.** Roblox sessions live in Windows Credential Manager or the macOS login
+  Keychain.
+- **Network calls.** Every HTTP request, to Roblox, to the update manifest, to the widget
+  catalogue, or on behalf of a widget, goes through one `reqwest` client built in `run()` with
+  `https_only(true)`, redirects disabled, a 20-second timeout, and a `Toolblox/<version>` user
+  agent.
+- **Roblox launch behavior.** Join tickets are requested and `roblox-player:` launch URIs are
+  built and opened in Rust.
+- **Processes.** Widget sidecar processes and the Windows multi-instance helper are started and
+  stopped by Rust.
+- **Updates.** The fail-closed startup update check and installer verification.
+- **Desktop integration.** The system tray, launch at login, single-instance activation, and
+  window close behavior.
+- **Widget packaging.** Downloading, verifying, extracting, and serving widget packages.
+
+### What React owns
+
+The interface in [`src`](https://github.com/BakedAleska/Toolblox/tree/main/src) renders the
+startup screen, the sidebar, the Dashboard, Accounts, Widgets, and Settings screens, dialogs and
+toasts, and the widget host that loads module widgets and frames iframe widgets. It holds no
+secrets and no durable state of its own beyond two per-device conveniences in `localStorage`:
+the sidebar width (`toolblox-sidebar-width`) and, in demo builds, an updater preview scenario in
+`sessionStorage`.
+
+## Trust boundaries
+
+There are four distinct trust levels inside the one process. Understanding them is the key to
+understanding what a widget can and can't do.
+
+| Context | Trust | What it can reach | Where it's enforced |
+| --- | --- | --- | --- |
+| Rust host | Full | Everything, including sessions | — |
+| Main window (React interface and module widgets) | Full interface trust | Every Tauri command registered in `lib.rs`, plus the `core:default` and `opener:default` permissions | [`capabilities/default.json`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/capabilities/default.json) grants these to the window labelled `main` only |
+| Iframe widget surfaces | Sandboxed | Only `postMessage` to the parent, which forwards permission-checked requests | `sandbox="allow-scripts"` on the iframe, the asset CSP, and per-session permissions in `widget_ipc.rs` |
+| Roblox sign-in window | Remote page | Nothing in Toolblox | No capability lists the `roblox-login` label; navigation is limited to HTTPS `roblox.com` hosts |
+
+### Secrets never cross into JavaScript
+
+The session cookie is read in Rust from the sign-in window's cookie store
+([`login.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/login.rs)), wrapped
+in a `RobloxCookie` whose memory is zeroed on drop, validated against
+`users.roblox.com/v1/users/authenticated`, and written to the credential store as the entry
+`account-<id>` under the service `Toolblox`
+([`credentials.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/credentials.rs)).
+When a command needs a session, it reads it into a `Secret`, whose `Debug` output is redacted and
+whose memory is zeroed on drop, and uses it only to build a request header.
+
+What crosses to JavaScript is defined by explicit data transfer types in
+[`app_commands.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/app_commands.rs)
+and [`models.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/models.rs):
+`AppStateDto`, `AccountView` (wrapping `AccountDto`), `SettingsDto`, `WidgetSummary`, and
+`CatalogueSummary`. None has a field for a session. `StoredAccount::validate` goes further and
+rejects legacy account fields that look like secrets, so they can't be persisted into
+`accounts.json` either.
+
+The log is the last line of defense. [`logs.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/logs.rs)
+redacts cookies, tickets, authorization headers, and `roblox-player:`/`roblox-studio:` launch
+URLs from every line, whoever logged it.
+
+### Remote pages get no Tauri capabilities
+
+Tauri grants IPC access per window label through capability files. The only capability,
+`default`, lists `"windows": ["main"]`. The sign-in window is built in `login.rs` with the label
+`roblox-login`, loads `https://www.roblox.com/login` as an external URL, runs incognito, has
+devtools off, blocks new windows, and allows navigation only to `https` URLs on `roblox.com` or
+its subdomains (`is_allowed_roblox_navigation`). Because no capability names it, a Roblox page
+can't invoke any Toolblox command.
+
+The custom `widget:` protocol that serves widget files also checks the caller:
+`widget_protocol::response` returns `403` unless the request comes from the `main` webview.
+
+### Iframe widgets are sandboxed
+
+An iframe widget's page is loaded from the `widget:` protocol into an `<iframe sandbox="allow-scripts">`
+(`WidgetFrame` in [`src/shared.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/shared.tsx)).
+Without `allow-same-origin` the frame has an opaque origin and no access to the parent window or
+to Tauri. Widget assets are served with their own Content Security Policy, including
+`connect-src 'none'`, so the frame can't make network requests itself. Its only channel is
+`postMessage({ type: "toolbloxRequest", request })` to the parent, which forwards the request to
+the `widget_request` command with the frame's session ID. Rust then checks the request's size
+(64 KB), rate (30 per rolling second), protocol version, request ID, and the permission its method
+requires against the permissions in the widget's manifest. See
+[Iframe widgets](/docs/widgets/reference/iframe-widgets/) and
+[Permissions](/docs/widgets/reference/permissions/).
+
+### Module widgets are full-trust
+
+A module widget's ES module is imported directly into the main window by
+[`src/widgets/host.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/widgets/host.tsx).
+It runs in the same JavaScript context as the interface, so it could call any Tauri command the
+interface can. The host API reflects that instead of pretending otherwise: `open_widget` with the
+`module` surface creates a session holding `WidgetPermission::ALL`, and the host passes the app's
+own React instance and components. Toolblox doesn't add artificial limits to this API. Safety
+comes from catalogue review, signed and hash-pinned packages, safe mode, and error boundaries.
+
+<Aside>
+Full trust inside the window still stops at the Rust boundary. A module widget can call every
+command, but no command returns a session, so the one hard limit holds for widgets exactly as it
+holds for the interface.
+</Aside>
+
+## How a request travels
+
+Every interaction that needs native behavior follows the same path. Here is a click on **Join**
+for one account, end to end.
+
+```text
+ React (main window)                         Rust host
+ ───────────────────                         ─────────
+ Accounts screen: Join clicked
+   │  props.join([id])            App.tsx: checks a place is set,
+   │                              otherwise opens the place dialog
+   ▼
+ bridge.joinAccounts([id])        src/bridge.ts
+   │  call("join_accounts", { accountIds, placeId })
+   │    demo build?  → mutate sample data, return
+   │    otherwise    → invoke() over Tauri IPC
+   ▼  ─────────────────────────────────────────────▶ app_commands::join_accounts
+                                                     │ validates input, parses place ID
+                                                     ▼
+                                                   join_account_ids
+                                                     │ storage.load_settings / load_accounts
+                                                     │ credentials.get(id)        → Secret
+                                                     │ roblox::build_join_uri     → HTTPS to Roblox
+                                                     │ multi_instance helper (Windows, if on)
+                                                     │ opener::open(roblox-player: URI)
+                                                     │ storage.update_accounts(record_play)
+                                                     ▼
+                                                   minimize window if minimize_on_join
+   ◀───────────────────────────────────────────────  Ok(())  or  Err("…?")
+ bridge: on error, write_log("warn", "Command join_accounts failed: …") and rethrow
+   │
+   ▼
+ App.tsx launch(): await load() → bridge.getAppState()
+   │  ─────────────────────────────────────────────▶ app_commands::get_app_state
+   │                                                   settings + accounts from storage
+   │                                                   presence from Roblox (session stays in Rust)
+   │                                                   installed widgets + catalogue
+   ◀───────────────────────────────────────────────  AppStateDto (no secrets)
+ setState(state) → screens and module widgets re-render
+```
+
+The pieces involved:
+
+- **`src/bridge.ts`** is the only place the interface calls `invoke`. Each method in the
+  exported `bridge` object goes through a private `call(command, args, demo)` helper. In a real
+  Tauri window it calls `invoke` and, if the command fails, writes a `warn` record
+  (`Command <name> failed: …`) to the log before rethrowing. In demo mode it runs the supplied
+  demo function against sample data instead. See [Development setup](/docs/start/development/)
+  for demo mode.
+- **Tauri commands** are `#[tauri::command]` functions registered with
+  `tauri::generate_handler!` in `lib.rs`. Most live in `app_commands.rs`; the three startup
+  commands live in `startup.rs`. Each receives the shared `Runtime` through `State<'_, Runtime>`.
+- **Errors** are plain strings. Commands map internal errors through `command_error` into
+  user-facing messages that state what failed and end with a recovery question, such as
+  `"No place is set to join. Can you set one on the Accounts screen?"`.
+- **State returns by reloading.** Mutating commands mostly return `()` and the interface then
+  calls `get_app_state` to fetch a fresh `AppStateDto`. The app shell also reloads on window
+  focus and every 60 seconds while running. Module widgets see each new state through
+  `getState()`, `useAppState()`, and `onStateChange()`.
+
+### The shared runtime
+
+`Runtime`, defined at the top of `app_commands.rs` and constructed in `lib.rs`, is the state every
+command shares:
+
+| Field | Purpose |
+| --- | --- |
+| `legacy_root` | The Toolblox data folder, where the legacy Flet app kept its files |
+| `storage` | `Storage` rooted at `<data folder>/v2` |
+| `credentials` | `OsCredentialStore` |
+| `client` | The shared HTTPS-only `reqwest::Client` |
+| `widgets_root` | `<data folder>/v2/widgets` |
+| `catalogue`, `catalogue_error` | The verified widget catalogue, or why it couldn't load |
+| `processes` | `WidgetProcessManager` for widget sidecar processes |
+| `widget_sessions` | Active widget sessions, keyed by random UUID |
+| `multi_instance_helper` | Path to the bundled `multi_instance_helper.exe` resource |
+| `cleared_roblox_pids` | Roblox process IDs the helper already handled |
+| `safe_mode` | Whether widgets stay unloaded this session |
+
+The full command list and the shape of `AppStateDto` are covered in
+[Commands and state](/docs/app/commands-and-state/).
+
+## Startup order
+
+The main interface never renders until the update gate says it can. The order, from `run()` in
+`lib.rs`:
+
+1. **Plugins.** `single-instance` (a second launch activates the existing window), `opener`,
+   `notification`, and `updater` are registered, then the `widget` URI scheme protocol.
+2. **Setup.** The `autostart` plugin is added. The data folder is resolved, safe mode is
+   determined (`--safe-mode` or a one-time marker file), logging starts in `v2/logs`, and a
+   startup line records the version, build type, platform, and safe mode.
+3. **Runtime.** `Storage`, `OsCredentialStore`, the HTTP client, and the process manager are
+   built into `Runtime`, which Tauri manages alongside `LifecycleState` and `StartupState`.
+4. **Tray and window.** The tray is installed with **Open Toolblox**, **Restart without widgets**,
+   and **Quit**. A close handler decides whether closing hides to the tray or exits. The main
+   window (created hidden in `tauri.conf.json`) is shown.
+5. **Update gate.** `startup::run` is spawned. In release builds it downloads the signed update
+   manifest, verifies it, and either marks startup `Ready` or installs the required update and
+   restarts. Debug builds skip the check. When ready, `prepare_local_data` imports legacy data
+   once and creates the widgets folder.
+6. **Interface.** Meanwhile React's `App` polls `startup_status` every 500 ms and renders the
+   `UpdaterGate` screen (checking, installing, or failed with **Retry** and **Quit**). Only when
+   the phase is `ready` does it call `get_app_state` and render the app.
+7. **Background services.** A second task waits until startup is `Ready`, then reconciles launch
+   at login (release builds only), applies always on top, backfills missing profile names and
+   avatars, starts widget processes marked to start on launch (unless in safe mode), and finally
+   runs the auto-rejoin monitor for the life of the app.
+
+Startup fails closed: if the update check can't complete, the phase becomes `failed` and the app
+stays on the gate screen. See [Startup and updates](/docs/app/startup-and-updates/).
+
+## Rust module map
+
+Each module in `src-tauri/src` has a focused job. Item-level docs are in the
+[API reference](/api/toolblox_lib/).
+
+**[`main.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/main.rs)** is the
+executable entry point. It calls `toolblox_lib::run()` and, in release builds, sets the Windows
+GUI subsystem so no console window appears.
+
+**[`lib.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/lib.rs)** builds and
+runs the Tauri application: it resolves the data folder (`%LOCALAPPDATA%\Toolblox` on Windows,
+`~/Library/Application Support/Toolblox` on macOS, or `TOOLBLOX_DATA_DIR` in debug builds),
+handles the safe mode marker, constructs `Runtime`, installs the tray and close handler, spawns
+startup and background tasks, registers every command, and stops widget processes on exit.
+
+**[`app_commands.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/app_commands.rs)**
+is the command boundary. It defines `Runtime` and the frontend-safe DTOs, implements every
+interface command (state, settings, accounts, joining, sign-in, widgets, catalogue, logs), and
+dispatches widget IPC methods (`accounts.list`, `widgetData.get/set`, `roblox.status`,
+`roblox.join`, `network.fetch`, `log.write`, and `process.spawn/send/poll/stop`). It also hosts
+`join_account_ids`, the shared join loop with ticket retries and backoff between launches.
+
+**[`startup.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/startup.rs)**
+runs the fail-closed update gate. It holds `StartupState` (`checking`, `installing`, `ready`,
+`failed`), verifies the manifest's Ed25519 signature against a key compiled in at build time,
+installs updates through the Tauri updater only when version, URL, signature, and SHA-256 all
+match the signed manifest, and exposes `startup_status`, `retry_startup_update`, and
+`quit_startup`.
+
+**[`update.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/update.rs)**
+holds the pure update decisions: parsing the signed `ReleaseManifest` (unknown fields rejected),
+and checking schema, channel, validity window, maximum seven-day lifetime, rollback floor, and the
+platform's artifact. Only an exact version match admits the app.
+
+**[`storage.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/storage.rs)**
+reads and writes `settings.json` and `accounts.json`. One mutex serializes every access, and
+`update_settings`/`update_accounts` load, modify, validate, and atomically replace the file in one
+critical section so concurrent read-modify-write updates can't lose changes.
+
+**[`models.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/models.rs)**
+defines the persisted types: `Settings` (with snake_case aliases for legacy files and unknown
+fields preserved), `StoredAccount`, `RecentPlace`, `PresenceState`, and the frontend-safe
+`AccountDto`, plus their validation.
+
+**[`credentials.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/credentials.rs)**
+wraps the OS credential store through the `keyring` crate, using the native Windows and Apple
+backends. It also decrypts legacy DPAPI-protected sessions and looks up legacy Keychain entries
+for migration.
+
+**[`login.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/login.rs)** opens
+the isolated Roblox sign-in window, polls its cookies after each page load for a secure,
+HTTP-only `.ROBLOSECURITY` cookie on a Roblox domain, validates it, clears browsing data, stores
+the session, and reports `Complete`, `Failed`, or `Cancelled`.
+
+**[`roblox.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/roblox.rs)**
+implements the Roblox HTTP flows: authenticated and public profiles with avatar headshots,
+presence, game names, place-to-universe lookup, join tickets, and strict `roblox-player:` launch
+URI construction. It also parses place IDs from links.
+
+**[`auto_rejoin.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/auto_rejoin.rs)**
+is the presence monitor. It polls every 10 seconds (every 3 seconds within a minute of a launch)
+while auto-rejoin or disconnect notifications are on, sends notifications when an account leaves a
+game, rejoins it if enabled, and pauses auto-rejoin for an account that drops again within 45
+seconds of a rejoin.
+
+**[`multi_instance.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/multi_instance.rs)**
+lets several Roblox clients run on Windows. Before each launch it lists `RobloxPlayerBeta.exe`
+processes with `tasklist.exe` and passes new process IDs to the bundled helper, which closes
+their singleton handles. It does nothing on other platforms.
+
+**[`migration.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/migration.rs)**
+imports the legacy Flet app's `accounts.json` and `settings.json` once, moving sessions into the
+credential store and rolling them back if saving the accounts fails.
+
+**[`lifecycle.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/lifecycle.rs)**
+owns window, tray, and single-instance behavior: the tray menu, the close decision (hide to tray
+only when background mode is on, the tray exists, and the user didn't choose Quit), and restoring
+the window when a second launch arrives.
+
+**[`logs.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/logs.rs)** is the
+rotating, redacted log file behind the `log` facade. It's shared by the host, the interface
+(target `interface`), and widgets (target `widget:<id>`), and records panics with a backtrace.
+
+**[`widgets.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widgets.rs)**
+defines `WidgetManifest`, `WidgetPermission`, the signed `Catalogue`, and installation: download
+limits, signature and SHA-256 checks, safe ZIP extraction into a staging folder, the
+`.installed.json` record that detects later manifest edits, atomic replacement, and discovery of
+installed widgets.
+
+**[`widget_protocol.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widget_protocol.rs)**
+serves installed widget files over the read-only `widget:` scheme (`http://widget.localhost` on
+Windows, `widget://localhost` elsewhere), only to the main window, rejecting path traversal and
+attaching a restrictive Content Security Policy.
+
+**[`widget_ipc.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widget_ipc.rs)**
+defines the versioned widget message protocol (`WidgetRequest`, `WidgetResponse`) and
+`WidgetSessions`, which authorizes each message against its session's widget ID and permissions
+and enforces size and rate limits.
+
+**[`widget_process.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widget_process.rs)**
+starts, feeds, and stops declared widget sidecar processes. Executables must resolve inside the
+widget folder, arguments must come from the declared allow list, output lines are buffered as
+events for the widget to poll, and the first 200 stderr lines per start are logged.
+
+## Frontend map
+
+| File | Role |
+| --- | --- |
+| [`src/main.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/main.tsx) | Entry point. Logs uncaught errors and unhandled rejections through `writeLog`, then renders `<App />` in `StrictMode`. |
+| [`src/App.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/App.tsx) | The app shell: startup polling and `UpdaterGate`, app state loading and refresh, theme, hash routing, the resizable sidebar, the safe mode banner, toasts, the place and confirm dialogs, screen replacement, and widget pages and settings. |
+| [`src/bridge.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/bridge.ts) | Typed wrappers for every Tauri command, plus the demo-mode implementation on sample data. |
+| [`src/types.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/types.ts) | TypeScript shapes of `AppState`, `Account`, `Settings`, `WidgetSummary`, `CatalogueEntry`, `StartupStatus`, and `AppRoute`, matching the Rust DTOs. |
+| [`src/shared.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/shared.tsx) | App-level building blocks: `Screen`, `Panel`, `SectionTitle`, `IconButton`, `Spinner`, `Avatar`, `SwitchRow`, `ChoiceRow`, `StatTile`, `EmptyState`, `WidgetFrame`, and the `ScreenProps` type. |
+| [`src/logic.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/logic.ts) | Pure helpers: account names, relative times, sorting, place ID parsing, and sidebar width rules. Tested in `logic.test.ts`. |
+| [`src/screens/`](https://github.com/BakedAleska/Toolblox/tree/main/src/screens) | `Dashboard`, `Accounts`, `Widgets`, and `Settings` screens. |
+| [`src/widgets/host.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/widgets/host.tsx) | The module widget host: the registry of screens, pages, settings pages, and slots; `createApi`; module loading and unloading; `WidgetBoundary` and `WidgetSlot`. |
+| [`src/components/ui/`](https://github.com/BakedAleska/Toolblox/tree/main/src/components/ui) | shadcn/ui components on Base UI, in the `base-nova` style. |
+| [`src/index.css`](https://github.com/BakedAleska/Toolblox/blob/main/src/index.css) | Tailwind CSS entry and theme tokens for light and dark modes. |
+
+Routing is hash-based. `App.tsx` recognizes `#/`, `#/accounts`, `#/widgets`, `#/settings`,
+`#/widgets/<id>`, and `#/widgets/<id>/settings`. Before rendering a core screen other than
+Settings, it checks the widget registry for a replacement and wraps it in a `WidgetBoundary`.
+See [Interface](/docs/app/interface/) for the full shell.
+
+### Content Security Policy
+
+The main window's CSP in
+[`tauri.conf.json`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/tauri.conf.json)
+shapes what the interface and module widgets can load:
+
+```text
+default-src 'self';
+img-src     'self' asset: https: data: widget: http://widget.localhost;
+style-src   'self' widget: http://widget.localhost;
+font-src    'self' data: widget: http://widget.localhost;
+connect-src ipc: http://ipc.localhost;
+script-src  'self' widget: http://widget.localhost;
+frame-src   widget: http://widget.localhost
+```
+
+Scripts load only from the app and from installed widget packages, which is how module widgets
+are imported. `connect-src` allows only Tauri IPC, so neither the interface nor a module widget
+can `fetch` the internet directly; outbound HTTP goes through the `network.fetch` method in Rust.
+Images may come from any HTTPS origin, which is how Roblox avatar URLs render. Libraries that
+inject `<style>` tags at runtime are blocked by `style-src`; widgets add styles with
+`addStyles(css)`, which uses constructable stylesheets instead.

@@ -1,0 +1,796 @@
+---
+title: Interface
+description: How the React interface boots, routes, renders each screen, and exposes its components and theme to widgets.
+sidebar:
+  order: 4
+---
+
+import { Aside, FileTree, LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+The Toolblox interface is a single-page React 19 app built with Vite and Tailwind CSS 4. It
+renders in the Tauri main window and holds no secrets: everything it knows about accounts,
+settings, and widgets arrives as one `AppState` object from the Rust host, and everything it does
+goes back through the typed `bridge` in
+[`src/bridge.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/bridge.ts). Module widgets
+run in this same JavaScript context, so the screens, components, and theme described here are the
+environment a widget lives in.
+
+<FileTree>
+- index.html — the `#root` element and the module entry
+- vite.config.ts — dev server on port 1420, `@` alias to `/src`
+- components.json — shadcn/ui configuration (`base-nova` style)
+- public/assets/ — logo.svg, logo.png, github.svg, splash.svg
+- src/
+  - main.tsx — global error logging and the React root
+  - App.tsx — startup gate, shell, sidebar, routing, dialogs, toast
+  - shared.tsx — layout and row components shared by every screen
+  - logic.ts — pure helpers: sorting, place ID parsing, sidebar widths
+  - types.ts — `AppState`, `Settings`, `Account`, `WidgetSummary`, routes
+  - bridge.ts — Tauri commands, plus the demo implementation
+  - index.css — Tailwind imports and theme tokens
+  - lib/utils.ts — re-exports `cn`
+  - components/ui/ — shadcn/ui components on Base UI
+  - screens/
+    - Dashboard.tsx
+    - Accounts.tsx
+    - Widgets.tsx
+    - Settings.tsx
+  - widgets/host.tsx — module loader, registry, slots, error boundary
+  - demo-widgets/ — sample module widgets used by the demo state
+</FileTree>
+
+## Build setup
+
+[`index.html`](https://github.com/BakedAleska/Toolblox/blob/main/index.html) is minimal: it sets
+`lang="en"`, uses `/assets/logo.svg` as the favicon, and loads `/src/main.tsx` as a module into
+`<div id="root">`.
+
+[`vite.config.ts`](https://github.com/BakedAleska/Toolblox/blob/main/vite.config.ts) registers two
+plugins, `@vitejs/plugin-react` and `@tailwindcss/vite`, and maps the `@` import alias to `/src`,
+which is why every import in the app reads `@/components/ui/button` or `@/shared`. The dev server
+runs on port 1420 with `strictPort`, because
+[`tauri.conf.json`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/tauri.conf.json)
+points `devUrl` at `http://localhost:1420`. When `TAURI_DEV_HOST` is set (mobile or remote
+development), Vite binds to that host and serves HMR over WebSocket on port 1421. The watcher
+ignores `src-tauri/**` so Rust rebuilds don't trigger frontend reloads. Production builds run
+`tsc && vite build` into `dist/`, which Tauri bundles as `frontendDist`.
+
+The main window is declared in `tauri.conf.json` at 900×500 with a 720×480 minimum and
+`"visible": false`. Rust shows it during setup, before the startup update check starts, so the
+first thing a user sees is the update screen described below. See
+[Development](/docs/start/development/) for running the interface on its own.
+
+## Boot sequence
+
+```text
+main.tsx
+  ├─ window "error" / "unhandledrejection" → writeLog("error", …)
+  └─ <React.StrictMode><App/>
+        │
+        ▼
+App: poll bridge.startupStatus() every 500 ms
+        │  phase: checking | installing | failed
+        ├──────────────► <UpdaterGate> (logo, heading, spinner or Quit/Retry)
+        │  phase: ready
+        ▼
+bridge.getAppState() ──fails──► "Toolblox failed to load…" + Retry
+        │  (spinner "Loading Toolblox…" while pending)
+        ▼
+Main shell (TooltipProvider → sidebar + <main> + toast + dialogs)
+        │
+        ├─ every 60 s and on window focus → getAppState() again
+        └─ when installed widgets or safe mode change → syncWidgetModules()
+```
+
+### main.tsx
+
+[`src/main.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/main.tsx) does two things
+before rendering. It adds `error` and `unhandledrejection` listeners on `window` that forward to
+`writeLog("error", …)`, formatted with `describeError` (which includes the stack when there is
+one). Any exception that escapes React, a promise, or a widget module therefore lands in the
+Toolblox log; see [Logs and failures](/docs/widgets/reference/logs-and-failures/). It then mounts
+`<App />` inside `React.StrictMode`.
+
+<Aside type="note">
+StrictMode mounts components, runs effects, and cleans them up twice in development builds. Widget
+components rendered by the app are subject to the same behaviour, so effects in widget code need
+correct cleanup functions.
+</Aside>
+
+### Startup gate
+
+[`App`](https://github.com/BakedAleska/Toolblox/blob/main/src/App.tsx) starts with no state. An
+effect calls `bridge.startupStatus()` immediately and then every 500 ms while the phase is
+`checking`, `installing`, or not yet known. The four phases come from the Rust startup updater and
+are typed in `StartupStatus`:
+
+| Phase | Screen | Behaviour |
+| --- | --- | --- |
+| `checking` | "Checking for updates" with a spinner | Keeps polling. |
+| `installing` | "Installing Toolblox `version`" with a spinner | Keeps polling. |
+| `failed` | "Update verification failed" with the message, **Quit** and **Retry** | Quit calls `bridge.quitStartup()`. Retry calls `bridge.retryStartupUpdate()`, re-reads the status, and reloads the page. |
+| `ready` | Loads the app state | Calls `bridge.getAppState()` once. |
+
+If `startupStatus` itself throws, the interface synthesizes a `failed` phase with "The updater
+failed to start. Does reopening Toolblox help?". The gate's caption reads "Toolblox opens only
+after the latest verified release is installed." The update logic itself is covered in
+[Startup and updates](/docs/app/startup-and-updates/).
+
+### Loading the state
+
+Once the phase is `ready`, `load()` calls `bridge.getAppState()`. While it's pending the window
+shows a spinner and "Loading Toolblox…" in an `aria-live="polite"` region. On failure it shows
+"Toolblox failed to load. Does restarting it help?" with the error and a **Retry** button.
+
+After the first successful load, a second effect keeps the state fresh: a `setTimeout` chain calls
+`load()` every 60 seconds, and a `focus` listener reloads whenever the window regains focus. Every
+action that changes data calls `refresh` (which is `load`) afterwards, so the interface never
+patches its copy of the state by hand except for settings (see
+[Settings writes](#settings-writes)). Background services in Rust that change presence or
+accounts are picked up by these reloads; see
+[Background services](/docs/app/background-services/).
+
+### Theme application
+
+`useTheme(state?.settings.themeMode)` runs on every render of `App`. It toggles the `dark` class on
+`<html>` when the mode is `dark`, or when the mode is `system` and
+`matchMedia("(prefers-color-scheme: dark)")` matches, and it listens for OS theme changes while the
+mode is `system`. Before the state loads the mode defaults to `system`, so the update screen
+already follows the OS.
+
+### Widget host wiring
+
+Two pieces of `App` connect the shell to
+[`src/widgets/host.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/widgets/host.tsx):
+
+- After every render, an effect calls `syncWidgetHost(state, { navigate, notify, refresh, join })`.
+  This is how `toolblox.getState()`, `useAppState()`, `onStateChange()`, `navigate()`, `notify()`,
+  `refresh()`, and `join()` in the [host API](/docs/widgets/reference/host-api/) see the latest
+  state and shell actions. A new state object triggers the registry's listeners.
+- A second effect is keyed on a JSON string of `safeMode` and each installed widget's `id`,
+  `enabled`, and `moduleUrl`. When that key changes, it calls
+  `syncWidgetModules(installedWidgets, safeMode)`, which imports modules for newly enabled widgets
+  and unloads disabled or removed ones. In safe mode no modules load at all.
+
+`useWidgetRegistry()` subscribes `App` to the registry, so a widget calling `replaceScreen`,
+`registerPage`, `registerSettings`, or `addToSlot` re-renders the shell immediately.
+
+## The shell
+
+The main shell is a horizontal flex container inside a `TooltipProvider` with a 400 ms delay:
+
+```text
+┌──────────────┬────────────────────────────────────────────┐
+│ Sidebar      │ Safe mode banner (only in safe mode)       │
+│  logo        ├────────────────────────────────────────────┤
+│  Dashboard   │ <main id="main-content" key={route}>       │
+│  Accounts    │   current screen                           │
+│  Widgets     │                                            │
+│  Settings    │                                            │
+│  ── Widgets  │                                            │
+│  widget A    │                                            │
+│  widget B    │                          ┌───────────────┐ │
+│  GitHub vX   │                          │ toast         │ │
+│  sidebar.    │                          └───────────────┘ │
+│  footer slot │                                            │
+└──────────────┴────────────────────────────────────────────┘
+       PlaceDialog and ConfirmDialog portal over everything
+```
+
+When `settings.sidebarPosition` is `"right"` the container gets `flex-row-reverse`, the sidebar's
+border moves to its left edge, tooltips open to the left, and the resize handle moves to the other
+side.
+
+### Safe mode banner
+
+When `state.safeMode` is true, a `role="status"` bar with a warning-coloured `ShieldAlert` icon
+reads "Safe mode. Widgets are off for this session." with a **Restart normally** button that calls
+`bridge.restartApp(false)`. The text carries the meaning; the colour is decorative.
+
+### The main region
+
+`<main>` gets `key={route}`, so React mounts a fresh screen on every navigation and plays the
+`animate-in fade-in-0 slide-in-from-bottom-1` entrance (200 ms). Local state in a screen, including
+a widget's replacement screen or page, is discarded when the user navigates away.
+
+### Toast
+
+`notify(message)` sets a single string. The toast renders bottom-centre as an inverted
+(`bg-foreground text-background`) rounded box with `shadow-lg` and `role="status"`, and clears
+itself after 4 seconds. A new message replaces the current one; there is no queue. Widgets call
+the same function through `toolblox.notify()`.
+
+### Dialogs
+
+The shell owns two dialogs built on `AlertDialog`. Screens open them through `ScreenProps`
+callbacks rather than rendering their own.
+
+**ConfirmDialog** takes a `ConfirmRequest`:
+
+```ts
+type ConfirmRequest = { title: string; message: string; action: string; danger?: boolean; run: () => Promise<void> };
+```
+
+The action button uses the `destructive` variant when `danger` is set. While `run` is pending the
+buttons are disabled, a spinner shows, and the dialog can't be dismissed. If `run` throws, the
+dialog stays open and a toast reads "The action failed. Does retrying help?".
+
+**PlaceDialog** takes a `PlaceRequest`:
+
+```ts
+type PlaceRequest = { title: string; description: string; action: string; run: (placeId: string) => Promise<void> };
+```
+
+It contains a monospace input labelled "Place ID or Roblox game link" and, when there are any,
+buttons for `state.recentPlaces`. On submit it parses the input with `parsePlaceId`, which accepts
+a string of digits or an `https://roblox.com/games/<id>/…` or `https://www.roblox.com/games/<id>/…`
+link and rejects everything else. It then asks Rust whether the place exists with
+`bridge.placeExists`; a network error counts as "exists" so an offline check doesn't block
+joining. Errors appear under the field with `aria-invalid` and `aria-describedby`. Choosing a
+recent place calls `run` directly.
+
+<Aside type="caution">
+Neither dialog is exposed to widgets. `AlertDialog` isn't in `toolblox.ui`, and `confirm` and
+`askPlace` aren't part of the host API.
+</Aside>
+
+### Join flow
+
+`join(accountIds, placeId?)` is the single entry point for launching Roblox from the interface:
+
+1. With an explicit `placeId` (used by **Recently played** on the Dashboard), it calls
+   `bridge.joinAccounts(accountIds, placeId)` and reloads.
+2. Without one, it checks whether any selected account lacks both an account place override and a
+   default place. If none does, it joins with each account's own resolution.
+3. Otherwise it opens PlaceDialog titled "Set default place". Submitting saves the place as
+   `settings.placeId` and then joins.
+
+A failed join shows "Join failed. Is Roblox installed and the account signed in?". The widget
+`toolblox.join(accountIds)` goes through the same function but can't pass a place ID. Launch
+details are in [Accounts](/docs/app/accounts/).
+
+### Settings writes
+
+`patchSettings(key, value)` builds a new `Settings` object, applies it to local state immediately,
+and sends the whole object to `bridge.saveSettings`. If saving fails it shows "The setting wasn't
+saved. Does retrying help?" and reloads the state from Rust, which reverts the optimistic change.
+
+### ScreenProps
+
+Every core screen receives the same props, defined in
+[`src/shared.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/shared.tsx):
+
+| Prop | Type | Purpose |
+| --- | --- | --- |
+| `state` | `AppState` | The latest state from `get_app_state`. |
+| `refresh` | `() => Promise<void>` | Reloads the state. |
+| `navigate` | `(route: AppRoute) => void` | Changes the route. |
+| `notify` | `(message: string) => void` | Shows the toast. |
+| `confirm` | `(request: ConfirmRequest) => void` | Opens ConfirmDialog. |
+| `join` | `(accountIds, placeId?) => void` | Launches accounts, asking for a place when needed. |
+| `askPlace` | `(request: PlaceRequest) => void` | Opens PlaceDialog. |
+| `patchSettings` | `(key, value) => Promise<void>` | Saves one setting optimistically. |
+
+Replacement screens registered by widgets are rendered with no props. They read state through
+`useAppState()` and act through the host API instead.
+
+## Routing
+
+Routing is hash-based and has no router library. The route is the part of `location.hash` after
+`#`, typed as:
+
+```ts
+type AppRoute = "/" | "/accounts" | "/widgets" | "/settings" | `/widgets/${string}`;
+```
+
+`routeFromHash()` accepts the four core routes and anything starting with `/widgets/`; every other
+hash falls back to `/`. `navigate(next)` writes `window.location.hash` and sets the route state, and
+a `hashchange` listener keeps the two in sync when the hash changes another way.
+
+| Route | Renders | Replaceable by a widget |
+| --- | --- | --- |
+| `/` | `Dashboard` | Yes, as `"dashboard"` |
+| `/accounts` | `Accounts` | Yes, as `"accounts"` |
+| `/widgets` | `Widgets` | Yes, as `"widgets"` |
+| `/settings` | `SettingsScreen` | No |
+| `/widgets/<id>` | `WidgetHost` for that widget | Not applicable |
+| `/widgets/<id>/settings` | `WidgetSettings` for that widget | Not applicable |
+| Anything else under `/widgets/` | `NotFound` | Not applicable |
+
+Widget routes are matched with `/^\/widgets\/([\w-]+)(\/settings)?$/`. If the ID doesn't match an
+installed widget, the widget is disabled, or the app is in safe mode, the route renders `NotFound`:
+"Page unavailable. This widget is disabled or uninstalled." with a **Go to Dashboard** button.
+
+### Replaced screens
+
+For the three replaceable routes, `App` checks `registry.screens` first. A registered replacement
+renders inside a `WidgetBoundary` with that widget's ID, in place of the core screen. Only one
+widget can own a screen at a time; the most recent `replaceScreen` call wins, and disposing it
+removes the entry only if the same widget still owns it. Settings is deliberately excluded so a
+broken widget can't hide the controls needed to recover.
+
+A replacement gets the whole `<main>` region and none of the core layout. `Screen` isn't exported
+to widgets, so a replacement that wants the standard look reproduces its structure with classes
+the app already ships:
+
+```js
+toolblox.replaceScreen("dashboard", function Home() {
+  const state = toolblox.useAppState();
+  return h("div", { className: "h-full overflow-y-auto [scrollbar-gutter:stable]" },
+    h("div", { className: "mx-auto flex min-h-full max-w-5xl flex-col gap-4 px-6 pb-6" },
+      h("header", { className: "sticky top-0 z-10 -mx-6 flex h-14 shrink-0 items-center gap-2 bg-background/90 px-6 backdrop-blur-sm" },
+        h("h1", { className: "mr-auto shrink-0 pr-2 text-lg font-semibold tracking-tight" }, "Home")),
+      h(ui.Panel, { className: "p-4" }, `${state.accounts.length} accounts`)));
+});
+```
+
+### Widget pages
+
+`WidgetHost` renders `/widgets/<id>` inside a `Screen` titled with the widget's name. It picks the
+first of these that exists:
+
+1. A component registered with `registerPage`, inside a `WidgetBoundary`.
+2. The legacy iframe page (`hasPageFrame`, from the manifest's `entry`), through `WidgetFrame` on
+   the `main` surface.
+3. An empty state: "No page. This widget adds features to other parts of Toolblox."
+
+The header shows a settings `IconButton` labelled "`name` settings" when the widget has an iframe
+settings page, can start on launch (declares processes), or registered a settings component.
+
+`WidgetSettings` renders `/widgets/<id>/settings` in a `Screen` titled "`name` settings", with an
+**Open widget** button when the widget has a page. Its body stacks, in order:
+
+1. A **Start with Toolblox** `SwitchRow` when `canStartOnLaunch` is true, saved with
+   `bridge.setWidgetStartOnLaunch`.
+2. The `registerSettings` component, inside a `WidgetBoundary`.
+3. The iframe settings page (`hasSettings`) on the `settings` surface.
+4. "No settings. This widget has no settings." when none of the above apply.
+
+Widget settings are kept apart from the Toolblox Settings page. See
+[Pages and screens](/docs/widgets/tutorials/pages-and-screens/) for a walkthrough.
+
+## Sidebar
+
+The `Sidebar` component in `App.tsx` is an `<aside aria-label="Main navigation">` containing:
+
+- The logo and, when not collapsed, the word "Toolblox".
+- A `<nav>` with the four core routes (Dashboard, Accounts, Widgets, Settings) using Lucide icons.
+- When any widget is installed, a "Widgets" heading (a divider when collapsed) followed by one item
+  per installed widget, using the `Puzzle` icon and routing to `/widgets/<id>`. Disabled widgets
+  appear as disabled buttons.
+- A footer row with a GitHub `Button` that opens the repository through `bridge.openExternal`, and
+  the version string `v<version>`, with `-canary` appended on the canary channel. The version's
+  `title` says whether it's a source checkout or a released build.
+- The `sidebar.footer` [slot](#slots-on-each-screen), which receives `{ collapsed }`.
+
+Each item is a `<button>` with `aria-label`, `aria-current="page"` on the active route, a
+`focus-visible` ring, and a tooltip with the label that only shows when the sidebar is collapsed.
+
+### Resizing
+
+The width lives in component state and persists to `localStorage` under
+`toolblox-sidebar-width`. Reading or writing storage is wrapped in `try`/`catch`; on failure the
+width falls back to the default. The constants are in
+[`src/logic.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/logic.ts):
+
+| Constant | Value | Meaning |
+| --- | --- | --- |
+| `SIDEBAR_COLLAPSED` | 56 | Icon-only width. |
+| `SIDEBAR_MIN` | 160 | Narrowest labelled width. |
+| `SIDEBAR_DEFAULT` | 192 | Initial width. |
+| `SIDEBAR_MAX` | 320 | Widest width. |
+
+`clampSidebarWidth` snaps any width below the midpoint of collapsed and minimum (108 px) to 56, and
+clamps the rest to 160–320. The resize handle is an 8 px element straddling the sidebar's inner
+edge with `role="separator"`, `aria-orientation="vertical"`, `aria-valuemin`, `aria-valuemax`,
+`aria-valuenow`, and `tabIndex={0}`:
+
+- **Pointer drag** captures the pointer, sets the body cursor to `col-resize` and disables text
+  selection, and turns off the width transition while dragging. The width follows the pointer's x
+  position (mirrored when the sidebar is on the right) and persists on release.
+- **Double-click** toggles between collapsed and the default width.
+- **Arrow keys** call `stepSidebarWidth`, which moves in 16 px steps, jumps straight between 56
+  and 160, and caps at 320. Left and right swap meaning when the sidebar is on the right.
+
+When collapsed, labels and the version are hidden and tooltips take over. A widget contributing to
+`sidebar.footer` should check `collapsed` and render an icon-sized variant.
+
+## Screens
+
+Every core screen wraps its content in `Screen`, which provides a full-height scroll container
+with a stable scrollbar gutter, a `max-w-5xl` centred column with 24 px side padding, and a sticky
+56 px header holding an `<h1>` and optional actions on a translucent, blurred background.
+
+### Slots on each screen
+
+The five slots, defined by `SlotProps` in `host.tsx` and rendered with `WidgetSlot`:
+
+| Slot | Screen | Position | Props | Wrapper |
+| --- | --- | --- | --- | --- |
+| `accounts.toolbar` | Accounts | First item in the header actions, before the place field | `{}` | None, inline in a flex row |
+| `accounts.row` | Accounts | Under each account's name line, above the notes | `{ account }` | `div.mt-1.flex.flex-wrap.items-center.gap-1.5` |
+| `dashboard.stats` | Dashboard | In the stat tile grid, after the three core tiles | `{}` | None, items are grid cells |
+| `dashboard.sections` | Dashboard | After **Recently played**, before iframe dashboard tiles | `{}` | `div.flex.flex-col.gap-4` |
+| `sidebar.footer` | Shell | Below the GitHub and version row | `{ collapsed }` | None |
+
+`WidgetSlot` renders nothing when no widget contributes, so wrappers don't leave empty gaps.
+Contributions are sorted by their `order` option, and each one renders inside its own
+`WidgetBoundary`. Slots only exist on the core screens; a replaced Accounts or Dashboard screen
+doesn't render them unless the replacement does. Full details are in the
+[slots reference](/docs/widgets/reference/slots/).
+
+### Dashboard
+
+[`src/screens/Dashboard.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Dashboard.tsx)
+uses `state`, `navigate`, and `join`. It makes no bridge calls of its own.
+
+| Section | Content |
+| --- | --- |
+| Hero `Panel` (`rounded-2xl`) | The most recently played account (sorted with `last_played`): avatar when `showAvatars` is on, "Continue as", the name, then presence or "Last played …" and the place label. A large **Join** button calls `join([hero.id])`. With no accounts it shows "No accounts" and **Add account**, which navigates to `/accounts`. |
+| Stat grid | Three `StatTile` buttons: **Accounts** (count), **In game** (accounts with `presence === "playing"`), and **Widgets enabled** (`enabled/installed`). The first two go to `/accounts`, the third to `/widgets`. The grid is `repeat(auto-fit, minmax(170px, 1fr))` with 12 px gaps. Then the `dashboard.stats` slot. |
+| Recently played | Accounts with a `lastPlaceId`, newest first. Each row shows the place label and relative time with a **Join** button labelled "Join `place` as `name`" that calls `join([id], lastPlaceId)`. |
+| `dashboard.sections` slot | Widget sections. |
+| Iframe tiles | One section per enabled widget with `hasDashboardTile`, titled with the widget name, rendering `WidgetFrame` on the `dashboard` surface. |
+| Footer | A privacy note: data is stored on this device, sessions are in the OS credential store, and no telemetry is collected. |
+
+`relativeTime` in `logic.ts` produces "Never played", "Last played just now", or "Last played
+`n`m/h/d ago", accepting timestamps in seconds or milliseconds.
+
+### Accounts
+
+[`src/screens/Accounts.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Accounts.tsx)
+uses `state`, `refresh`, `notify`, `confirm`, `join`, `askPlace`, and `patchSettings`.
+
+**Header actions**, in order:
+
+1. The `accounts.toolbar` slot.
+2. The default place field: a labelled input with a `MapPin` icon. It saves on blur (Enter blurs
+   it). An empty value clears `settings.placeId`; an unparseable value is reverted with "No place
+   ID found. Is the link complete?"; a place that `bridge.placeExists` rejects clears the field
+   with "Place `id` doesn't exist. Is the ID correct?". When no default is set, the icon, border,
+   and placeholder turn destructive, and an `sr-only` hint says "No default place set.". When
+   there are recent places, a chevron button opens a `DropdownMenu` anchored to the whole field
+   (`anchor={placeField}`, `align="start"`, `className="min-w-0"`) listing name and ID.
+3. A search field that filters on username, display name, and notes.
+4. A select-mode `IconButton` ("Select accounts" / "Exit selection").
+5. **Add**, which calls `bridge.beginRobloxLogin()` and then refreshes. A hidden live region says
+   "Roblox sign-in window open." while it's running.
+
+**Selection bar**: in select mode a `Panel` shows "`n` selected" (live), **Select all** (visible
+accounts), **Clear**, and **Join selected**, which calls `join([...selected])`.
+
+**Rows**: accounts are ordered by `sortAccounts(accounts, settings.sortOrder)`: `manual` keeps the
+stored order, `alphabetical` compares display names with `localeCompare`, and `last_played` sorts
+by `lastPlayedAt`, falling back to `addedAt`. Each row is a `Panel` with:
+
+- A grip handle when the sort order is `manual` and there's no search query. Dragging uses pointer
+  capture and `document.elementFromPoint` to find the target row (`data-account-id`), then calls
+  `bridge.reorderAccounts` with the new ID order. The new order shows immediately as
+  `pendingOrder` until the refresh completes.
+- A `Checkbox` in select mode, labelled "Select `name`".
+- An `Avatar` when `showAvatars` is on (32 px in compact mode, 40 px otherwise).
+- The display name, `@username` when different, a place override `Badge` with a `MapPin`, and a
+  presence `Badge` ("In game: `game` (`placeId`)" in success colour, or "Status unavailable" in
+  destructive colour).
+- The `accounts.row` slot.
+- A notes `<textarea>` (hidden in compact mode) that grows with content via `field-sizing: content`
+  and saves with `bridge.updateAccountNotes` on blur when changed.
+- A **Join** button and a "More actions" `DropdownMenu` with **Move up** / **Move down** (manual
+  order only), **Set place…** / **Change place…** (PlaceDialog, saved with
+  `bridge.setAccountPlace`), **Use default place** when an override exists, and **Remove**, which
+  confirms and calls `bridge.removeAccount`.
+
+Empty states cover no accounts ("Accounts are added through the official Roblox sign-in page.
+Passwords are never sent to Toolblox.") and no search results. The underlying commands are covered
+in [Accounts](/docs/app/accounts/).
+
+### Widgets
+
+[`src/screens/Widgets.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Widgets.tsx)
+uses `state`, `refresh`, `navigate`, `notify`, and `confirm`, plus `useWidgetRegistry()` for module
+load errors (`errors`) and registered settings components (`settingsPages`). A `working` set tracks
+which widget IDs have an action in flight; `run()` adds the ID, runs the action, refreshes, shows a
+"… Does retrying help?" toast on failure, and removes the ID.
+
+| Section | Content |
+| --- | --- |
+| Errors | One destructive `Panel` per string in `state.widgetErrors` (widgets that failed to load in Rust). |
+| Installed | A `repeat(auto-fill, minmax(240px, 1fr))` grid of cards. Each card has the logo or a `Puzzle` icon, name, version, description, a permissions sentence from `permissionSummary`, and an enable `Switch` (`bridge.setWidgetEnabled`). The footer has **Open** (disabled when the widget is off), "Failed to load" when the module threw during import or `activate`, **Update to v`x`** when `availableVersion` differs, and a menu with **Settings** and **Uninstall**. Update and uninstall confirm first; the update dialog lists the new version's permissions. |
+| Catalogue | Cards for `state.catalogue` with **Install**, which confirms with the requested permissions and calls `bridge.installWidget`. When `state.catalogueError` is set it shows "The catalogue failed to load. Is the connection working?" with **Retry** (`bridge.retryCatalogue`). |
+| Widgets folder | On the canary channel only, the unpacked widgets folder path with a copy button. |
+
+Permission labels come from `permissionLabels` in `shared.tsx`, for example `process.spawn` reads
+"run native code as your user". See [Permissions](/docs/widgets/reference/permissions/) and
+[Catalogue](/docs/widgets/publishing/catalogue/).
+
+### Settings
+
+[`src/screens/Settings.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Settings.tsx)
+uses `state`, `notify`, and `patchSettings`. It has two tabs, **General** and **Accounts**, built
+from `Tabs`, each a stack of titled groups whose rows sit in one `Panel` with `divide-y`. It has no
+slots and can't be replaced.
+
+| Tab | Group | Rows |
+| --- | --- | --- |
+| General | Appearance | Theme (`system`/`light`/`dark`), Sidebar position (`left`/`right`) as `ChoiceRow`s |
+| General | Window | Launch at startup (`openOnLaunch`), Run in background (`runInBackground`, wording says menu bar on macOS and system tray on Windows), Always on top (`alwaysOnTop`) |
+| General | Diagnostics | Log: **Show**/**Hide** (reads the last 300 lines with `bridge.readLog`), **Copy** (up to 2,000 lines to the clipboard), **Open folder** (`bridge.openLogFolder`, disabled when `logsPath` is empty) |
+| General | About | Updates with **Check now** (`bridge.checkForUpdates`), privacy text naming the credential store per platform, links to the privacy policy, security policy, license, and third-party notices through `bridge.openExternal` |
+| Accounts | List | Sort order, Show avatars, Compact list, Game details (`showGameNames`) |
+| Accounts | Joining | Minimize on join; Multiple instances (`multiInstance`) on Windows only |
+| Accounts | Disconnects | Auto-rejoin, Disconnect notifications (`notifyOnDrop`) |
+
+In the demo build, the About group also shows **Update** and **Failure** buttons that replay the
+startup screens with `previewUpdater`. The settings themselves are described in
+[Commands and state](/docs/app/commands-and-state/).
+
+## Shared components
+
+[`src/shared.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/shared.tsx) holds the
+building blocks every screen uses. The **toolblox.ui** column shows whether the component is in
+the `ui` object that `host.tsx` passes to widgets.
+
+| Export | What it is | Key props | toolblox.ui |
+| --- | --- | --- | --- |
+| `Screen` | Scrolling page with sticky header, capped at `max-w-5xl` | `title`, `actions?`, `children`, `className?` | No |
+| `Panel` | `div` with `rounded-xl bg-card ring-1 ring-foreground/8` | Any `div` props | Yes |
+| `SectionTitle` | Muted `h2` row with an optional action on the right | `children`, `action?` | Yes |
+| `IconButton` | Icon-only `Button` with `aria-label` and a matching tooltip | `label`, `variant` (default `ghost`), `size` (default `icon`), `Button` props | Yes |
+| `Spinner` | Spinning `LoaderCircle`, `aria-hidden` | `className?` | Yes |
+| `Avatar` | Round avatar or `UserRound` fallback, with a presence dot (success when playing, warning when status is unavailable); `aria-hidden` | `account`, `className?` | Yes |
+| `SwitchRow` | Settings row with title, description, and a `Switch` labelled by them | `title`, `description?`, `checked`, `change` | Yes |
+| `ChoiceRow` | Settings row with a single-choice outline `ToggleGroup` | `title`, `description?`, `value`, `options`, `change` | Yes |
+| `StatTile` | Icon, large tabular number, and label; a `<button>` when `onClick` is set | `icon`, `label`, `value`, `onClick?` | Yes |
+| `EmptyState` | Centred icon, title, text, and optional action | `icon`, `title`, `text`, `action?` | Yes |
+| `WidgetFrame` | Sandboxed iframe for a legacy widget surface, with session setup and the `postMessage` bridge | `widget`, `surface` (`main`, `settings`, `dashboard`), `title` | No |
+| `placeLabel` | Game name from `recentPlaces`, or the place ID | `(state, placeId)` | No |
+| `presenceLabel` | "In game: …", "Status unavailable", or empty | `(account)` | No |
+| `permissionSummary` | Comma-separated plain-language permissions | `(permissions)` | No |
+| `ScreenProps`, `ConfirmRequest`, `PlaceRequest` | Types | — | No |
+
+`SettingRow`, the private base of `SwitchRow` and `ChoiceRow`, uses `useId` to wire the control's
+`aria-labelledby` and `aria-describedby` to the title and description, so these rows are
+accessible without extra work. `WidgetFrame` is covered in
+[Iframe widgets](/docs/widgets/reference/iframe-widgets/).
+
+## shadcn/ui components
+
+The files in `src/components/ui` are generated by the shadcn CLI with the settings in
+[`components.json`](https://github.com/BakedAleska/Toolblox/blob/main/components.json): style
+`base-nova`, base colour `neutral`, CSS variables on, Lucide icons, and aliases under `@/`. They
+wrap [Base UI](https://base-ui.com) primitives (`@base-ui/react`) rather than Radix, so they compose
+with a `render` prop instead of `asChild`:
+
+```tsx
+<TooltipTrigger render={<Button variant="ghost" size="icon" aria-label="GitHub repository" />}>…</TooltipTrigger>
+```
+
+Variants are defined with `class-variance-authority`, and class names merge with `cn` from the
+`cn` package (re-exported by `src/lib/utils.ts`). New components are added with
+`npx shadcn@latest add <name>`.
+
+| Component | Built on | Variants and key props | toolblox.ui |
+| --- | --- | --- | --- |
+| `Button` | Base UI `Button` | `variant`: `default`, `outline`, `secondary`, `ghost`, `destructive`, `link`. `size`: `default` (32 px), `xs` (24), `sm` (28), `lg` (36), `icon` (32), `icon-xs`, `icon-sm`, `icon-lg`. Icons without a size class get 16 px. | Yes |
+| `buttonVariants` | cva | The class generator behind `Button` | No |
+| `Badge` | Base UI `useRender` | `variant`: `default`, `secondary`, `destructive`, `outline`, `ghost`, `link`; `render` to change the element. 20 px tall, pill-shaped. | Yes |
+| `Input` | Base UI `Input` | Native input props. 32 px, `rounded-lg`, styles `aria-invalid`. | Yes |
+| `Checkbox` | Base UI `Checkbox` | `checked`, `onCheckedChange`. 16 px box with an enlarged hit area. | Yes |
+| `Switch` | Base UI `Switch` | `checked`, `onCheckedChange`, `size`: `default` or `sm`. Enlarged hit area. | Yes |
+| `Toggle` | Base UI `Toggle` | `variant`: `default`, `outline`; `size`: `default`, `sm`, `lg` | No |
+| `ToggleGroup`, `ToggleGroupItem` | Base UI `ToggleGroup` | `value` (array), `onValueChange`, `variant`, `size`, `spacing` (default 2), `orientation` | Yes |
+| `Tabs`, `TabsList`, `TabsTrigger`, `TabsContent` | Base UI `Tabs` | `value`, `onValueChange`, `orientation`; `TabsList` `variant`: `default` or `line` | Yes |
+| `Tooltip`, `TooltipTrigger`, `TooltipContent` | Base UI `Tooltip` | `TooltipContent`: `side` (default `top`), `sideOffset`, `align`, `alignOffset` | Yes |
+| `TooltipProvider` | Base UI `Tooltip.Provider` | `delay`. The shell already provides one at 400 ms. | No |
+| `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuContent`, `DropdownMenuItem`, `DropdownMenuSeparator` | Base UI `Menu` | `DropdownMenuContent`: `align` (default `start`), `side` (default `bottom`), `sideOffset`, `anchor`. `DropdownMenuItem`: `variant` `default` or `destructive`, `inset`. | Yes |
+| `DropdownMenuGroup`, `DropdownMenuLabel`, `DropdownMenuCheckboxItem`, `DropdownMenuRadioGroup`, `DropdownMenuRadioItem`, `DropdownMenuSub`, `DropdownMenuSubTrigger`, `DropdownMenuSubContent`, `DropdownMenuShortcut`, `DropdownMenuPortal` | Base UI `Menu` | Grouping, labels, checkable items, submenus | No |
+| `AlertDialog` and its parts (`Trigger`, `Portal`, `Overlay`, `Content`, `Header`, `Footer`, `Media`, `Title`, `Description`, `Action`, `Cancel`) | Base UI `AlertDialog` | `AlertDialogContent` `size`: `default` or `sm` | No |
+
+`toolblox.ui` also includes `cn`. Anything marked "No" isn't reachable from a widget module; a widget
+that needs it has to build or bundle its own. The full exported set and its use are in the
+[host API reference](/docs/widgets/reference/host-api/) and the
+[slots and styles tutorial](/docs/widgets/tutorials/slots-and-styles/).
+
+## Theme
+
+[`src/index.css`](https://github.com/BakedAleska/Toolblox/blob/main/src/index.css) imports
+`tailwindcss`, `tw-animate-css` (the `animate-in`, `fade-in-0`, `slide-in-from-*`, and `zoom-in-95`
+utilities), the `shadcn/tailwind.css` support layer, and `@fontsource-variable/geist`. It declares
+`@custom-variant dark (&:is(.dark *))`, so `dark:` utilities apply under the `dark` class that
+`useTheme` sets on `<html>`, not under the media query.
+
+An `@theme inline` block maps each CSS variable to a Tailwind colour (`--color-card: var(--card)`
+becomes `bg-card`, `text-card`, `ring-card`, and so on). Because the mapping is `inline`, utilities
+reference the variables at run time, which is what makes token overrides work.
+
+### Colour tokens
+
+All colours are OKLCH. Every neutral has zero chroma; only the three status colours have hue.
+
+| Token | Light | Dark | Used for |
+| --- | --- | --- | --- |
+| `--background` | `oklch(0.985 0 0)` | `oklch(0.165 0 0)` | Page background, `body` |
+| `--foreground` | `oklch(0.145 0 0)` | `oklch(0.975 0 0)` | Body text, toast and tooltip background |
+| `--card` | `oklch(1 0 0)` | `oklch(0.2 0 0)` | `Panel`, `StatTile`, iframes |
+| `--card-foreground` | `oklch(0.145 0 0)` | `oklch(0.975 0 0)` | Text on cards |
+| `--popover` | `oklch(1 0 0)` | `oklch(0.225 0 0)` | Menus and dialogs |
+| `--popover-foreground` | `oklch(0.145 0 0)` | `oklch(0.975 0 0)` | Text in menus and dialogs |
+| `--primary` | `oklch(0.205 0 0)` | `oklch(0.93 0 0)` | Default `Button`, checked controls |
+| `--primary-foreground` | `oklch(0.985 0 0)` | `oklch(0.205 0 0)` | Text on primary |
+| `--secondary` | `oklch(0.955 0 0)` | `oklch(0.26 0 0)` | Secondary buttons and badges |
+| `--secondary-foreground` | `oklch(0.205 0 0)` | `oklch(0.975 0 0)` | Text on secondary |
+| `--muted` | `oklch(0.955 0 0)` | `oklch(0.26 0 0)` | Icon wells, hovers, log view |
+| `--muted-foreground` | `oklch(0.52 0 0)` | `oklch(0.7 0 0)` | Descriptions, captions |
+| `--accent` | `oklch(0.955 0 0)` | `oklch(0.26 0 0)` | Focused menu items |
+| `--accent-foreground` | `oklch(0.205 0 0)` | `oklch(0.975 0 0)` | Text on accent |
+| `--destructive` | `oklch(0.577 0.245 27.325)` | `oklch(0.704 0.191 22.216)` | Errors, destructive actions |
+| `--success` | `oklch(0.6 0.16 150)` | `oklch(0.72 0.17 150)` | In game presence |
+| `--warning` | `oklch(0.68 0.16 65)` | `oklch(0.8 0.15 70)` | Safe mode, unavailable status |
+| `--border` | `oklch(0.92 0 0)` | `oklch(1 0 0 / 8%)` | Default border colour, dividers, scrollbars |
+| `--input` | `oklch(0.9 0 0)` | `oklch(1 0 0 / 14%)` | Input borders, unchecked switches |
+| `--ring` | `oklch(0.708 0 0)` | `oklch(0.556 0 0)` | Focus rings, outlines |
+| `--sidebar` | `oklch(0.965 0 0)` | `oklch(0.14 0 0)` | Sidebar background |
+| `--sidebar-foreground` | `oklch(0.145 0 0)` | `oklch(0.975 0 0)` | Sidebar text |
+| `--sidebar-primary` | `oklch(0.205 0 0)` | `oklch(0.93 0 0)` | Mapped, unused by the app |
+| `--sidebar-primary-foreground` | `oklch(0.985 0 0)` | `oklch(0.205 0 0)` | Mapped, unused by the app |
+| `--sidebar-accent` | `oklch(0.92 0 0)` | `oklch(0.24 0 0)` | Active and hovered sidebar item |
+| `--sidebar-accent-foreground` | `oklch(0.145 0 0)` | `oklch(0.975 0 0)` | Text on the active item |
+| `--sidebar-border` | `oklch(0.92 0 0)` | `oklch(1 0 0 / 6%)` | Sidebar edge and divider |
+| `--sidebar-ring` | `oklch(0.708 0 0)` | `oklch(0.556 0 0)` | Mapped, unused by the app |
+
+`--radius` is also set to `0.5rem` in `:root`, but the radius scale below is fixed in pixels. The
+`.dark` block sets `color-scheme: dark` so native scrollbars and form controls match.
+
+### Base styles
+
+The `@layer base` rules give every element `border-border` and `outline-ring/50`, set
+`bg-background text-foreground` on `body` and the sans font on `html`, give enabled buttons and
+`[role="button"]` a pointer cursor, make `html`, `body`, and `#root` full-height with hidden
+overflow (each screen scrolls itself), and draw thin scrollbars in the `--border` colour.
+
+### Type, radii, spacing, and elevation
+
+- **Font**: Geist Variable, bundled through `@fontsource-variable/geist` and served from the app
+  itself. `--font-sans` and `--font-heading` both resolve to it. Place IDs, paths, and the log use
+  Tailwind's default `font-mono` stack. Numbers in stat tiles use `tabular-nums`.
+- **Radii**: `--radius-sm` 4 px, `--radius-md` 6 px, `--radius-lg` 8 px (controls), `--radius-xl`
+  12 px (panels, dialogs), `--radius-2xl` 16 px (the Dashboard hero). Badges are pill-shaped.
+- **Spacing**: the shared scale is 4, 8, 12, 16, and 24 px (`1`, `2`, `3`, `4`, `6` in Tailwind
+  units). Screens use `gap-4` between sections and `px-6 pb-6` around content, card grids use
+  `gap-3`, and settings rows use `px-4 py-3`. Half steps such as `gap-1.5` and `py-2.5` appear only
+  inside dense controls and rows.
+- **Elevation**: surfaces are tonal layers (`background` → `card` → `muted`) with hairline rings
+  (`ring-1 ring-foreground/8` on panels). Shadows are reserved for floating layers: dropdown menus
+  use `shadow-md`, submenus and the toast use `shadow-lg`. Dialogs use a ring and a blurred
+  backdrop.
+
+### Status colours
+
+`success`, `warning`, and `destructive` are the only hued tokens, and the palette has no purple
+accent. Status is never conveyed by colour alone:
+
+- The avatar presence dot is decorative (`aria-hidden`); the same row shows a text badge such as
+  "In game: Pet Simulator 99 (8737899170)" or "Status unavailable".
+- The default place field turns destructive when empty, and its placeholder, `title`, and `sr-only`
+  hint all say "No default place set".
+- The safe mode banner's warning icon sits next to the sentence that explains it.
+- Widget load failures show the words "Failed to load" or "`name` failed to render", not just red.
+
+### Reduced motion
+
+Under `prefers-reduced-motion: reduce`, every animation and transition is shortened to 0.01 ms with
+one iteration, except `.animate-spin`, which keeps spinning at a slower 2 s so loading indicators
+stay visible.
+
+## Styling widgets
+
+### Tailwind classes are compiled ahead of time
+
+Tailwind 4 generates CSS for the class names it finds in the source when the app is built. The
+shipped stylesheet contains only those classes. A widget module loaded at run time can use any
+class that already appears in the app's source, such as `rounded-xl bg-card ring-1
+ring-foreground/8` or `text-xs text-muted-foreground`, and those classes follow the theme. A class
+that nothing in the app uses, such as `bg-emerald-500` or `grid-cols-7`, has no CSS rule and does
+nothing. The available set changes when the app's own markup changes, so it isn't a stable API.
+The safest approach is to compose `toolblox.ui` components and fall back to `addStyles` for
+anything custom.
+
+### addStyles
+
+`toolblox.addStyles(css)` creates a constructable `CSSStyleSheet`, fills it with `replaceSync`,
+and appends it to `document.adoptedStyleSheets`. It returns a disposer, and the sheet is removed
+automatically when the widget is disabled or unloaded. Adopted sheets apply to the whole document,
+so they can restyle anything, including theme tokens:
+
+```js
+const remove = toolblox.addStyles(`
+  :root, :root.dark {
+    --primary: #c9a44c;
+    --ring: #c9a44c;
+    --sidebar: #0f0907;
+  }
+  .my-widget-tag { display: inline-flex; gap: 4px; }
+`);
+```
+
+Because utilities reference the variables (`@theme inline`), overriding a token on `:root`
+re-colours every component that uses it. Overrides should cover both `:root` and `:root.dark` (or
+target `.dark` separately), because the app's own `.dark` block otherwise wins in dark mode. The
+bundled Rogue Lineage demo widget
+([`src/demo-widgets/rogue_lineage/main.js`](https://github.com/BakedAleska/Toolblox/blob/main/src/demo-widgets/rogue_lineage/main.js))
+uses this pattern for an optional full-app theme it adds and removes from its settings page.
+Prefixing custom class names with the widget ID avoids collisions with other widgets.
+
+### What the CSP allows
+
+The production Content Security Policy in `tauri.conf.json` is:
+
+```text
+default-src 'self';
+img-src     'self' asset: https: data: widget: http://widget.localhost;
+style-src   'self' widget: http://widget.localhost;
+font-src    'self' data: widget: http://widget.localhost;
+connect-src ipc: http://ipc.localhost;
+script-src  'self' widget: http://widget.localhost;
+frame-src   widget: http://widget.localhost
+```
+
+Installed widget files are served from `http://widget.localhost/<id>/…` on Windows (WebView2 serves
+custom schemes over HTTP) and `widget://localhost/<id>/…` on macOS. In practice, for a module
+widget:
+
+| Technique | Result |
+| --- | --- |
+| `toolblox.addStyles(css)` (constructable stylesheet) | Works; this is the supported path. |
+| React `style={{ … }}` props | Work. React sets them through the CSSOM, and the app itself does this for the sidebar width and the `ToggleGroup` gap. |
+| `<link rel="stylesheet">` to a file in the widget package | Allowed by `style-src widget:`. |
+| Inserting a `<style>` element, or a CSS-in-JS library that does (Emotion, styled-components, and similar) | Blocked: `style-src` has no `'unsafe-inline'`. |
+| Images from the package, `https:`, or `data:` URLs | Allowed by `img-src`. |
+| Fonts from the package or `data:` URLs | Allowed by `font-src`. Remote font CDNs aren't. |
+| Scripts from the package (`import`, dynamic `import()`) | Allowed by `script-src widget:`. Remote script CDNs aren't. |
+| `fetch()` or `WebSocket` to the internet | Blocked by `connect-src`. Use the `network.fetch` IPC method through `toolblox.request`; see [IPC](/docs/widgets/reference/ipc/). |
+
+## Error boundaries
+
+Every widget contribution the shell renders, whether a replaced screen, page, settings component,
+or slot item, is wrapped in `WidgetBoundary`. If it throws while rendering, the boundary logs
+"Render failed" with the component stack under the widget's ID and replaces just that contribution
+with a `role="alert"` line: "`name` failed to render. (`error`)". The rest of the screen keeps
+working. Module import or `activate` failures are caught by `syncWidgetModules`, logged, and shown
+as "Failed to load" on the widget's card. See
+[Logs and failures](/docs/widgets/reference/logs-and-failures/).
+
+## Accessibility conventions
+
+The interface follows the accessibility rules in `AGENTS.md`. Widgets that reuse `toolblox.ui`
+components inherit most of this; custom markup should follow the same patterns.
+
+| Convention | Examples in the code |
+| --- | --- |
+| Every icon-only control has a name | `IconButton` requires `label` and sets `aria-label` plus a tooltip. Row buttons name their target: "Join as `name`", "More actions for `name`", "Enable `widget`". |
+| Decorative graphics are hidden | Lucide icons get `aria-hidden="true"`; logos use `alt=""`; `Avatar` and `Spinner` are `aria-hidden`. |
+| Inputs are labelled | The place and search fields wrap an `sr-only` text in a `<label>`; notes textareas have `aria-label="Notes for name"`; settings switches use `aria-labelledby` and `aria-describedby`. |
+| Errors are tied to fields | PlaceDialog sets `aria-invalid` and `aria-describedby="place-dialog-error"`. |
+| Changes are announced | Toast and safe mode banner use `role="status"`; the selection count, sign-in state, loading screens, log status, and update status use live regions; boundary failures use `role="alert"`. |
+| Navigation state is exposed | Sidebar items set `aria-current="page"`; the log toggle sets `aria-expanded` and `aria-controls`; sections on the Widgets page use `aria-labelledby`. |
+| Keyboard alternatives exist | The sidebar separator resizes with arrow keys; drag-to-reorder has **Move up** / **Move down** menu items; Enter commits the place field; the log `<pre>` is focusable for keyboard scrolling. |
+| Focus is visible | Controls use `focus-visible:ring-3 focus-visible:ring-ring/50`; the base layer sets `outline-ring/50` everywhere. |
+| Targets are comfortable | `Checkbox` and `Switch` extend their hit area with an `after:` pseudo-element beyond the visible control. |
+| Motion respects preferences | The reduced-motion block in `index.css`. |
+| Headings are structured | `Screen` renders one `<h1>`; section titles and empty states use `<h2>`. |
+| Language is declared | `<html lang="en">` in `index.html`. |
+
+## Demo mode
+
+`bridge.ts` checks for `__TAURI_INTERNALS__`. Without it, or when Vite runs in `demo` mode
+(`npm run demo`), every bridge call returns sample data from an in-memory `demoState` with five
+accounts, five installed widgets (two of them the module widgets in `src/demo-widgets`), and six
+catalogue entries. The interface can therefore be developed in a plain browser with `npm run dev`
+without touching real accounts. See [Development](/docs/start/development/).
+
+<CardGrid>
+  <LinkCard title="Host API" href="/docs/widgets/reference/host-api/" description="Every method the shell passes to a module widget." />
+  <LinkCard title="Slots and styles" href="/docs/widgets/tutorials/slots-and-styles/" description="Contributing to slots and theming the app." />
+  <LinkCard title="Commands and state" href="/docs/app/commands-and-state/" description="The Rust commands behind every bridge call." />
+  <LinkCard title="Architecture" href="/docs/start/architecture/" description="How the interface, Rust host, and widgets fit together." />
+</CardGrid>

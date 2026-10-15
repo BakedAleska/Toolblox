@@ -1,0 +1,158 @@
+---
+title: Introduction
+description: What Toolblox is, what widgets can do, and how these docs are organized.
+sidebar:
+  order: 0
+---
+
+import { Aside, Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+Toolblox is a desktop app for managing and launching Roblox accounts. It's built with
+[Tauri 2](https://tauri.app/): a Rust host owns every privileged operation, and a React,
+TypeScript, and Vite interface renders the window. Windows is the primary platform and macOS is
+supported. The source is public under the MIT license at
+[github.com/BakedAleska/Toolblox](https://github.com/BakedAleska/Toolblox).
+
+The core app is deliberately small. It signs accounts in through Roblox's own login page, keeps
+their sessions in the operating system's credential store, launches Roblox with a chosen account
+and place, shows which accounts are in game, and can rejoin accounts that disconnect. Everything
+game-specific is meant to live in **widgets**: community packages that extend or reshape the app.
+
+## Who these docs are for
+
+These docs are written for widget authors who want to go further than a small add-on panel. A
+module widget runs inside the app window with the same reach as the app's own source, so building
+an ambitious widget means understanding the whole app: how it starts, where state lives, which
+Rust commands exist, how the interface is composed, and which background services run alongside
+it.
+
+The docs are a guided tour of the source rather than a replacement for it. Each page explains
+what a part of the app does, why it's built that way, how data moves through it, and links the
+exact files on GitHub. The Rust host's item-level documentation is generated from its doc
+comments and published at the [API reference](/api/toolblox_lib/).
+
+## What a widget can do
+
+Toolblox supports two kinds of widget surface, declared in the widget's `widget.json` manifest:
+
+- **Module widgets** declare a `module` file, an ES module that Toolblox imports into the main
+  window. Its `activate` export receives the host API. Module widgets are full-trust.
+- **Iframe widgets** declare HTML entry pages (`entry`, `settingsEntry`, `dashboardEntry`) that
+  render in sandboxed iframes and talk to the host only through permission-checked messages.
+
+A module widget can:
+
+| Capability | How | Reference |
+| --- | --- | --- |
+| Add its own page | `registerPage(Component)` renders at `/widgets/<id>` | [Pages and screens](/docs/widgets/tutorials/pages-and-screens/) |
+| Add a settings page | `registerSettings(Component)` renders at `/widgets/<id>/settings` | [Host API](/docs/widgets/reference/host-api/) |
+| Replace a core screen | `replaceScreen("dashboard" \| "accounts" \| "widgets", Component)` | [Pages and screens](/docs/widgets/tutorials/pages-and-screens/) |
+| Extend existing screens | `addToSlot(slot, Component, { order })` for `accounts.row`, `accounts.toolbar`, `dashboard.stats`, `dashboard.sections`, and `sidebar.footer` | [Slots](/docs/widgets/reference/slots/) |
+| Restyle the whole app | `addStyles(css)` adopts a stylesheet on the document, for example to override theme tokens | [Slots and styles](/docs/widgets/tutorials/slots-and-styles/) |
+| Use the app's components | `toolblox.React` and `toolblox.ui` expose the app's React instance and shared components | [Host API](/docs/widgets/reference/host-api/) |
+| Read and react to app state | `getState()`, `useAppState()`, `onStateChange()` | [Storage and state](/docs/widgets/tutorials/storage-and-state/) |
+| Drive app actions | `navigate`, `notify`, `refresh`, and `join`, which runs the normal Join flow | [Host API](/docs/widgets/reference/host-api/) |
+| Keep data | `storage.get/set` for one JSON value, plus per-account `widgetData.get/set` | [Storage and state](/docs/widgets/tutorials/storage-and-state/) |
+| Call every IPC method | `request(method, params)` with all permissions granted, including `network.fetch` and `process.spawn` | [IPC](/docs/widgets/reference/ipc/) |
+| Run native helpers | Declared sidecar processes under `optional-bin/`, fed over stdin and read from stdout | [Processes](/docs/widgets/tutorials/processes/) |
+| Write to the diagnostic log | `log.debug/info/warn/error` under `widget:<id>` | [Logs and failures](/docs/widgets/reference/logs-and-failures/) |
+
+Toolblox's own Settings screen is the one screen a widget can't replace, so the app's settings
+and diagnostics stay reachable whatever widgets are installed.
+
+## The one hard limit
+
+<Aside type="caution" title="Roblox session cookies never leave Rust">
+Roblox sessions (the `.ROBLOSECURITY` cookie) are read from the sign-in window, validated, and
+written to Windows Credential Manager or the macOS login Keychain entirely inside the Rust host.
+No Tauri command returns them, no widget method exposes them, and the log redacts them. This
+applies to the Toolblox interface itself as much as to widgets: React only ever receives account
+display data and numeric account IDs.
+</Aside>
+
+Every capability that needs a session, such as checking presence or joining a game, is a Rust
+command that uses the session internally and returns only the outcome. Widgets build on those
+commands instead of handling credentials. The [architecture page](/docs/start/architecture/)
+explains this boundary in detail.
+
+## How safety works without sandboxing modules
+
+Because module widgets are full-trust, safety doesn't come from limiting the API. It comes from:
+
+- **Review.** Release builds install widgets only from a signed catalogue, and only widgets that
+  pass review are listed. Unpacked, unreviewed widgets load only in development builds.
+- **Pinned packages.** Each catalogue entry pins the package's SHA-256 and the exact permissions
+  its manifest must declare. Packages are verified before extraction.
+- **Safe mode.** Starting with `--safe-mode`, or choosing **Restart without widgets** from the
+  tray, opens Toolblox for one session without loading any widget.
+- **Error boundaries.** Every widget contribution renders inside an error boundary, so a crashing
+  widget shows an inline error instead of taking down the screen around it.
+
+## Find your way around
+
+<CardGrid>
+  <Card title="Start here" icon="rocket">
+    How the Rust host and React interface fit together, a tour of the repository, and how to run,
+    test, and debug Toolblox from source.
+  </Card>
+  <Card title="The app" icon="laptop">
+    Each subsystem in depth: startup and updates, accounts, commands and state, the interface, and
+    background services.
+  </Card>
+  <Card title="Widget tutorials" icon="puzzle">
+    Step-by-step guides from a first module widget to pages, slots, styles, storage, and
+    processes.
+  </Card>
+  <Card title="Widget reference" icon="open-book">
+    The manifest, host API, slots, IPC methods, permissions, iframe widgets, and how logs and
+    failures surface.
+  </Card>
+</CardGrid>
+
+### Start here
+
+<CardGrid>
+  <LinkCard title="Architecture" href="/docs/start/architecture/" description="Responsibilities, trust boundaries, request flow, and a map of every module." />
+  <LinkCard title="Repository tour" href="/docs/start/repository/" description="Every folder and configuration file, and what it's for." />
+  <LinkCard title="Development setup" href="/docs/start/development/" description="Prerequisites, dev and demo modes, verification, unpacked widgets, safe mode, and logs." />
+</CardGrid>
+
+### The app
+
+<CardGrid>
+  <LinkCard title="Startup and updates" href="/docs/app/startup-and-updates/" description="The fail-closed update gate, data preparation, and legacy migration." />
+  <LinkCard title="Accounts" href="/docs/app/accounts/" description="Sign-in, credential storage, presence, and joining." />
+  <LinkCard title="Commands and state" href="/docs/app/commands-and-state/" description="Every Tauri command and the app state the interface receives." />
+  <LinkCard title="Interface" href="/docs/app/interface/" description="The app shell, routing, screens, and shared components." />
+  <LinkCard title="Background services" href="/docs/app/background-services/" description="Auto-rejoin, multiple instances, the tray, autostart, and logging." />
+</CardGrid>
+
+### Widget tutorials
+
+<CardGrid>
+  <LinkCard title="Your first widget" href="/docs/widgets/tutorials/first-widget/" description="Create, load, and iterate on a module widget." />
+  <LinkCard title="Pages and screens" href="/docs/widgets/tutorials/pages-and-screens/" description="Register pages and settings, and replace core screens." />
+  <LinkCard title="Slots and styles" href="/docs/widgets/tutorials/slots-and-styles/" description="Extend existing screens and restyle the app." />
+  <LinkCard title="Storage and state" href="/docs/widgets/tutorials/storage-and-state/" description="Read app state and keep widget and per-account data." />
+  <LinkCard title="Processes" href="/docs/widgets/tutorials/processes/" description="Ship and control native sidecar processes." />
+</CardGrid>
+
+### Widget reference
+
+<CardGrid>
+  <LinkCard title="Manifest" href="/docs/widgets/reference/manifest/" description="Every widget.json field and its validation rules." />
+  <LinkCard title="Host API" href="/docs/widgets/reference/host-api/" description="Every member of the object passed to activate." />
+  <LinkCard title="Slots" href="/docs/widgets/reference/slots/" description="Where slots render and the props they pass." />
+  <LinkCard title="IPC" href="/docs/widgets/reference/ipc/" description="The versioned request protocol and every method." />
+  <LinkCard title="Permissions" href="/docs/widgets/reference/permissions/" description="What each permission grants and when it's checked." />
+  <LinkCard title="Iframe widgets" href="/docs/widgets/reference/iframe-widgets/" description="Sandboxed page, settings, and dashboard surfaces." />
+  <LinkCard title="Logs and failures" href="/docs/widgets/reference/logs-and-failures/" description="How errors are recorded and shown to users." />
+</CardGrid>
+
+### Publishing
+
+<CardGrid>
+  <LinkCard title="Packaging" href="/docs/widgets/publishing/packaging/" description="Build a widget ZIP that installs cleanly." />
+  <LinkCard title="Catalogue" href="/docs/widgets/publishing/catalogue/" description="How the signed catalogue lists and pins widgets." />
+  <LinkCard title="Review" href="/docs/widgets/publishing/review/" description="What review checks before a widget is listed." />
+</CardGrid>

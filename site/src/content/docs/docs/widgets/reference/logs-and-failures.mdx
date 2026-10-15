@@ -1,0 +1,233 @@
+---
+title: Logs and failures
+description: Where widget log records go, what Toolblox logs automatically, how errors are contained, and how safe mode recovers a broken setup.
+sidebar:
+  order: 7
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Toolblox keeps one log for the host, the interface, and every widget. Widgets write to it
+explicitly, and the host adds records for widget failures, rejected requests, and process
+activity. When a widget does fail, error boundaries keep the failure local and safe mode gets the
+app back without any widget code running.
+
+Sources:
+[`src-tauri/src/logs.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/logs.rs)
+([rustdoc](/api/toolblox_lib/logs/index.html)),
+[`src/widgets/host.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/widgets/host.tsx),
+and [`src-tauri/src/lib.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/lib.rs).
+
+## The log file
+
+| | |
+| --- | --- |
+| File | `v2/logs/toolblox.log` in the data folder |
+| Windows | `%LOCALAPPDATA%\Toolblox\v2\logs\toolblox.log` |
+| macOS | `~/Library/Application Support/Toolblox/v2/logs/toolblox.log` |
+| Development override | Debug builds use `$TOOLBLOX_DATA_DIR/v2/logs/` when `TOOLBLOX_DATA_DIR` is set. |
+| Rotation | When a write would take the file past 1,000,000 bytes, it's renamed to `toolblox.log.1`, older files shift to `.2` and `.3`, and the oldest is deleted. |
+| Kept | The current file plus three older ones. |
+
+**Settings > Diagnostics** shows the last 300 lines, copies up to the last 2,000 lines to the
+clipboard, and opens the log folder in Explorer or Finder. The view reads across rotated files
+when the current one is shorter.
+
+### Line format
+
+```text
+2026-09-24T18:12:40.655Z WARN  widget:trade_tracker: Request network.fetch failed: The widget network request failed. Is the connection working?
+```
+
+Each record is `<UTC time with milliseconds> <LEVEL padded to 5> <target>: <message>`. Multi-line
+messages continue on lines indented by four spaces. Other control characters are escaped as
+`\u{…}`, and tabs become spaces, so a message can't fake a separate record.
+
+### Targets
+
+| Target | Written by |
+| --- | --- |
+| `widget:<id>` | A widget's own records, and host records about that widget. |
+| `interface` | The Toolblox interface, including failed Tauri commands. |
+| `toolblox`, `app_commands`, `startup`, … | Rust modules of the host. |
+| `panic` | Rust panics, with a backtrace. |
+
+Filter one widget's records by searching for `widget:<id>:`.
+
+### Levels
+
+| Build | Kept for Toolblox and widget targets | Kept for other crates |
+| --- | --- | --- |
+| Release | `info`, `warn`, `error` | `warn`, `error` |
+| Development | `debug`, `info`, `warn`, `error` | `warn`, `error` |
+
+`debug` records from widgets are silently dropped in release builds, so they're safe to leave in
+shipped code.
+
+## Writing records
+
+Module widgets use [`toolblox.log`](/docs/widgets/reference/host-api/#log):
+
+```js
+void toolblox.log.debug(`Parsed ${items.length} items`);
+void toolblox.log.info("Price list refreshed");
+void toolblox.log.warn("Price list is empty");
+void toolblox.log.error(`Couldn't parse prices: ${error}`);
+```
+
+Each call returns a promise that never rejects. Records go straight to the `write_log` command
+with the widget's ID as the target, so they don't need an open IPC session and don't count toward
+the request rate limit.
+
+Frames, and modules that prefer IPC, use [`log.write`](/docs/widgets/reference/ipc/#logwrite),
+which needs no permission:
+
+```js
+await request("log.write", { level: "warn", message: "Price list is empty" });
+```
+
+`level` defaults to `info`. The message must be a non-empty string.
+
+### Length limits
+
+1. On arrival, messages over 64 KB are cut at a character boundary.
+2. When written, after redaction, messages over 8 KB (8,192 bytes) are cut and end with
+   ` [truncated]`.
+
+### Redaction
+
+Before any line is written, from any source, Toolblox replaces these with `[redacted]`:
+
+- Roblox session cookie values, recognized by their `_|WARNING:` prefix, wherever they appear.
+- Everything after `roblox-player:` or `roblox-studio:`, which covers launch links and the join
+  tickets in them.
+- The value after any of these keys, matched case-insensitively as a whole word followed by `=`
+  or `:` (optionally quoted, as in JSON): `.roblosecurity`, `rbx-authentication-ticket`,
+  `authentication-ticket`, `ticket`, `x-csrf-token`, `authorization`, `proxy-authorization`,
+  `cookie`, `set-cookie`, `password`, `secret`, `token`, `access_token`, `refresh_token`,
+  `api_key`, and `apikey`. For `authorization`, `proxy-authorization`, `cookie`, and `set-cookie`,
+  the rest of the line or quoted value is redacted, since those values can contain spaces.
+
+```text
+in:  Calling API with token=abc123 and {"password": "hunter2"}
+out: Calling API with token=[redacted] and {"password": "[redacted]"}
+```
+
+Redaction is a safety net. Don't log secrets, API keys, or personal information in the first
+place, and remember that the [review rules](/docs/widgets/publishing/review/) reject widgets
+that collect personal information.
+
+## What Toolblox logs for widgets
+
+These records appear under `widget:<id>` without the widget writing anything:
+
+| Record | Level | When |
+| --- | --- | --- |
+| `Module failed to load: <stack>` | `error` | Importing `main.js` or running `activate` threw. |
+| `Deactivate failed: <stack>` | `error` | `deactivate` threw while unloading. |
+| `Render failed: <stack><component stack>` | `error` | A contribution threw while rendering. |
+| `Request <method> failed: <error>` | `warn` | An IPC method returned an error. |
+| `Started process <id> (pid <n>)` | `info` | A declared process started. |
+| `<id>: <line>` | `warn` | Each of the first 200 standard error lines per process start. |
+| `<id>: further error output isn't logged` | `warn` | After the 200th standard error line. |
+| `Process <id> closed its output` | `info` | A process closed standard output, usually because it exited. |
+| `Stopped process <id>` | `info` | A running process was killed. |
+
+The host also logs widget events under its own targets:
+
+| Record | Target | Level |
+| --- | --- | --- |
+| `Installed widget <id> <version>` | `app_commands` | `info` |
+| `Widget <id> <version> wasn't installed: <error>` | `app_commands` | `warn` |
+| `Uninstalled widget <id>` | `app_commands` | `info` |
+| `Enabled widget <id>` / `Disabled widget <id>` | `app_commands` | `info` |
+| `Widget catalogue unavailable: <error>` | `app_commands` | `warn` |
+| `Widget <id> process <process> didn't start on launch: <error>` | `toolblox` | `warn` |
+| `Command widget_request failed: <error>` | `interface` | `warn` |
+| `Toolblox <version> (<build>) starting on <os> <arch> in safe mode` | `toolblox` | `info` |
+
+`Command widget_request failed` covers requests rejected before dispatch: a closed session, a
+message over 64 KB, the rate limit, a malformed envelope, or a missing permission.
+
+## Error boundaries
+
+Every widget contribution renders inside its own React error boundary:
+
+- each slot contribution,
+- a registered page,
+- a registered settings component,
+- a replaced core screen.
+
+When a component throws during rendering, the boundary replaces only that contribution with:
+
+```text
+<widget name> failed to render. (<error>)
+```
+
+The message uses `role="alert"`, so assistive technology announces it. The error and React's
+component stack are logged as `Render failed`. Everything outside the boundary keeps working,
+including other contributions to the same slot.
+
+A failed boundary stays failed until it remounts, for example after navigating to another route
+and back, or after the widget is disabled and enabled.
+
+Error boundaries catch rendering errors only. They don't catch errors in event handlers,
+`setTimeout` callbacks, promise rejections, or `activate` after it returns. Handle those yourself:
+
+```js
+const run = async (action) => {
+  try { await action(); }
+  catch (error) {
+    toolblox.notify(`Sync failed. Does retrying help? (${error instanceof Error ? error.message : error})`);
+    void toolblox.log.error(`Sync failed: ${error instanceof Error ? error.stack : error}`);
+  }
+};
+```
+
+When `main.js` fails to import or `activate` throws, the widget's card on the Widgets page shows
+**Failed to load**, with the error as its tooltip.
+
+## Safe mode
+
+Safe mode starts Toolblox for one session without loading any widget code.
+
+### Starting in safe mode
+
+| Method | How |
+| --- | --- |
+| Tray menu | **Restart without widgets** writes a one-time marker and restarts the app. |
+| Command line | Start Toolblox with `--safe-mode`. |
+
+The marker is a file named `safe-mode-next-launch` in the `v2` data folder. Toolblox deletes it
+as it starts, so the session after a safe mode session loads widgets again. **Restart normally**
+on the safe mode banner restarts without the marker.
+
+### What safe mode turns off
+
+- No module is imported, and any loaded module is unloaded.
+- `open_widget` refuses every surface, so no frame opens and no IPC session starts:
+  `Widgets are off in safe mode. Can you restart Toolblox normally?`
+- Widget pages and widget settings pages show **Page unavailable**.
+- **Start with Toolblox** processes don't start.
+- A banner reads "Safe mode. Widgets are off for this session." with a **Restart normally**
+  button.
+
+The Widgets page still works in safe mode, so a user can disable, update, or uninstall the
+widget that caused the problem, and Settings still shows the log.
+
+<Aside title="Recovering from a broken widget">
+1. Choose **Restart without widgets** from the tray menu.
+2. Open **Settings > Diagnostics** and look for `widget:<id>` errors.
+3. On the Widgets page, turn the failing widget off, update it, or uninstall it.
+4. Choose **Restart normally** on the banner.
+</Aside>
+
+## Where other failures surface
+
+| Failure | Where it shows |
+| --- | --- |
+| A widget folder can't be read, its manifest is invalid, or it was edited after install | A message at the top of the Widgets page: `Widget <folder> couldn't load: <reason>`. |
+| The catalogue can't be fetched or verified | The Catalogue section of the Widgets page, with a **Retry** button. |
+| Install, update, enable, or uninstall fails | A toast: `<name> couldn't be installed. Does retrying help? (<error>)` and similar. |
+| A frame can't open | Inline in the frame's place: `The widget failed to open. Does reinstalling it help? (<error>)`. |
+| A module fails to load | **Failed to load** on the widget's card. |

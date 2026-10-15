@@ -1,0 +1,402 @@
+---
+title: Pages and screens
+description: Give a widget its own page and settings page, move around the app with navigate, and replace a core screen.
+sidebar:
+  order: 2
+---
+
+import { Aside, Steps, FileTree } from '@astrojs/starlight/components';
+
+A module widget can own two routes, `/widgets/<id>` and `/widgets/<id>/settings`, and it can take
+over three of the four core screens. This tutorial builds **Squad Board**, a widget with a tabbed
+page about your accounts, a settings page, and an optional replacement for the Toolblox Dashboard.
+Everything is built from the components in `toolblox.ui`, so it looks like the rest of the app.
+
+It assumes you've finished [Your first widget](/docs/widgets/tutorials/first-widget/) and have a
+development build running with the widgets folder open.
+
+## The four methods
+
+| Method | Route or screen | Notes |
+| --- | --- | --- |
+| `registerPage(Component)` | `/widgets/<id>` | Rendered under a header with the widget's name. |
+| `registerSettings(Component)` | `/widgets/<id>/settings` | Rendered under a header with the widget's name followed by "settings". |
+| `navigate(route)` | Any app route | Changes the route the same way the sidebar does. |
+| `replaceScreen(screen, Component)` | `"dashboard"`, `"accounts"`, or `"widgets"` | Renders your component instead of the core screen. Settings can't be replaced. |
+
+The three registration methods return a function that removes the registration. Toolblox also
+removes them all when it unloads the widget, such as when it's turned off or uninstalled, so you only call the remover
+when you want to undo a registration while the widget keeps running. The full signatures are on
+[Host API](/docs/widgets/reference/host-api/).
+
+## How Toolblox routes
+
+Routing lives in [`src/App.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/App.tsx).
+The route is the URL hash, so `navigate("/accounts")` sets `#/accounts` and the current route
+survives a window reload. The shell accepts exactly these routes:
+
+- `/`, `/accounts`, `/widgets`, and `/settings`, the core screens;
+- `/widgets/<id>`, a widget's page;
+- `/widgets/<id>/settings`, a widget's settings page.
+
+Anything else falls back to `/`. A path below a widget's page that isn't `/settings`, such as
+`/widgets/squad_board/history`, shows "Page unavailable", as does any widget route for a disabled
+widget or during safe mode. A widget therefore has one page; sections within it are component state,
+such as tabs, not routes.
+
+For `/widgets/<id>`, the shell renders a `WidgetHost`:
+
+- The header shows the widget's name. When the widget has a settings page, a settings button sits at
+  the right of the header.
+- The body is the registered page inside an error boundary. Without one, it's the widget's
+  sandboxed `index.html` when the manifest declares `entry`, or an empty state reading "No page.
+  This widget adds features to other parts of Toolblox."
+
+For `/widgets/<id>/settings`, the shell renders `WidgetSettings`:
+
+- The header reads the widget's name followed by "settings", and has an **Open widget** button when the widget has a page.
+- When the widget declares processes, a **Start with Toolblox** switch comes first. See
+  [Processes](/docs/widgets/tutorials/processes/).
+- Then your settings component, inside an error boundary, then the sandboxed `settings.html` if the
+  manifest declares one.
+
+Both bodies sit in the app's standard screen layout: a scrolling column capped at `max-w-5xl`, with
+24-pixel side padding and 16 pixels between direct children. Return several top-level sections from
+your component, in a fragment, and they're spaced like the core screens.
+
+Every installed widget gets a sidebar entry under **Widgets**, whether or not it registers a page.
+Disabled widgets' entries are shown but can't be selected.
+
+## Build Squad Board
+
+<Steps>
+
+1. **Create the folder and manifest.**
+
+   <FileTree>
+   - widgets/
+     - squad_board/
+       - widget.json
+       - main.js
+   </FileTree>
+
+   ```json title="squad_board/widget.json"
+   {
+     "schemaVersion": 1,
+     "id": "squad_board",
+     "name": "Squad Board",
+     "version": "1.0.0",
+     "description": "Shows which accounts are in game and joins them from one page.",
+     "module": "main.js"
+   }
+   ```
+
+2. **Write the module.** The full file is below. The sections after it explain each part.
+
+   ```js title="squad_board/main.js"
+   const svg = (h, ...paths) => h("svg", {
+     viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
+     strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round",
+   }, ...paths.map((d) => h("path", { key: d, d })));
+
+   export async function activate(toolblox) {
+     const { React, ui } = toolblox;
+     const h = React.createElement;
+     const pageRoute = `/widgets/${toolblox.widget.id}`;
+     const icons = {
+       users: svg(h, "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8"),
+       play: svg(h, "M6 3v18l15-9Z"),
+       moon: svg(h, "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"),
+     };
+
+     let settings = { defaultTab: "overview", replaceDashboard: false, ...((await toolblox.storage.get()) ?? {}) };
+     const listeners = new Set();
+     const subscribe = (listener) => { listeners.add(listener); return () => listeners.delete(listener); };
+     const useSettings = () => React.useSyncExternalStore(subscribe, () => settings);
+
+     let removeDashboard;
+     const applyDashboard = () => {
+       if (settings.replaceDashboard && !removeDashboard) removeDashboard = toolblox.replaceScreen("dashboard", SquadDashboard);
+       if (!settings.replaceDashboard && removeDashboard) { removeDashboard(); removeDashboard = undefined; }
+     };
+     const save = (patch) => {
+       settings = { ...settings, ...patch };
+       applyDashboard();
+       listeners.forEach((listener) => listener());
+       toolblox.storage.set(settings).catch((error) => toolblox.notify(`Squad Board settings weren't saved. Does retrying help? (${error})`));
+     };
+
+     const accountName = (account) => account.displayName || account.name;
+     const presenceText = (account) => account.presence === "playing" ? (account.gameName ? `In game: ${account.gameName}` : "In game")
+       : account.presence === "warning" ? "Status unavailable" : "Offline";
+
+     function Stats() {
+       const { accounts } = toolblox.useAppState();
+       const count = (presence) => accounts.filter((account) => account.presence === presence).length;
+       return h("div", { className: "grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3" },
+         h(ui.StatTile, { icon: icons.users, label: "Accounts", value: accounts.length, onClick: () => toolblox.navigate("/accounts") }),
+         h(ui.StatTile, { icon: icons.play, label: "In game", value: count("playing") }),
+         h(ui.StatTile, { icon: icons.moon, label: "Offline", value: count("offline") }));
+     }
+
+     function AccountRows({ accounts, empty }) {
+       const { settings: appSettings } = toolblox.useAppState();
+       if (!accounts.length) return h(ui.Panel, { className: "px-4 py-3 text-sm text-muted-foreground" }, empty);
+       return h(ui.Panel, { className: "divide-y" }, accounts.map((account) =>
+         h("div", { key: account.id, className: "flex items-center gap-3 px-4 py-3" },
+           appSettings.showAvatars && h(ui.Avatar, { account, className: "size-8" }),
+           h("div", { className: "min-w-0 flex-1" },
+             h("p", { className: "truncate text-sm font-medium" }, accountName(account)),
+             h("p", { className: "truncate text-xs text-muted-foreground" }, presenceText(account))),
+           h(ui.Button, { variant: "outline", size: "sm", "aria-label": `Join as ${accountName(account)}`, onClick: () => toolblox.join([account.id]) },
+             icons.play, "Join"))));
+     }
+
+     function Overview({ showAll }) {
+       const { accounts } = toolblox.useAppState();
+       const playing = accounts.filter((account) => account.presence === "playing");
+       return h(React.Fragment, null,
+         h(Stats),
+         h("section", { className: "flex flex-col gap-2" },
+           h(ui.SectionTitle, { action: h(ui.Button, { variant: "ghost", size: "sm", onClick: showAll }, "All accounts") }, "In game now"),
+           h(AccountRows, { accounts: playing, empty: "No accounts are in game." })));
+     }
+
+     function SquadPage() {
+       const { defaultTab } = useSettings();
+       const { accounts } = toolblox.useAppState();
+       const [tab, setTab] = React.useState(defaultTab);
+       if (!accounts.length) return h(ui.Panel, null, h(ui.EmptyState, {
+         icon: icons.users, title: "No accounts", text: "Add a Roblox account to see it here.",
+         action: h(ui.Button, { onClick: () => toolblox.navigate("/accounts") }, "Open Accounts"),
+       }));
+       return h(ui.Tabs, { value: tab, onValueChange: (value) => setTab(value) },
+         h(ui.TabsList, null,
+           h(ui.TabsTrigger, { value: "overview" }, "Overview"),
+           h(ui.TabsTrigger, { value: "accounts" }, "Accounts")),
+         h(ui.TabsContent, { value: "overview", className: "flex flex-col gap-4" }, h(Overview, { showAll: () => setTab("accounts") })),
+         h(ui.TabsContent, { value: "accounts" }, h(AccountRows, { accounts, empty: "No accounts." })));
+     }
+
+     function SquadSettings() {
+       const current = useSettings();
+       return h(ui.Panel, { className: "divide-y" },
+         h(ui.ChoiceRow, {
+           title: "Default tab", description: "Tab shown when Squad Board opens.", value: current.defaultTab,
+           options: [{ value: "overview", label: "Overview" }, { value: "accounts", label: "Accounts" }],
+           change: (defaultTab) => save({ defaultTab }),
+         }),
+         h(ui.SwitchRow, {
+           title: "Replace Dashboard", description: "Show Squad Board in place of the Toolblox Dashboard.",
+           checked: current.replaceDashboard, change: (replaceDashboard) => save({ replaceDashboard }),
+         }));
+     }
+
+     function SquadDashboard() {
+       return h("div", { className: "h-full overflow-y-auto [scrollbar-gutter:stable]" },
+         h("div", { className: "mx-auto flex min-h-full max-w-5xl flex-col gap-4 px-6 pb-6" },
+           h("header", { className: "sticky top-0 z-10 -mx-6 flex h-14 shrink-0 items-center gap-2 bg-background/90 px-6 backdrop-blur-sm" },
+             h("h1", { className: "mr-auto shrink-0 pr-2 text-lg font-semibold tracking-tight" }, "Dashboard"),
+             h(ui.Button, { variant: "ghost", size: "sm", onClick: () => toolblox.navigate(pageRoute) }, "Open Squad Board")),
+           h(Overview, { showAll: () => toolblox.navigate(pageRoute) })));
+     }
+
+     toolblox.registerPage(SquadPage);
+     toolblox.registerSettings(SquadSettings);
+     applyDashboard();
+   }
+   ```
+
+3. **Reload and open it.** Reload the window from the developer tools, then select **Squad Board**
+   in the sidebar. The header has a settings button because the widget registered a settings page.
+
+4. **Try the settings.** Open the settings page, set **Default tab** to **Accounts**, then go back to
+   the page with **Open widget**. Turn on **Replace Dashboard** and select **Dashboard** in the
+   sidebar: Squad Board's overview renders in its place. Turn it off and the core Dashboard
+   returns immediately, without a reload.
+
+</Steps>
+
+## The page
+
+`registerPage(SquadPage)` stores the component in the widget registry, keyed by widget ID. The shell
+renders it whenever the route is `/widgets/squad_board`, inside an error boundary, so a throw in
+`SquadPage` shows an inline alert under the page header and leaves the sidebar working.
+
+Things worth copying from this page:
+
+- **Read app state with `toolblox.useAppState()`.** It's a hook that re-renders the component when
+  Toolblox reloads its state: when the window gains focus, every 60 seconds, and after actions. It
+  returns the same `AppState` object as `getState()`. Accounts here carry `presence`, `gameName`,
+  and the rest of the fields described in
+  [Storage and state](/docs/widgets/tutorials/storage-and-state/).
+- **Respect the user's settings.** `state.settings.showAvatars` is the **Show avatars** setting;
+  the core screens hide avatars when it's off, so `AccountRows` does too.
+- **Use text for status.** The presence line reads "In game", "Offline", or "Status unavailable"
+  rather than relying on a coloured dot.
+- **Use `toolblox.join`, not a direct IPC join, for buttons.** `join(accountIds)` runs the same flow
+  as the core Join buttons: when neither the account nor the app has a place set, it asks for one,
+  then launches the accounts with a short gap between them and shows a toast if launching fails.
+- **Handle the empty case.** `ui.EmptyState` with an action button matches the empty states on the
+  core screens.
+
+### Tabs for sections
+
+Because a widget has one route, Squad Board keeps its sections in `ui.Tabs`. The tabs are
+[Base UI](https://base-ui.com/react/components/tabs) components styled by the app:
+
+- `ui.Tabs` takes `value` and `onValueChange` for controlled use, or `defaultValue` for uncontrolled
+  use.
+- `ui.TabsList` holds `ui.TabsTrigger` elements, each with a `value`.
+- `ui.TabsContent` with the matching `value` renders the panel.
+
+The tabs are controlled here so the **All accounts** button in the overview can switch to the
+Accounts tab. The initial tab comes from the stored setting. `useState` only reads its argument on
+the first render, so changing the setting while the page is open doesn't move the user away from the
+tab they're on.
+
+<Aside>
+Pass `"aria-label"` to buttons whose visible text is ambiguous out of context. Every Join button
+says "Join", so each gets a label naming its account, matching the core Recently played list.
+</Aside>
+
+### Matching the app's layout
+
+The page uses the same structures as the core screens, copied from
+[`src/screens/Dashboard.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Dashboard.tsx):
+
+- a stat row of `ui.StatTile` elements in a `grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3`
+  container;
+- a `<section className="flex flex-col gap-2">` with a `ui.SectionTitle`, whose `action` prop puts a
+  control at the right of the title;
+- related rows grouped in one `ui.Panel` with `className="divide-y"`, each row
+  `flex items-center gap-3 px-4 py-3`.
+
+Copying class strings from the app's own source is the reliable way to stay within the Tailwind
+classes that exist in the compiled stylesheet. Spacing follows the app's 4, 8, 12, 16, and 24 pixel
+scale (`gap-1`, `gap-2`, `gap-3`, `gap-4`, `px-6`), and radii come from the components themselves.
+
+## The settings page
+
+`registerSettings(SquadSettings)` adds a page at `/widgets/squad_board/settings`. Registering it
+also makes the settings button appear in the page header and a **Settings** item appear in the
+widget card's menu on the Widgets page.
+
+The rows come from `toolblox.ui`:
+
+- `ui.SwitchRow` takes `title`, `description`, `checked`, and `change(value)`.
+- `ui.ChoiceRow` takes `title`, `description`, `value`, `options` as `{ value, label }` pairs, and
+  `change(value)`. It renders a toggle group and ignores attempts to deselect the current option.
+
+Both label their control with the title and describe it with the description, so screen readers
+announce them correctly. Group related rows in one `ui.Panel` with `divide-y`, as Toolblox Settings
+does.
+
+The settings live in the widget's own store, `toolblox.storage`, and in a small in-memory store the
+components subscribe to with `React.useSyncExternalStore`. This is the same pattern as the
+rogue_lineage demo. `save` updates memory first so the interface responds immediately, then persists
+in the background and reports a failure with `notify`. Storage is covered in depth in
+[Storage and state](/docs/widgets/tutorials/storage-and-state/).
+
+<Aside>
+Widget settings stay on the widget's own settings page. Toolblox Settings is for the app; a widget
+can't add rows to it.
+</Aside>
+
+## Navigating
+
+`toolblox.navigate(route)` takes any route listed in [How Toolblox routes](#how-toolblox-routes):
+
+```js
+toolblox.navigate("/");                                         // Dashboard
+toolblox.navigate("/accounts");
+toolblox.navigate(`/widgets/${toolblox.widget.id}`);            // this widget's page
+toolblox.navigate(`/widgets/${toolblox.widget.id}/settings`);   // this widget's settings
+toolblox.navigate("/widgets/rogue_lineage");                    // another widget's page
+```
+
+Build your own routes from `toolblox.widget.id` instead of hard-coding the ID, so the code keeps
+working if you copy it into another widget. Navigating to another widget's page works only while
+that widget is installed and enabled; otherwise the user sees "Page unavailable" with a button back
+to the Dashboard.
+
+## Replacing a core screen
+
+`replaceScreen(screen, Component)` makes the shell render your component instead of the Dashboard
+(`"dashboard"`), Accounts (`"accounts"`), or Widgets (`"widgets"`) screen. Squad Board applies the
+replacement only while its setting is on:
+
+```js
+let removeDashboard;
+const applyDashboard = () => {
+  if (settings.replaceDashboard && !removeDashboard) removeDashboard = toolblox.replaceScreen("dashboard", SquadDashboard);
+  if (!settings.replaceDashboard && removeDashboard) { removeDashboard(); removeDashboard = undefined; }
+};
+```
+
+Calling the remover deletes the replacement and re-renders the shell, so the core screen comes back
+straight away. Keeping the remover in a variable and checking it before registering avoids
+registering twice.
+
+What a replacement receives, and what it doesn't:
+
+- **No props and no layout.** The core screens are rendered with the shell's callbacks and wrapped
+  in a `Screen` layout component. A replacement gets neither. Read state with
+  `toolblox.useAppState()`, act with `toolblox.navigate` and `toolblox.join`, and build the layout
+  yourself. `SquadDashboard` reproduces the `Screen` markup from
+  [`src/shared.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/shared.tsx) class for
+  class: a scrolling container, a centred `max-w-5xl` column, and a sticky header with an `h1`.
+- **No core content.** The built-in screen isn't available to render inside yours. Replacing the
+  Dashboard removes the Continue as panel, Recently played, iframe dashboard tiles, and the
+  `dashboard.stats` and `dashboard.sections` slots, including other widgets' contributions to
+  them.
+- **An error boundary.** A replacement that throws shows an inline error instead of the screen.
+
+Rules for replacements, from `replaceScreen` in
+[`src/widgets/host.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/widgets/host.tsx):
+
+- One component per screen. The most recent call wins, including a call from another widget.
+- A remover only removes the replacement if the same widget still owns it. If another widget
+  replaced the screen after you, your remover does nothing, and when the other widget's
+  replacement is removed the core screen returns rather than yours.
+- Widgets load one after another in order of ID, so when two widgets replace the same screen at
+  activation, the one whose ID sorts last wins.
+
+<Aside type="caution" title="Replacing Accounts or Widgets">
+The host API has no methods to add, remove, reorder, or annotate accounts, or to install, enable, or
+disable widgets. A replacement for Accounts or Widgets takes those controls away from the user for
+as long as it's active. If you replace either screen, give the user a way back, such as a setting
+that removes the replacement. A user who's stuck can start in [safe mode](/docs/widgets/tutorials/first-widget/#when-a-widget-breaks)
+and turn the widget off.
+</Aside>
+
+### Why Settings can't be replaced
+
+`CoreScreen` is `"dashboard" | "accounts" | "widgets"`, and the shell always renders Toolblox
+Settings for `/settings`. Settings holds the app's own preferences and the **Diagnostics** log
+viewer, so keeping it out of reach of widgets means the user can always read the log and change
+how Toolblox behaves, whichever widgets are installed. Widget settings belong on the widget's own
+settings page instead.
+
+## Registering more than once
+
+`registerPage` and `registerSettings` keep one component per widget. A second call replaces the
+first. Each remover deletes the widget's current registration, whichever call made it, so calling an
+old remover after re-registering removes the new page too. Register each page once, in `activate`,
+and switch what it shows with state.
+
+## Common mistakes
+
+| Symptom | Cause |
+| --- | --- |
+| "Page unavailable" on a widget route | The widget is disabled, Toolblox is in safe mode, or the path has more than `/widgets/<id>/settings`. |
+| The settings button doesn't appear | `registerSettings` wasn't called, or `activate` threw before reaching it. |
+| A replaced screen has no header or padding | Replacements don't get the `Screen` layout. Build it as `SquadDashboard` does. |
+| The core screen doesn't come back | The remover was lost. Keep it, or disable the widget; Toolblox removes every registration on unload. |
+| A setting changes but the page doesn't update | The component reads a plain variable. Subscribe with `useSyncExternalStore` as `useSettings` does. |
+
+## Next steps
+
+- [Slots and styles](/docs/widgets/tutorials/slots-and-styles/) adds contributions to the Accounts
+  page, Dashboard, and sidebar, and restyles the app.
+- [Host API](/docs/widgets/reference/host-api/) covers every method used here.

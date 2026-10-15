@@ -1,0 +1,584 @@
+---
+title: Processes
+description: Ship a native helper in optional-bin/, start it with declared arguments, talk to it over JSON lines, and stop it cleanly on Windows and macOS.
+sidebar:
+  order: 5
+---
+
+import { Aside, Steps, FileTree, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Some work doesn't fit in the app window: native APIs, long-running computation, or a library that
+only exists outside JavaScript. A widget can bundle native executables under `optional-bin/` and run
+them as helper processes. Toolblox starts them with arguments from an allow list in the manifest,
+writes JSON lines to their input, collects their output lines for the widget to poll, and stops them
+when the widget is turned off, updated, or uninstalled, or when Toolblox is quit from the tray.
+
+This tutorial builds **Cooldown Timers**: a helper written in Rust keeps a timer per account, and
+the widget starts timers from its page and shows a badge on the Accounts page until each one ends. A
+JavaScript timer could do the same job; the helper keeps the example small so the focus stays on
+the process mechanics, which are the same for any helper.
+
+Neither demo widget runs a process, so this tutorial is built from the host code:
+[`src-tauri/src/widget_process.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widget_process.rs)
+owns the processes, and the `process.*` arms of `dispatch_widget_request` in
+[`src-tauri/src/app_commands.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/app_commands.rs)
+expose them over IPC.
+
+It assumes you've finished [Storage and state](/docs/widgets/tutorials/storage-and-state/).
+
+<Aside type="caution" title="Review rules for helpers">
+Helpers run as the user, with the user's access to files and the network. The install dialog says
+the widget can "run native code as your user". Catalogue [review](/docs/widgets/publishing/review/)
+rejects helpers that read or change Roblox client memory or files, inject code into the client,
+automate input to it, or play a game without the user. Source for every helper must be available
+under an OSI-approved license.
+</Aside>
+
+## The four methods
+
+All four go through `toolblox.request` and require the `process.spawn` permission, which module
+widgets always have.
+
+| Method | Parameters | Result |
+| --- | --- | --- |
+| `process.spawn` | `processId`, optional `arguments` (strings) | `null`. Starts the declared process. |
+| `process.send` | `processId`, `message` (any JSON value) | `{ events }`. Writes one line to the process's input, then returns buffered output. |
+| `process.poll` | none | `{ events }`. Returns and clears this widget's buffered output. |
+| `process.stop` | `processId` | `null`. Kills the process and waits for it to exit. |
+
+Each event is `{ widgetId, processId, stream, line }`, where `stream` is `"stdout"` or `"stderr"`
+and `line` is one line of output without its line ending. `process.poll` and `process.send` return
+events from all of the widget's processes, never another widget's.
+
+## Build Cooldown Timers
+
+<Steps>
+
+1. **Lay out the folders.** The widget folder holds what ships. Keep the helper's source in a
+   separate folder so it doesn't end up in the package.
+
+   <FileTree>
+   - widgets/
+     - cooldown_timers/
+       - widget.json
+       - main.js
+       - optional-bin/
+         - timer.exe Windows build
+         - timer-macos macOS universal build
+   - timer/ helper source, outside the package
+     - Cargo.toml
+     - src/
+       - main.rs
+   </FileTree>
+
+2. **Declare the processes.**
+
+   ```json title="cooldown_timers/widget.json"
+   {
+     "schemaVersion": 1,
+     "id": "cooldown_timers",
+     "name": "Cooldown Timers",
+     "version": "1.0.0",
+     "description": "Runs per-account cooldown timers in a bundled helper and shows when they end.",
+     "module": "main.js",
+     "permissions": ["process.spawn"],
+     "processes": [
+       { "id": "timer-windows", "executable": "optional-bin/timer.exe", "allowedArguments": ["--verbose"] },
+       { "id": "timer-macos", "executable": "optional-bin/timer-macos", "allowedArguments": ["--verbose"] }
+     ]
+   }
+   ```
+
+   The manifest validation in
+   [`widgets.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widgets.rs) checks
+   each declaration:
+
+   - `id` is 1 to 64 letters, digits, `_`, or `-`, and unique within the widget.
+   - `executable` is a relative path under `optional-bin/`, with no `..` or absolute parts.
+   - Declaring any process requires `process.spawn` in `permissions`.
+   - `allowedArguments` lists every argument the process may receive. It defaults to none.
+
+   A declaration names exactly one file, so a widget that supports both platforms declares one
+   process per platform and picks one at run time. There's no per-platform field.
+
+3. **Write the helper.** It reads JSON messages from its input, one per line, and writes JSON
+   events to its output, one per line.
+
+   ```toml title="timer/Cargo.toml"
+   [package]
+   name = "timer"
+   version = "1.0.0"
+   edition = "2024"
+
+   [dependencies]
+   serde_json = "1"
+   ```
+
+   ```rust title="timer/src/main.rs"
+   #![cfg_attr(windows, windows_subsystem = "windows")]
+
+   use std::io::{self, BufRead, Write};
+   use std::sync::mpsc::{self, RecvTimeoutError};
+   use std::thread;
+   use std::time::{Duration, Instant};
+
+   use serde_json::{Value, json};
+
+   fn main() {
+       let verbose = std::env::args().any(|argument| argument == "--verbose");
+       let (sender, messages) = mpsc::channel::<Value>();
+       thread::spawn(move || {
+           for line in io::stdin().lock().lines() {
+               let Ok(line) = line else { break };
+               match serde_json::from_str::<Value>(&line) {
+                   Ok(message) => {
+                       if sender.send(message).is_err() {
+                           break;
+                       }
+                   }
+                   Err(error) => eprintln!("Ignored a line that isn't JSON: {error}"),
+               }
+           }
+       });
+
+       emit(json!({ "type": "ready", "version": env!("CARGO_PKG_VERSION") }));
+       let mut timers: Vec<(String, Instant)> = Vec::new();
+       loop {
+           match messages.recv_timeout(Duration::from_millis(250)) {
+               Ok(message) => match message["type"].as_str() {
+                   Some("start") => {
+                       let (Some(id), Some(seconds)) = (message["id"].as_str(), message["seconds"].as_u64()) else {
+                           eprintln!("A start message needs an id and seconds.");
+                           continue;
+                       };
+                       let seconds = seconds.min(86_400);
+                       timers.retain(|(existing, _)| existing != id);
+                       timers.push((id.to_owned(), Instant::now() + Duration::from_secs(seconds)));
+                       if verbose {
+                           eprintln!("Started timer {id} for {seconds} s");
+                       }
+                   }
+                   Some("cancel") => {
+                       if let Some(id) = message["id"].as_str() {
+                           timers.retain(|(existing, _)| existing != id);
+                       }
+                   }
+                   Some("quit") => {
+                       emit(json!({ "type": "bye" }));
+                       return;
+                   }
+                   _ => eprintln!("Ignored a message with an unknown type."),
+               },
+               Err(RecvTimeoutError::Timeout) => {}
+               Err(RecvTimeoutError::Disconnected) => return,
+           }
+           let now = Instant::now();
+           timers.retain(|(id, due)| {
+               if *due > now {
+                   return true;
+               }
+               emit(json!({ "type": "done", "id": id }));
+               false
+           });
+       }
+   }
+
+   fn emit(event: Value) {
+       let mut stdout = io::stdout().lock();
+       let _ = writeln!(stdout, "{event}");
+       let _ = stdout.flush();
+   }
+   ```
+
+4. **Build it for each platform** and copy the results into `optional-bin/`.
+
+   <Tabs>
+   <TabItem label="Windows">
+
+   ```powershell
+   cd timer
+   cargo build --release
+   Copy-Item target\release\timer.exe ..\widgets\cooldown_timers\optional-bin\timer.exe
+   ```
+
+   </TabItem>
+   <TabItem label="macOS">
+
+   ```sh
+   cd timer
+   rustup target add aarch64-apple-darwin x86_64-apple-darwin
+   cargo build --release --target aarch64-apple-darwin
+   cargo build --release --target x86_64-apple-darwin
+   lipo -create -output ../widgets/cooldown_timers/optional-bin/timer-macos \
+     target/aarch64-apple-darwin/release/timer target/x86_64-apple-darwin/release/timer
+   codesign --force --sign - ../widgets/cooldown_timers/optional-bin/timer-macos
+   chmod +x ../widgets/cooldown_timers/optional-bin/timer-macos
+   ```
+
+   </TabItem>
+   </Tabs>
+
+   Adjust the destination to your widgets folder. In a development build only the executable for
+   your own platform needs to exist; a packaged widget must contain every declared executable, or
+   installation fails with "Widget process … is missing."
+
+5. **Write the module.**
+
+   ```js title="cooldown_timers/main.js"
+   let cleanup = () => {};
+
+   function createStore(initial) {
+     let value = initial;
+     const listeners = new Set();
+     return {
+       get: () => value,
+       set: (next) => { value = next; listeners.forEach((listener) => listener()); },
+       subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+     };
+   }
+
+   export async function activate(toolblox) {
+     const { React, ui } = toolblox;
+     const h = React.createElement;
+     const use = (store) => React.useSyncExternalStore(store.subscribe, store.get);
+     const processId = toolblox.getState().platform === "macos" ? "timer-macos" : "timer-windows";
+     const accountName = (id) => {
+       const account = toolblox.getState().accounts.find((item) => String(item.id) === String(id));
+       return account ? account.displayName || account.name : `Account ${id}`;
+     };
+
+     const worker = createStore({ status: "stopped", version: "" });
+     const timers = createStore({});
+     const stopped = () => { worker.set({ status: "stopped", version: "" }); timers.set({}); };
+
+     function handle(events) {
+       for (const event of events) {
+         if (event.processId !== processId || event.stream !== "stdout") continue;
+         let message;
+         try { message = JSON.parse(event.line); }
+         catch { void toolblox.log.warn(`Ignored helper output that isn't JSON: ${event.line.slice(0, 200)}`); continue; }
+         if (message?.type === "ready") worker.set({ status: "running", version: String(message.version ?? "") });
+         else if (message?.type === "bye") stopped();
+         else if (message?.type === "done") {
+           const { [message.id]: _, ...rest } = timers.get();
+           timers.set(rest);
+           toolblox.notify(`${accountName(message.id)}'s cooldown ended.`);
+         }
+       }
+     }
+
+     async function poll() {
+       try {
+         const { events } = await toolblox.request("process.poll");
+         handle(events);
+       } catch (error) {
+         void toolblox.log.warn(`Polling the timer helper failed: ${error}`);
+       }
+     }
+
+     async function send(message) {
+       try {
+         const { events } = await toolblox.request("process.send", { processId, message });
+         handle(events);
+         return true;
+       } catch (error) {
+         stopped();
+         toolblox.notify(`The timer helper isn't responding. Can you start it again? (${error})`);
+         return false;
+       }
+     }
+
+     async function startWorker() {
+       worker.set({ status: "starting", version: "" });
+       try {
+         await toolblox.request("process.spawn", { processId, arguments: ["--verbose"] });
+       } catch (error) {
+         if (!String(error).includes("already running")) {
+           stopped();
+           toolblox.notify(`The timer helper didn't start. Is the package complete? (${error})`);
+           return;
+         }
+         worker.set({ status: "running", version: "" });
+       }
+       await poll();
+     }
+
+     async function stopWorker() {
+       await send({ type: "quit" });
+       await toolblox.request("process.stop", { processId }).catch((error) => toolblox.log.warn(`Stopping the timer helper failed: ${error}`));
+       stopped();
+     }
+
+     async function startCooldown(accountId, minutes) {
+       if (await send({ type: "start", id: String(accountId), seconds: minutes * 60 })) {
+         timers.set({ ...timers.get(), [accountId]: Date.now() + minutes * 60_000 });
+       }
+     }
+
+     async function cancelCooldown(accountId) {
+       if (await send({ type: "cancel", id: String(accountId) })) {
+         const { [accountId]: _, ...rest } = timers.get();
+         timers.set(rest);
+       }
+     }
+
+     const interval = setInterval(() => { if (worker.get().status !== "stopped") void poll(); }, 500);
+     cleanup = () => {
+       clearInterval(interval);
+       void toolblox.request("process.stop", { processId }).catch(() => {});
+     };
+
+     const endsAt = (time) => new Date(time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+     const statusText = { stopped: "Stopped", starting: "Starting", running: "Running" };
+
+     toolblox.addToSlot("accounts.row", function CooldownBadge({ account }) {
+       const end = use(timers)[account.id];
+       return end ? h(ui.Badge, { variant: "secondary" }, `Cooldown until ${endsAt(end)}`) : null;
+     });
+
+     toolblox.registerPage(function CooldownPage() {
+       const { status, version } = use(worker);
+       const current = use(timers);
+       const { accounts } = toolblox.useAppState();
+       const running = status === "running";
+       return h(React.Fragment, null,
+         h(ui.Panel, { className: "flex items-center gap-3 px-4 py-3" },
+           h("div", { className: "min-w-0 flex-1" },
+             h("p", { className: "text-sm font-medium" }, "Timer helper"),
+             h("p", { className: "text-xs text-muted-foreground" }, version ? `Version ${version}` : "Runs the timers in a bundled native process.")),
+           h(ui.Badge, { variant: running ? "secondary" : "outline", className: running ? "text-success" : undefined }, statusText[status]),
+           running
+             ? h(ui.Button, { variant: "outline", size: "sm", onClick: () => void stopWorker() }, "Stop")
+             : h(ui.Button, { variant: "outline", size: "sm", disabled: status === "starting", onClick: () => void startWorker() }, "Start")),
+         h("section", { className: "flex flex-col gap-2" },
+           h(ui.SectionTitle, null, "Cooldowns"),
+           h(ui.Panel, { className: "divide-y" }, accounts.map((account) =>
+             h("div", { key: account.id, className: "flex items-center gap-3 px-4 py-3" },
+               h("p", { className: "min-w-0 flex-1 truncate text-sm font-medium" }, accountName(account.id)),
+               current[account.id] && h("span", { className: "text-xs text-muted-foreground" }, `Until ${endsAt(current[account.id])}`),
+               current[account.id]
+                 ? h(ui.Button, { variant: "ghost", size: "sm", disabled: !running, onClick: () => void cancelCooldown(account.id) }, "Cancel")
+                 : h(ui.Button, { variant: "outline", size: "sm", disabled: !running, onClick: () => void startCooldown(account.id, 5) }, "Start 5 min"))))));
+     });
+
+     void startWorker();
+   }
+
+   export function deactivate() {
+     cleanup();
+   }
+   ```
+
+6. **Reload and try it.** Reload the window and open **Cooldown Timers**. The status reads
+   **Running** with the helper's version. Start a cooldown for an account: the Accounts page shows
+   "Cooldown until …" under its name, and when it ends a toast reads "…'s cooldown ended." In
+   **Settings > Diagnostics**, the log shows the start and the helper's error output:
+
+   ```text
+   2026-10-15T10:02:11.207Z INFO  widget:cooldown_timers: Started process timer-windows (pid 18244)
+   2026-10-15T10:02:19.873Z WARN  widget:cooldown_timers: timer-windows: Started timer 101 for 300 s
+   ```
+
+</Steps>
+
+## Starting a process
+
+```js
+await toolblox.request("process.spawn", { processId, arguments: ["--verbose"] });
+```
+
+What Toolblox does with this request, in order:
+
+1. Finds the declaration with this `processId` in the installed manifest. An undeclared ID fails
+   with "The widget process isn't declared."
+2. Checks the arguments: at most 32, each at most 1 KB, and each one exactly equal to an entry in
+   `allowedArguments`. Anything else fails with "The widget requested unsupported process
+   arguments." There's no pattern matching, so an argument that carries a value, such as
+   `--interval=5`, must be listed with that exact value. Pass variable data through `process.send`
+   instead.
+3. If the process is already running, fails with "The widget process is already running." If it
+   ran before and has exited, forgets it and continues.
+4. Resolves the executable inside the widget's folder, following symbolic links, and requires the
+   result to be a file inside that folder. Otherwise it fails with "Couldn't resolve the widget
+   process executable." or "The widget process executable is outside its package."
+5. Starts it directly, with no shell, with the widget's folder as its working directory, the
+   arguments as given, Toolblox's environment, and all three standard streams connected to pipes.
+   If the operating system refuses, for example because the file isn't an executable for this
+   platform, it fails with "Couldn't start the widget process. Is the package complete?"
+6. Starts one background thread per output stream and logs "Started process `<id>` (pid …)" under
+   your widget.
+
+Because there's no shell, arguments are never interpreted: no quoting, globbing, or variable
+expansion.
+
+### Picking the platform's executable
+
+```js
+const processId = toolblox.getState().platform === "macos" ? "timer-macos" : "timer-windows";
+```
+
+`platform` in app state is `"windows"` or `"macos"`. Choose the process ID once, in `activate`.
+
+### Adopting a process that's already running
+
+`startWorker` treats "already running" as success. Two ordinary situations cause it:
+
+- **The window reloaded.** Reloading discards the module but not the process, which Rust owns.
+  The new module instance finds its helper still running.
+- **Start with Toolblox is on.** Because the widget declares processes, its settings page has a
+  **Start with Toolblox** switch. When it's on, Toolblox starts every declared process when it
+  opens, before any module loads.
+
+Adopting keeps the helper's state, here its running timers. If your widget needs a fresh helper
+every time, call `process.stop` before `process.spawn`; stopping a process that isn't running
+succeeds.
+
+<Aside>
+**Start with Toolblox** starts every declared process with no arguments, so a helper must work
+without any. For a widget that declares one process per platform, the other platform's executable
+fails to start at each launch, and Toolblox logs a warning that it "didn't start on launch". The
+widget isn't affected.
+</Aside>
+
+## Talking to the process
+
+### Sending
+
+```js
+await toolblox.request("process.send", { processId, message: { type: "start", id: "101", seconds: 300 } });
+```
+
+Toolblox serializes `message` to compact JSON, which never contains a raw line break, writes it to
+the process's standard input followed by `\n`, and flushes. The line must be under 64 KB, and the
+whole IPC request, message included, must be under 64 KB as well. Sending to a process that was
+never started or has been stopped fails with "The widget process isn't running." Sending to a
+process that exited on its own fails with "Couldn't send data to the widget process.", because its
+input pipe is closed.
+
+`process.send` returns the same `{ events }` as `process.poll`, so a reply the helper writes quickly
+may arrive in the send's result. `send` passes those events to `handle`, so they aren't missed.
+
+### Receiving
+
+Each output stream is read line by line on its own thread:
+
+- A line ends at `\n`. Trailing `\r` and `\n` are removed, so Windows line endings are fine.
+- A line longer than 64 KB is cut at 64 KB and the rest of that line is dropped.
+- Bytes that aren't valid UTF-8 are replaced with the Unicode replacement character.
+- Lines wait in memory until the widget calls `process.poll` or `process.send`.
+
+The queue between the reader threads and the widgets holds 1,024 lines and is shared by every
+widget's processes. When it's full, a helper's next write blocks until a widget collects output.
+Poll steadily while your helper runs, as the 500-millisecond interval does, and stop helpers you're
+no longer reading. Two polls a second are well within the IPC limit of 30 requests a second.
+
+### Designing the protocol
+
+The JSON-lines protocol in this tutorial is a convention, not something Toolblox enforces; Toolblox
+only moves lines. A few rules make helpers robust:
+
+- **One JSON value per line on standard output.** Keep diagnostics on standard error, so `handle`
+  can treat every standard output line as data.
+- **Flush after every line.** Rust's standard output is line-buffered, and `emit` flushes anyway.
+  C's `stdio`, Python, Go's `bufio`, and .NET buffer output written to a pipe, so a helper in
+  those languages must flush after each line or its events arrive late or never.
+- **Announce readiness and shutdown.** Toolblox doesn't report when a process exits or its exit
+  code. The helper says `ready` when it starts and `bye` before a requested exit, and a failed
+  `process.send` tells the widget it's gone.
+- **Exit when standard input closes.** If Toolblox ends without stopping the helper, for example
+  when the window is closed with **Run in background** off, the input pipe closes. The helper's reader thread ends, the channel disconnects, and `main` returns.
+- **Validate every message.** The helper checks types and ranges and ignores what it doesn't
+  understand, and `handle` does the same with the helper's output.
+
+## Logging error output
+
+Toolblox writes each standard error line to the log at `warn` under your widget, as
+`<processId>: <line>`. It logs the first 200 lines per process start, then one line saying further
+error output isn't logged; the lines still reach the widget as `stderr` events. Standard output is
+never logged. When the standard output stream closes, the log records "Process `<id>` closed its
+output".
+
+This makes standard error the place for a helper's diagnostics. The `--verbose` flag here turns on
+a line per timer, which is useful in development and noisy in daily use. Write nothing secret to
+either stream; log redaction is a safety net, not a guarantee.
+
+## Lifecycle and cleanup
+
+Rust owns widget processes, not the module. Whether one keeps running depends on what happens:
+
+| Event | The process |
+| --- | --- |
+| `process.stop` | Is killed and waited for. Stopping a missing or exited process succeeds. |
+| The widget is turned off | Is stopped by Toolblox. |
+| The widget is updated | Is stopped before the new version is installed. |
+| The widget is uninstalled | Is stopped before its folder is removed. |
+| Toolblox is quit from the tray | Is stopped, along with every other widget process. |
+| Toolblox exits any other way | Isn't guaranteed to be stopped, but its standard input closes when Toolblox ends. A helper that exits at end of input ends too. |
+| The window reloads | Keeps running. The reloaded module can adopt it. |
+| The module's `deactivate` runs | Keeps running unless the widget stops it. |
+| The process exits by itself | Stays recorded as exited until the next `process.spawn`. |
+
+Stopping kills the process immediately: `TerminateProcess` on Windows and `SIGKILL` on macOS. The
+helper gets no chance to save state or clean up. When that matters, send a message that asks it to
+exit, as `stopWorker` does with `quit`, before calling `process.stop`. Toolblox only stops the
+process it started, so a helper that starts processes of its own must end them itself.
+
+`cleanup`, called from `deactivate`, clears the poll interval and asks Toolblox to stop the helper.
+The stop request is best effort: `deactivate` isn't awaited, and Toolblox closes the widget's IPC
+session straight afterwards. The guarantees come from the table above: turning a widget off,
+updating it, uninstalling it, and quitting from the tray always stop its processes, and a helper that
+exits when its input closes never outlives Toolblox.
+
+## Platform notes
+
+<Tabs>
+<TabItem label="Windows">
+
+- Declare the executable with its `.exe` extension. Toolblox runs the exact file named.
+- Toolblox doesn't hide console windows for widget processes, so a console-subsystem executable
+  opens a console window when it starts. Build helpers for the Windows subsystem, as the
+  `windows_subsystem = "windows"` attribute does in Rust (`-H windowsgui` in Go, `-mwindows` with
+  MinGW). Standard input, output, and error still work, because Toolblox passes pipes to the
+  process explicitly.
+- Batch files and scripts aren't executables. Ship a native `.exe`.
+- A running executable can't be overwritten. Stop the helper, or turn the widget off, before
+  copying a new build into `optional-bin/`. Uninstalling also fails while a file is locked, with
+  "Couldn't remove the widget. Is a widget process still running?"
+
+</TabItem>
+<TabItem label="macOS">
+
+- The file needs the executable permission. In a development folder, run `chmod +x`. In a package,
+  the ZIP entry must carry Unix permissions; Toolblox applies the permission bits stored in the
+  ZIP when it installs. See [Packaging](/docs/widgets/publishing/packaging/).
+- Ship a universal binary so the helper runs on both Apple silicon and Intel Macs. `lipo -create`
+  combines the two builds.
+- Apple silicon only runs signed code. An ad-hoc signature, `codesign --force --sign -`, is enough.
+  Sign again after any step that changes the file, such as `lipo`.
+- macOS has no `.exe` convention. Any file name works; this tutorial uses `timer-macos` so both
+  builds can sit in one folder.
+
+</TabItem>
+</Tabs>
+
+Toolblox doesn't support Linux, so there's no third declaration to add.
+
+## Common mistakes
+
+| Symptom | Cause |
+| --- | --- |
+| "The widget requested unsupported process arguments." | An argument isn't in `allowedArguments` exactly as sent, or there are more than 32. |
+| "The widget process is already running." on every reload | The module doesn't adopt the running helper. Treat that error as success, or stop first. |
+| "Couldn't start the widget process. Is the package complete?" | The file isn't an executable for this platform, lacks the executable permission, or isn't signed on Apple silicon. |
+| Events arrive late or in bursts | The helper doesn't flush standard output after each line. |
+| A console window opens on Windows | The helper is a console-subsystem executable. |
+| The widget never learns the helper crashed | Exits aren't reported. Use a `ready` message and treat a failed `process.send` as an exit. |
+| Copying a new build fails on Windows | The old helper is still running and holds the file. |
+
+## Next steps
+
+- [IPC](/docs/widgets/reference/ipc/) lists the exact parameters and errors of each `process.*`
+  method.
+- [Packaging](/docs/widgets/publishing/packaging/) covers building the ZIP, including executable
+  permissions.
+- [Review](/docs/widgets/publishing/review/) lists what reviewers check in helpers.

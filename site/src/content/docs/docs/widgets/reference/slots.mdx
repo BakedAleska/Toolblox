@@ -1,0 +1,222 @@
+---
+title: Slots and screens
+description: Every slot a module widget can extend, the screens it can replace, and the routes it can register.
+sidebar:
+  order: 3
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Module widgets change the interface in three ways: they add components to **slots** inside core
+screens, they **replace** whole core screens, and they **register** their own page and settings
+page. This page lists every slot and route, where each one renders, what it receives, and how
+contributions are ordered and isolated. The registry lives in
+[`src/widgets/host.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/widgets/host.tsx);
+the slots are placed in
+[`src/App.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/App.tsx),
+[`src/screens/Accounts.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Accounts.tsx),
+and [`src/screens/Dashboard.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Dashboard.tsx).
+
+## Interface map
+
+```text
+┌──────────────┬───────────────────────────────────────────────────────────┐
+│ Sidebar      │ /accounts                                                 │
+│              │ ┌───────────────────────────────────────────────────────┐ │
+│ Dashboard    │ │ Accounts  [accounts.toolbar] [place field] [actions]  │ │
+│ Accounts     │ └───────────────────────────────────────────────────────┘ │
+│ Widgets      │ ┌───────────────────────────────────────────────────────┐ │
+│ Settings     │ │ (avatar) Name  @user  [place] [presence]      [Join]  │ │
+│              │ │          [accounts.row ……………………………………]               │ │
+│ Widgets      │ │          notes                                        │ │
+│  My widget   │ └───────────────────────────────────────────────────────┘ │
+│              │                                                           │
+│ GitHub v0.2  │ /  (Dashboard)                                            │
+│[sidebar.     │  hero                                                     │
+│   footer]    │  [Accounts] [In game] [Widgets enabled] [dashboard.stats] │
+└──────────────┤  Recently played                                          │
+               │  [dashboard.sections]                                     │
+               │  dashboard.html frames, one section per widget            │
+               └───────────────────────────────────────────────────────────┘
+```
+
+## Slots
+
+| Slot | Props | Placement | Wrapper |
+| --- | --- | --- | --- |
+| `accounts.row` | `{ account: Account }` | Under each account's name on the Accounts page, above the notes field. Rendered once per account row. | `<div class="mt-1 flex flex-wrap items-center gap-1.5">` around all contributions for that row. |
+| `accounts.toolbar` | `{}` | Start of the Accounts page header actions, before the default place field. | None. Contributions sit directly in the header's flex row. |
+| `dashboard.stats` | `{}` | After the three built-in Dashboard stat tiles (Accounts, In game, Widgets enabled), in the same grid. | None. Each contribution is a grid item. |
+| `dashboard.sections` | `{}` | Below the Dashboard stats and the Recently played list, above the `dashboard.html` frames. | `<div class="flex flex-col gap-4">` around all contributions. |
+| `sidebar.footer` | `{ collapsed: boolean }` | Bottom of the sidebar, below the GitHub link and version. | None. |
+
+### `accounts.row`
+
+Receives the row's [`Account`](/docs/widgets/reference/host-api/#getstate). The component renders
+for every account on every Accounts page render, so keep it cheap and read shared data from a
+store rather than fetching per row. Return `null` to show nothing for an account; the wrapper
+`div` still renders while any widget contributes to the slot.
+
+Badges and short tags fit the space best:
+
+```js
+toolblox.addToSlot("accounts.row", ({ account }) =>
+  account.presence === "playing" ? h(ui.Badge, { variant: "outline" }, "Farming") : null);
+```
+
+### `accounts.toolbar`
+
+Sits in the Accounts page header, which is a single row 56 px tall shared with the page title,
+the default place field, and the page's own actions. Contribute compact controls such as an
+`IconButton` or a small `Button`:
+
+```js
+toolblox.addToSlot("accounts.toolbar", () =>
+  h(ui.IconButton, { label: "Sync races", onClick: () => void sync() }, syncIcon));
+```
+
+### `dashboard.stats`
+
+Each contribution becomes one cell of the stat grid, which uses
+`grid-template-columns: repeat(auto-fit, minmax(170px, 1fr))` with 12 px gaps. Use `ui.StatTile`
+to match the built-in tiles, or render your own element of similar height:
+
+```js
+toolblox.addToSlot("dashboard.stats", () =>
+  h(ui.StatTile, { icon: bagIcon, label: "Shop items in stock", value: 3, onClick: () => toolblox.navigate(`/widgets/${toolblox.widget.id}`) }));
+```
+
+### `dashboard.sections`
+
+Full-width sections stacked with 16 px gaps. The usual pattern is a `SectionTitle` over a
+`Panel`, matching the Recently played section above it:
+
+```js
+toolblox.addToSlot("dashboard.sections", () =>
+  h("section", { className: "flex flex-col gap-2" },
+    h(ui.SectionTitle, null, "Shop stock"),
+    h(ui.Panel, { className: "divide-y" }, rows)));
+```
+
+### `sidebar.footer`
+
+Receives `collapsed`, which is `true` while the sidebar is dragged to its icon-only width. Render
+an icon-only control when collapsed and a labelled one otherwise. The sidebar can also be on the
+right side of the window, depending on the user's settings.
+
+```js
+toolblox.addToSlot("sidebar.footer", ({ collapsed }) =>
+  collapsed ? h(ui.IconButton, { label: "Timer" }, clockIcon) : h(ui.Button, { variant: "ghost", size: "sm" }, clockIcon, "Timer"));
+```
+
+## Ordering
+
+`addToSlot` accepts `{ order?: number }`, default `0`. After every registration, the slot's list
+is sorted by ascending `order`. The sort is stable, so contributions with equal `order` keep the
+order they were registered in. Module widgets load one at a time in widget ID order, so with
+equal `order` values a widget whose ID sorts first usually renders first. Use negative values to
+move ahead of other contributions and large values to move to the end:
+
+```js
+toolblox.addToSlot("dashboard.stats", Summary, { order: -10 });
+toolblox.addToSlot("dashboard.stats", Details, { order: 100 });
+```
+
+Built-in content always stays where it is: `order` only orders widget contributions within the
+slot.
+
+## Isolation
+
+Each contribution renders inside its own error boundary, keyed by widget ID and position. If a
+contribution throws while rendering, only that contribution is replaced with an inline message,
+`<widget name> failed to render. (<error>)`, with `role="alert"`, and the error and component
+stack are logged under `widget:<id>`. Other contributions in the slot and the rest of the screen
+keep working. A slot with no contributions renders nothing at all, including its wrapper.
+
+See [Logs and failures](/docs/widgets/reference/logs-and-failures/#error-boundaries).
+
+## Replaceable screens
+
+`replaceScreen(screen, Component)` swaps a core screen for a widget component.
+
+| Screen | Route | Replaceable |
+| --- | --- | --- |
+| `"dashboard"` | `/` | Yes |
+| `"accounts"` | `/accounts` | Yes |
+| `"widgets"` | `/widgets` | Yes |
+| Settings | `/settings` | No |
+| Widget pages | `/widgets/<id>`, `/widgets/<id>/settings` | No. Each widget registers its own. |
+
+Rules:
+
+- The replacement receives no props. Read state with `toolblox.useAppState()` and act through the
+  host API.
+- It replaces the whole screen, including the header. The core screen and its slots don't render,
+  so other widgets' contributions to those slots disappear while it's replaced.
+- It renders inside an error boundary. A replacement that throws shows the inline failure message
+  in place of the screen; the sidebar, Settings, and safe mode controls stay available.
+- The latest registration for a screen wins, across all widgets. Disposing a replacement restores
+  the core screen only if the disposing widget still owns it; it doesn't restore an earlier
+  widget's replacement.
+- Settings can't be replaced, so users can always reach Diagnostics and the controls that turn
+  widgets off.
+
+To match the app's layout, cap content at `max-w-5xl` with 24 px side padding, and follow the
+[interface conventions](/docs/app/interface/).
+
+<Aside type="caution">
+A replaced Widgets screen hides the built-in install, update, enable, and uninstall controls. If a
+widget replaces `"widgets"`, it takes on the job of exposing those actions, or users have to start
+in safe mode to manage widgets.
+</Aside>
+
+## Widget pages
+
+Every installed widget gets two routes and a sidebar entry, whether or not it registers anything.
+
+### `/widgets/<id>`
+
+The sidebar's widget entry opens this route. The entry shows the widget's name and is disabled
+while the widget is disabled. The page renders, in order of precedence:
+
+1. The component from `registerPage`, inside an error boundary.
+2. Otherwise, the `index.html` frame when the manifest declares `entry`.
+3. Otherwise, an empty state: **No page**, "This widget adds features to other parts of Toolblox."
+
+The host wraps the page in the standard screen layout: a sticky 56 px header with the widget's
+name, a settings button when the widget has a settings page, and content capped at `max-w-5xl`.
+The widget page's screen container is a flex column with `h-full`, which lets an `index.html`
+frame grow to fill the window height. A registered page is a child of that column.
+
+### `/widgets/<id>/settings`
+
+Reached from the settings button on the widget's page and from **Settings** in the widget card's
+menu on the Widgets page. Both appear when any of these is true: the manifest declares
+`settingsEntry`, the manifest declares at least one process, or the widget registered a settings
+component. The page renders, top to bottom:
+
+1. A **Start with Toolblox** switch when the manifest declares processes.
+2. The component from `registerSettings`, inside an error boundary.
+3. The `settings.html` frame when the manifest declares `settingsEntry`.
+4. An empty state, **No settings**, when none of the above apply.
+
+Its header shows `<name> settings` and an **Open widget** button when the widget has a page.
+
+### Unavailable routes
+
+When the widget is disabled, not installed, or the app is in safe mode, both routes show **Page
+unavailable** with a button back to the Dashboard. Widget IDs in routes match `[\w-]+`.
+
+## Choosing a surface
+
+| Goal | Use |
+| --- | --- |
+| A tool with its own screen | `registerPage` |
+| Per-widget preferences | `registerSettings`, with values in [`storage`](/docs/widgets/reference/host-api/#storage) |
+| Per-account information on the Accounts page | `accounts.row` |
+| An action that applies to accounts | `accounts.toolbar` |
+| A number at a glance | `dashboard.stats` |
+| A summary or list on the Dashboard | `dashboard.sections` |
+| A persistent control or status | `sidebar.footer` |
+| A different Dashboard, Accounts, or Widgets experience | `replaceScreen` |
+| A new look for the whole app | [`addStyles`](/docs/widgets/reference/host-api/#addstyles) |

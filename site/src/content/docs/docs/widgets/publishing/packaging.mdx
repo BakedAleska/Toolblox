@@ -1,0 +1,266 @@
+---
+title: Packaging
+description: How to lay out a widget ZIP, how Toolblox verifies and installs it, and how development builds load unpacked widgets.
+sidebar:
+  order: 1
+---
+
+import { Aside, FileTree, Steps } from '@astrojs/starlight/components';
+
+A widget ships as a single ZIP archive. Toolblox downloads it from the URL in the signed
+[catalogue](/docs/widgets/publishing/catalogue/), checks it against the SHA-256 the catalogue
+pins, extracts it into a staging folder under strict limits, validates the manifest against the
+catalogue entry, and only then swaps it into place. During development, the same folder layout
+loads unpacked from the widgets folder.
+
+The install code is
+[`install_archive`](/api/toolblox_lib/widgets/fn.install_archive.html) in
+[`src-tauri/src/widgets.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widgets.rs),
+called from `install_catalogue_widget` in
+[`src-tauri/src/app_commands.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/app_commands.rs).
+
+## Package layout
+
+`widget.json` must be at the root of the archive, not inside a top-level folder.
+
+<FileTree>
+- widget.json required
+- main.js when the manifest declares `module`
+- index.html when the manifest declares `entry`
+- settings.html when the manifest declares `settingsEntry`
+- dashboard.html when the manifest declares `dashboardEntry`
+- **assets/** anything else the widget loads, in any folder layout
+  - styles.css
+  - icon.svg
+- **optional-bin/** native executables, when the manifest declares `processes`
+  - worker.exe
+  - worker
+- LICENSE
+</FileTree>
+
+Every file the manifest declares must exist in the package: `main.js`, each declared HTML entry,
+and each process `executable`. Other files are free-form, served read-only through the
+[widget asset protocol](/docs/widgets/reference/iframe-widgets/#the-widget-asset-protocol). Keep
+names lowercase and use the extensions the protocol recognizes so files are served with the right
+content type.
+
+Building the archive from a folder:
+
+```sh
+# macOS or Linux, from inside the widget folder
+zip -r -X ../trade_tracker-1.2.0.zip . -x '.*'
+
+# Windows 10 or later, from inside the widget folder
+tar -a -c -f ..\trade_tracker-1.2.0.zip *
+```
+
+Entry names must use forward slashes. Some Windows tools, including `Compress-Archive` in Windows
+PowerShell 5.1, write backslashes, which other platforms read as part of a file name. List the
+archive (`unzip -l` or `tar -tf`) before publishing to check.
+
+Then hash it for the catalogue entry:
+
+```sh
+shasum -a 256 trade_tracker-1.2.0.zip          # macOS
+sha256sum trade_tracker-1.2.0.zip              # Linux
+(Get-FileHash trade_tracker-1.2.0.zip).Hash    # Windows PowerShell
+```
+
+The hash covers the exact archive bytes. Rebuilding the ZIP, even from identical files, usually
+changes timestamps and therefore the hash, so hash the exact file you upload.
+
+### Executables
+
+Native executables go under `optional-bin/` and must be declared under `processes` in the
+manifest. On macOS, extraction applies each entry's Unix permission bits from the archive, so the
+archive must record the executable bit (`chmod +x` before zipping with a tool that preserves
+modes, such as `zip`). Without it, the process can't start. Archives created on Windows usually
+carry no Unix permission bits, so build packages that include macOS executables on macOS or
+Linux. Windows ignores the
+bits.
+
+A widget that supports both platforms can declare one process per platform, such as
+`worker-windows` pointing at `optional-bin/worker.exe` and `worker-macos` pointing at
+`optional-bin/worker`, and choose which to start from `toolblox.getState().platform`.
+
+## Limits
+
+| Limit | Value | Error |
+| --- | --- | --- |
+| Archive size | 20 MB (20 × 1024 × 1024 bytes) | `The widget package is larger than 20 MB.` |
+| Total extracted size | 80 MB | `The widget package is too large when extracted.` |
+| Entries in the archive, including folders | 2,000 | `The widget package contains too many files.` |
+| `widget.json` size | 128 KB | `The widget manifest is too large.` |
+
+## How installation verifies a package
+
+<Steps>
+
+1. **Look up the entry.** The widget must be in the verified catalogue loaded this session.
+   Otherwise: `The widget isn't in the verified catalogue. Can you refresh it?` Installing a
+   widget that's already installed fails with
+   `The widget is already installed. Can you update it instead?`
+
+2. **Download.** Toolblox requests `archiveUrl` over HTTPS with its own HTTP client, which doesn't
+   follow redirects and times out after 20 seconds. Anything other than a `2xx` response fails with
+   `The widget package download failed with status <code>. Can you try again?` The body is read
+   up to 20 MB.
+
+3. **Check size and hash.** Before anything touches the disk, the archive's SHA-256 is compared,
+   case-insensitively, with the catalogue's `sha256`. A mismatch fails with
+   `The widget package checksum doesn't match the catalogue.`
+
+4. **Stage.** Toolblox creates `.<id>-install-<random>` in the widgets folder. Folders starting
+   with `.` are never loaded as widgets.
+
+5. **Extract with path checks.** For each entry in the archive:
+   - The name must resolve inside the staging folder. Absolute paths, `..`, root, and drive
+     components fail with `The widget package contains an unsafe path.`
+   - Two entries that normalize to the same path fail with
+     `The widget package contains duplicate paths.`
+   - Symbolic links fail with `The widget package contains a symbolic link.`
+   - The running total of uncompressed sizes must stay within 80 MB.
+   - Each file is written and synced to disk. On macOS, its permission bits are applied.
+
+   A corrupt archive fails with `The widget package isn't a valid ZIP archive.` or
+   `Couldn't read the widget package.`
+
+6. **Validate the manifest.** `widget.json` is read from the staging folder and
+   [validated](/docs/widgets/reference/manifest/). Then:
+   - its `id` must equal the catalogue entry's `id`:
+     `The widget package ID doesn't match the catalogue.`
+   - its `version` must equal the entry's `version` exactly:
+     `The widget package version doesn't match the catalogue.`
+   - its `permissions` must equal the entry's `permissions` as a set:
+     `The widget permissions don't match the catalogue.`
+   - every declared `module`, `entry`, `settingsEntry`, and `dashboardEntry` must be a file:
+     `The widget package doesn't contain <file>.`
+   - every process executable must be a file: `Widget process <id> is missing.`
+
+7. **Record the install.** Toolblox writes `.installed.json` next to the manifest:
+
+   ```json
+   {
+     "schemaVersion": 1,
+     "id": "trade_tracker",
+     "version": "1.2.0",
+     "sha256": "<package SHA-256>",
+     "manifestSha256": "<SHA-256 of widget.json>"
+   }
+   ```
+
+8. **Swap.** If a previous version exists, its folder is renamed to `.<id>-backup-<random>`. The
+   staging folder is renamed to `<id>`. If that rename fails, the backup is renamed back, so the
+   previous version stays installed. On success the backup is deleted.
+
+</Steps>
+
+Whatever happens, the staging folder is removed. Every failure is logged as
+`Widget <id> <version> wasn't installed: <error>` and shown to the user as
+`<name> couldn't be installed. Does retrying help? (<error>)`.
+
+<Aside type="caution" title="Archive URLs must not redirect">
+The HTTP client never follows redirects, so `archiveUrl` must answer with the ZIP directly. Many
+download links, including GitHub release asset links, answer with a redirect to storage, which
+Toolblox reports as a failed download with a `3xx` status. Use a URL that serves the file itself.
+</Aside>
+
+## Verification after install
+
+Each time Toolblox lists widgets, which happens on every state reload, it reads every non-hidden
+folder in the widgets folder and, in release builds:
+
+- requires `.installed.json` to exist (`Widget <id> is missing install metadata.`) and to parse
+  (`Widget <id> has invalid install metadata.`);
+- requires its `schemaVersion` to be `1` and its `id` and `version` to match the manifest
+  (`Widget <id> has inconsistent install metadata.`);
+- requires both hashes to be valid SHA-256 strings;
+- requires the SHA-256 of the current `widget.json` to equal `manifestSha256`:
+  `Widget <id> has a modified manifest. Reinstall it from the Catalogue.`
+
+Any failure keeps the widget out of the app and shows `Widget <folder> couldn't load: <reason>` on
+the Widgets page. Only the manifest is re-hashed; other package files aren't re-verified after
+installation.
+
+## Development builds
+
+Development builds (the `canary` channel, built with debug assertions) load unpacked widgets
+straight from the widgets folder. The Widgets page shows that folder's path with a copy button.
+
+| Platform | Widgets folder |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\Toolblox\v2\widgets` |
+| macOS | `~/Library/Application Support/Toolblox/v2/widgets` |
+| Override | `$TOOLBLOX_DATA_DIR/v2/widgets` when `TOOLBLOX_DATA_DIR` is set (debug builds only) |
+
+<Steps>
+
+1. Create a folder named exactly after the manifest's `id`, such as `widgets/trade_tracker/`.
+   Asset URLs, process paths, and the enable switch all resolve `<widgets folder>/<id>`.
+
+2. Put `widget.json` and the widget's files directly inside it, in the package layout.
+
+3. Bring Toolblox to the front or wait for its next state reload. The widget appears under
+   **Installed** and in the sidebar. A folder without `.installed.json` is accepted in development
+   builds and reported with an all-zero SHA-256.
+
+4. After changing `main.js`, reload the app window so the module is imported again. Frame pages
+   reload each time their surface opens.
+
+</Steps>
+
+The manifest is still validated, so mistakes show up at the top of the Widgets page. If a folder
+has an `.installed.json` from a real install, the manifest hash check still applies; delete the
+file to edit the manifest freely.
+
+Development builds without a configured catalogue URL use an empty catalogue, so unpacked widgets
+are the only way to load widgets in them.
+
+<Aside>
+Release builds currently install only catalogue widgets. A folder copied into the widgets folder
+by hand has no valid `.installed.json` and doesn't load in a release build.
+</Aside>
+
+## Updates
+
+When the catalogue lists a version that's strictly greater, by SemVer precedence, than the
+installed one, the widget's card shows **Update to v&lt;version&gt;**. The confirmation lists the
+new version's permissions from the catalogue.
+
+An update:
+
+1. checks again that the catalogue version is greater:
+   `The catalogue doesn't contain a newer widget version.`;
+2. stops all of the widget's processes;
+3. runs the full install sequence above, ending in the atomic swap.
+
+Storage, per-account data, the enabled state, and the **Start with Toolblox** setting are kept. A
+module that was already loaded keeps running its previous code until the app restarts, because
+its URL doesn't change; see the [host API lifecycle](/docs/widgets/reference/host-api/#lifecycle).
+
+There's no downgrade path in the app: a lower catalogue version isn't offered.
+
+## Uninstall
+
+Uninstalling, after a confirmation that it "Removes the widget and its settings from this device":
+
+1. stops all of the widget's processes;
+2. deletes `<widgets folder>/<id>`. If a file is locked, for example by a process that didn't
+   stop, this fails with `Couldn't remove the widget. Is a widget process still running?`;
+3. removes the widget from the disabled list and the **Start with Toolblox** list;
+4. deletes its [`storage`](/docs/widgets/reference/host-api/#storage) value.
+
+Per-account data written with `widgetData.set` stays with each account and is available again if
+the widget is reinstalled. After uninstalling, the widget appears in the Catalogue section again.
+
+## Enable and disable
+
+The switch on each installed card turns a widget on or off. The state is saved in Toolblox's
+settings and kept across restarts and updates. Disabling:
+
+- unloads the module and runs its cleanup,
+- stops all of its processes,
+- closes any open frame,
+- disables its sidebar entry and **Open** button, and makes its routes show **Page unavailable**.
+
+Enabling loads it again. Every widget is enabled when first installed.

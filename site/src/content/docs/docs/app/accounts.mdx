@@ -1,0 +1,681 @@
+---
+title: Accounts
+description: How Toolblox signs in, stores, displays, and launches Roblox accounts, from the sign-in window to the roblox-player URI.
+sidebar:
+  order: 2
+---
+
+import { Aside, FileTree, Steps } from '@astrojs/starlight/components';
+
+Accounts are the core of Toolblox. Every other feature, including presence, auto-rejoin, and most
+widgets, builds on the list of saved accounts and the Roblox sessions behind them. This page follows
+an account through its whole lifecycle: how it's added through an isolated sign-in window, how its
+public data and its secret session are stored in two different places, how the interface displays
+it, and how a join turns the session into a one-time launch ticket for the Roblox client.
+
+The rule that shapes all of it comes from the project's
+[AGENTS.md](https://github.com/BakedAleska/Toolblox/blob/main/AGENTS.md): **secrets never cross into
+JavaScript.** The `.ROBLOSECURITY` cookie, authentication tickets, and launch URIs exist only in
+the Rust host. React, and every widget running in the same JavaScript context, see display data and
+the numeric account ID, which is an opaque handle for asking Rust to act on that account.
+
+## Where the code lives
+
+| File | Responsibility |
+| --- | --- |
+| [`src-tauri/src/models.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/models.rs) | Persisted types (`Settings`, `StoredAccount`, `RecentPlace`), validation, and the frontend-safe `AccountDto`. |
+| [`src-tauri/src/storage.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/storage.rs) | Locked, validated, atomic reads and writes of `settings.json` and `accounts.json`. |
+| [`src-tauri/src/credentials.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/credentials.rs) | The OS credential store for sessions, the `Secret` wrapper, and legacy session readers. |
+| [`src-tauri/src/login.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/login.rs) | The isolated Roblox sign-in webview and the cookie handoff. |
+| [`src-tauri/src/roblox.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/roblox.rs) | Every Roblox HTTP call and the strict `roblox-player:` URI builder. |
+| [`src-tauri/src/multi_instance.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/multi_instance.rs) | Windows-only cleanup that lets several Roblox clients run at once. |
+| [`src-tauri/src/app_commands.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/app_commands.rs) | The commands that tie the above together: sign-in, join, notes, places, reorder, remove. |
+| [`src/screens/Accounts.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Accounts.tsx) | The Accounts screen. |
+| [`src/logic.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/logic.ts) | Sorting, display names, relative times, and the client-side place ID parser. |
+
+The commands themselves are catalogued on [Commands and state](/docs/app/commands-and-state/).
+
+## The persisted data model
+
+Toolblox persists two JSON documents: settings and accounts. Both are defined in `models.rs` with
+serde, and both are designed to survive version changes in either direction:
+
+- Missing fields take defaults (`#[serde(default)]`).
+- Unknown fields are kept in a flattened `extra` map and written back on save, so an older build
+  doesn't delete data a newer build added.
+- `Settings` accepts the legacy Flet app's snake_case names through `#[serde(alias = ...)]`.
+
+### `StoredAccount`
+
+One entry in `accounts.json`. It deliberately has **no session field**: the session lives in the
+OS credential store, keyed by `id`. Field names on disk are snake_case, because the struct has no
+`rename_all`. See [`StoredAccount` in rustdoc](/api/toolblox_lib/models/struct.StoredAccount.html).
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `id` | `u64` | required | Roblox user ID. Must be non-zero and unique within the list. |
+| `name` | `String` | required | Roblox username. Must not be blank. |
+| `display_name` | `String` | required | Roblox display name. Falls back to `name` when Roblox has none. |
+| `avatar_url` | `Option<String>` | required | Headshot image URL from the thumbnails API, or `null`. |
+| `notes` | `String` | `""` | Free-text note from the Accounts screen, up to 10,000 characters. |
+| `added_at` | `f64` | required | Unix time in seconds the account was added. Must be finite and non-negative. |
+| `last_played_at` | `Option<f64>` | `null` | Unix time in seconds of the last manual join. |
+| `play_count` | `u64` | `0` | Number of manual joins. Saturates instead of overflowing. |
+| `widget_data` | `BTreeMap<String, Value>` | `{}` | Per-widget JSON for this account, keyed by widget ID. |
+| `place_id` | `Option<String>` | omitted | Place this account joins instead of the default place. Omitted from the file when unset. |
+| `last_place_id` | `Option<String>` | omitted | Place of the last manual join. Omitted from the file when unset. |
+| `extra` | flattened map | `{}` | Unknown fields, preserved on save. |
+
+`StoredAccount::validate` runs on every load and every save. It rejects:
+
+- an `id` of `0` or a blank `name`;
+- a non-finite or negative `added_at` or `last_played_at`;
+- a `widget_data` key that isn't a valid widget ID (non-empty ASCII letters, digits, `_`, and `-`);
+- a `place_id` or `last_place_id` that isn't 1 to 20 ASCII digits;
+- any `extra` key whose lowercase form contains `cookie`, `secret`, or `ticket`. This is a guard
+  against legacy data smuggling a session into the plain JSON file.
+
+`StoredAccount::record_play` is the only way a join changes an account: it increments
+`play_count`, sets `last_played_at`, and sets `last_place_id`.
+
+### `Settings`
+
+The whole of `settings.json`. Unlike accounts, the struct uses `rename_all = "camelCase"`, so the
+file has camelCase keys while still accepting the legacy snake_case aliases on read. See
+[`Settings` in rustdoc](/api/toolblox_lib/models/struct.Settings.html).
+
+| Field (on disk) | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `sidebarPos` | `"left"` \| `"right"` | `"left"` | Side of the window the sidebar is on. |
+| `themeMode` | `"system"` \| `"light"` \| `"dark"` | `"system"` | Color theme. `system` follows the OS. |
+| `showAvatars` | `bool` | `true` | Show avatar headshots in account rows. |
+| `sortOrder` | `"last_played"` \| `"alphabetical"` \| `"manual"` | `"last_played"` | Account list order. `manual` keeps the saved order. |
+| `compactMode` | `bool` | `false` | Denser account rows without the notes field. |
+| `placeId` | `String` | `""` | Default place to join. Empty when none is set. |
+| `disabledWidgets` | `Vec<String>` | `[]` | Installed widgets that are turned off. |
+| `widgetSettings` | `BTreeMap<String, Value>` | `{}` | Each widget's own JSON store, keyed by widget ID. |
+| `multiInstance` | `bool` | `false` | Allow several Roblox clients at once (Windows only). |
+| `autoRejoin` | `bool` | `false` | Rejoin accounts that leave a game. |
+| `openOnLaunch` | `bool` | `false` | Launch Toolblox at login. |
+| `runInBackground` | `bool` | `true` | Closing the window hides to the tray. |
+| `widgetsStartOnLaunch` | `Vec<String>` | `[]` | Widgets whose processes start with the app. |
+| `minimizeOnJoin` | `bool` | `false` | Minimize the window after a manual join. |
+| `showGameNames` | `bool` | `true` | Look up and show game names for accounts in game. |
+| `notifyOnDrop` | `bool` | `false` | Notify when an account leaves a game. |
+| `alwaysOnTop` | `bool` | `false` | Keep the main window above others. |
+| `recentPlaces` | `Vec<RecentPlace>` | `[]` | Recently used places, newest first, at most 6. |
+| `extra` | flattened map | `{}` | Unknown fields, preserved on save. |
+
+A `RecentPlace` is `{ "placeId": String, "name": Option<String> }`. `name` is `null` until Toolblox
+looks it up and an empty string when Roblox has no name for the place. `Settings::validate`
+requires a valid `placeId` when it's non-empty, at most `RECENT_PLACES_LIMIT` (6) recent places,
+each with a valid place ID and a name of at most 100 characters, and valid widget IDs in
+`disabledWidgets`, `widgetsStartOnLaunch`, and the keys of `widgetSettings`.
+
+`Settings::remember_place` moves a place to the front of `recentPlaces`, keeping any name already
+looked up, and truncates the list to six. It runs whenever the default place changes or a
+per-account place is set.
+
+### Persisted types versus frontend views
+
+Three different shapes describe an account, and only the last two ever reach JavaScript:
+
+| Type | Where | Contains | Reaches JavaScript |
+| --- | --- | --- | --- |
+| `StoredAccount` | `models.rs` | Everything in `accounts.json`, including `widget_data` and `extra`. | No |
+| `AccountDto` | `models.rs` | `id`, `name`, `displayName`, `avatarUrl`, `notes`, `addedAt`, `lastPlayedAt`, `playCount`, `placeId`, `lastPlaceId`. | Yes, flattened into `AccountView` |
+| `AccountView` | `app_commands.rs` | `AccountDto` plus `presence`, and `gameName` and `gamePlaceId` when known. | Yes, as `Account` in `src/types.ts` |
+
+`AccountDto` drops `widget_data` (widgets read it through permission-checked IPC instead) and
+`extra` (which could hold anything a future version wrote). A unit test,
+`account_dto_never_serializes_a_secret_field`, asserts the serialized DTO contains no `cookie`,
+`secret`, or `widget_data` text. Settings follow the same pattern: the interface receives a
+`SettingsDto` without `disabledWidgets`, `widgetSettings`, `widgetsStartOnLaunch`, or
+`recentPlaces`, which are exposed through dedicated fields and commands instead. Note that the DTO
+names the sidebar field `sidebarPosition` while the file names it `sidebarPos`.
+
+<Aside>
+`addedAt` and `lastPlayedAt` arrive in **seconds**. `relativeTime` in `src/logic.ts` treats
+values below 10<sup>12</sup> as seconds and larger values as milliseconds, which is why the demo
+data in `bridge.ts` can use `Date.now()` and still render correctly. Widgets should do the same or
+multiply by 1000 before building a `Date`.
+</Aside>
+
+## On-disk layout
+
+`toolblox_data_root` in [`lib.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/lib.rs)
+resolves the Toolblox folder per platform. Current data lives in its `v2` subfolder; the folder
+itself is where the legacy Flet app kept its files.
+
+| Platform | Toolblox folder |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\Toolblox` (falls back to `%USERPROFILE%\AppData\Local\Toolblox`) |
+| macOS | `~/Library/Application Support/Toolblox` |
+| Debug builds | `TOOLBLOX_DATA_DIR` when that variable is set |
+
+<FileTree>
+- Toolblox/
+  - settings.json legacy Flet settings, imported once
+  - accounts.json legacy Flet accounts, imported once
+  - v2/
+    - settings.json
+    - accounts.json
+    - .legacy-migration-complete marker written after the one-time import
+    - safe-mode-next-launch present only when the next launch should skip widgets
+    - widgets/ installed widget packages
+    - logs/ rotating, redacted log files
+</FileTree>
+
+Sessions are not in this tree. They're in Windows Credential Manager or the macOS Keychain, described
+[below](#the-os-credential-store).
+
+### Locking and atomic writes
+
+[`Storage`](/api/toolblox_lib/storage/struct.Storage.html) owns the `v2` folder. A single
+`Mutex<()>` gate serializes every read and write of both files, so concurrent commands can't
+interleave a read-modify-write and lose an update. The test `updates_are_serialized_without_lost_writes`
+runs eight threads incrementing `play_count` and expects exactly eight.
+
+The public operations are:
+
+| Method | Behavior |
+| --- | --- |
+| `load_settings` / `load_accounts` | Read and validate. A missing file returns defaults or an empty list. |
+| `save_settings` / `save_accounts` | Validate, then atomically replace the file. |
+| `update_settings` / `update_accounts` | Under one lock: load, run a closure, validate, write. Nothing is written when the closure or validation fails. |
+
+Most commands use `update_*`, so a validation error leaves the old file untouched. The test
+`invalid_data_is_rejected_before_replacing_the_file` covers this.
+
+`write_json_atomic` performs the write itself:
+
+<Steps>
+
+1. Create the parent folder if needed.
+2. Open a new temporary file in the same folder, named `.<file>.<pid>.<sequence>.tmp`, with
+   `create_new` so it never reuses an existing file. On Unix the file is created with mode `0600`,
+   readable only by its owner.
+3. Write pretty-printed JSON and a trailing newline, then `sync_all` to flush it to disk.
+4. Replace the target in one step. Windows uses `MoveFileExW` with
+   `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`; other platforms use `rename`.
+5. On Unix, `sync_all` the directory so the rename itself is durable.
+6. If any step fails, delete the temporary file.
+
+</Steps>
+
+A crash at any point leaves either the old file or the new one, never a partial write.
+
+Storage errors display as recovery-oriented messages (`StorageError` in `storage.rs`): an I/O
+failure becomes "Toolblox couldn't access its local data. Is the data folder available?", a parse
+failure "Toolblox couldn't read its local data. Is the file intact?", a poisoned lock
+"Toolblox couldn't lock its local data. Can you restart the app?", and validation failures pass
+their own message through.
+
+## The OS credential store
+
+[`credentials.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/credentials.rs)
+defines a `CredentialStore` trait with three operations, one session per account ID:
+
+| Method | Behavior |
+| --- | --- |
+| `get(account_id)` | Returns the session as a `Secret`, or `Missing` when none is stored. |
+| `set(account_id, secret)` | Stores or replaces the session. An empty secret is rejected as `Missing`. |
+| `delete(account_id)` | Deletes the session. Deleting a missing session succeeds. |
+
+`OsCredentialStore` implements it with the [`keyring`](https://crates.io/crates/keyring) crate
+(version 3.6), compiled with only the native backend for each platform:
+
+| Platform | Backend | Entry |
+| --- | --- | --- |
+| Windows | Windows Credential Manager (`keyring` feature `windows-native`) | Service `Toolblox`, user `account-<id>` |
+| macOS | Login Keychain (`keyring` feature `apple-native`) | Service `Toolblox`, account `account-<id>` |
+| Other | None | Every call returns `Unsupported`: "Secure session storage isn't supported here. Can you use Windows or macOS?" |
+
+A `keyring::Error::NoEntry` maps to `CredentialError::Missing` ("The saved session wasn't found.
+Can you sign in again?"). Every other keyring failure maps to `Platform` ("Toolblox couldn't access
+secure session storage. Is it unlocked?"), without carrying the underlying error text.
+
+### The `Secret` type
+
+Sessions read from the store come back as `Secret`, a newtype around `String` that:
+
+- prints `Secret([redacted])` from its `Debug` implementation, so an accidental `{:?}` can't leak it;
+- zeroes its memory on drop with `zeroize`;
+- has no `Serialize` implementation, so it can't be returned from a Tauri command;
+- exposes the raw value only through the crate-private `expose()`, whose doc comment says callers
+  must not log it or return it to JavaScript.
+
+The sign-in window uses a sibling type, `RobloxCookie`, which wraps a `Zeroizing<String>` and
+exposes the value through `expose_secret()`.
+
+### Legacy sessions and DPAPI
+
+DPAPI is used only to read what the legacy Flet app left behind. The one-time import in
+[`migration.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/migration.rs) runs
+during startup when `v2/.legacy-migration-complete` is absent and a legacy `accounts.json` or
+`settings.json` exists. For each legacy account with a `security_cookie`:
+
+- **Windows:** `decrypt_legacy_dpapi` base64-decodes the value and calls `CryptUnprotectData` for
+  the current user. A value that isn't valid base64 is treated as an already-plain session.
+- **macOS:** `lookup_legacy_keychain` runs
+  `security find-generic-password -a account-<id> -s Toolblox -w`. When that entry is missing, the
+  plaintext legacy value is used instead.
+
+Each recovered session is written to the credential store and the accounts are saved without any
+session field. If storing a session or saving the accounts fails, every session the import wrote
+is rolled back to its previous value, newest first. More on startup and migration is on
+[Startup and updates](/docs/app/startup-and-updates/).
+
+## Signing in
+
+Accounts are added only through the official Roblox sign-in page. Toolblox never sees the password;
+it waits for Roblox to set its session cookie in an isolated webview and reads that cookie from
+Rust.
+
+```text
+ React (main window)                 Rust host                          Sign-in webview "roblox-login"
+ ───────────────────                 ─────────                          ──────────────────────────────
+ Add ─► bridge.beginRobloxLogin()
+        invoke("begin_roblox_login") ─► open_roblox_login()
+                                         ├─ refuse if already open
+                                         └─ build window ──────────────► https://www.roblox.com/login
+                                                                          incognito, no devtools,
+                                                                          HTTPS *.roblox.com only,
+                                                                          new windows denied
+                                                                                 │ user signs in
+                                         on each page load "Finished" ◄──────────┘
+                                         schedule_cookie_check (thread)
+                                           window.cookies() ── no cookie ── sleep 1 s, retry
+                                           .ROBLOSECURITY found (Secure, HttpOnly, roblox.com)
+                                         finish_login
+                                           1. validate: GET users.roblox.com/v1/users/authenticated
+                                              + thumbnails headshot  ─► AccountIdentity
+                                           2. clear_all_browsing_data()
+                                           3. store: credentials.set(id, cookie)
+                                              (previous session kept for rollback)
+                                           4. destroy window
+                                           5. notify(Complete(identity)) ─► channel
+        command resumes on receiver ◄─ update_accounts: add or refresh StoredAccount
+                                         (on failure: restore previous session)
+ Account (AccountView) ◄──────────────── returns display data only
+ refresh() ─► get_app_state
+```
+
+### The sign-in window
+
+`open_roblox_login` in `login.rs` builds a `WebviewWindow` labelled `roblox-login`:
+
+| Option | Value | Why |
+| --- | --- | --- |
+| URL | `https://www.roblox.com/login` | The official page. |
+| Title and size | "Sign in to Roblox", 480 × 640 | |
+| `incognito(true)` | | No shared cookie jar with the main window or earlier sign-ins. |
+| `devtools(false)` | | The page can't be inspected. |
+| `on_navigation` | `is_allowed_roblox_navigation` | Only `https` URLs whose host is `roblox.com` or ends with `.roblox.com`. `http://`, `evilroblox.com`, and `roblox.com.example.test` are refused (covered by tests). |
+| `on_new_window` | `Deny` | Pop-ups can't escape the restrictions. |
+| `on_page_load` | Start the cookie check on `Finished` | |
+
+The window gets no Tauri capabilities. The only capability file,
+[`src-tauri/capabilities/default.json`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/capabilities/default.json),
+applies to the `main` window, so scripts on the Roblox page can't invoke Toolblox commands.
+
+Only one sign-in can run: if a `roblox-login` window already exists the command fails with "The
+Roblox sign-in window is already open. Can you use it?".
+
+### Reading the cookie
+
+After each finished page load, `schedule_cookie_check` spawns a thread that reads the window's
+cookies. An `in_flight` flag ensures only one check runs at a time and a `cancelled` flag stops
+retries. A cookie is accepted only if `is_roblox_security_cookie` holds:
+
+- the name is exactly `.ROBLOSECURITY`;
+- it's `Secure` and `HttpOnly`;
+- its domain, ignoring a leading dot, is `roblox.com` or a subdomain of it.
+
+When no matching cookie exists yet, the thread sleeps one second and checks again. This polling is
+what notices the sign-in completing, since Roblox may finish on a page that doesn't trigger another
+navigation.
+
+### Finishing, failing, and cancelling
+
+`finish_login` runs the three injected callbacks in a fixed order:
+
+<Steps>
+
+1. **Validate.** `begin_roblox_login` supplies a closure that calls
+   `roblox::authenticated_profile` with the cookie. A network failure maps to `LoginError::Network`;
+   any other failure, including a rejected session, maps to `InvalidSession`.
+2. **Clear browsing data.** `clear_all_browsing_data()` wipes the webview's cookies and storage
+   before the session is persisted. If clearing fails, the sign-in fails with `Cleanup`, so a
+   session is never stored while a copy might linger in the webview profile.
+3. **Store.** The store closure reads the account's current session (if any) for rollback, then
+   calls `credentials.set`. A failure becomes `CredentialStore`.
+4. **Close and notify.** The window is destroyed and `LoginNotice::Complete(identity)` is sent.
+
+</Steps>
+
+Any failure goes through `fail_login`, which marks the phase `Failed`, clears browsing data,
+destroys the window, and sends `LoginNotice::Failed(error)`. Closing the window by hand fires
+`WindowEvent::Destroyed`; if the sign-in hadn't already completed or failed, that sends
+`LoginNotice::Cancelled`. The phases are tracked as
+`LoginPhase::{Waiting, Checking, Complete, Cancelled, Failed}`.
+
+| `LoginError` | Message |
+| --- | --- |
+| `AlreadyOpen` | The Roblox sign-in window is already open. Can you use it? |
+| `Window` | The Roblox sign-in window couldn't open. Would trying again help? |
+| `CookieRead` | The Roblox session couldn't be read. Would signing in again help? |
+| `Network` | Toolblox couldn't reach Roblox. Is your connection working? |
+| `InvalidSession` | Roblox didn't accept the session. Would signing in again help? |
+| `CredentialStore` | The Roblox session couldn't be stored securely. Is the credential store available? |
+| `Cleanup` | The temporary Roblox browsing data couldn't be cleared. Would restarting Toolblox help? |
+
+### Saving the account
+
+`begin_roblox_login` is an async command that waits on a `sync_channel` (inside `spawn_blocking`)
+for the single notice. A cancelled sign-in returns "The Roblox sign-in was cancelled. Can you try
+again?".
+
+On `Complete`, the command calls `update_accounts`:
+
+- If an account with that ID exists, its `name`, `display_name`, and `avatar_url` are refreshed. The
+  new session has already replaced the old one in the credential store, so signing in again is how
+  an expired session is renewed.
+- Otherwise a new `StoredAccount` is appended with `added_at` set to now and every other field
+  empty.
+
+If saving fails, the command restores the previous session for that ID, or deletes the new one if
+there was none, so the credential store and `accounts.json` never disagree. On success it returns
+an `AccountView` with `presence: "warning"` (presence hasn't been fetched yet); the screen then
+calls `refresh()`.
+
+### Profile backfill
+
+After startup reaches the ready state, `backfill_profiles` in `app_commands.rs` looks for saved
+accounts with no `avatar_url`, such as ones imported from the legacy app, and fills in `name`,
+`display_name`, and `avatar_url` from `roblox::public_profile`. Failures are logged and skipped.
+
+## Roblox HTTP flows
+
+Every Roblox request goes through one `reqwest::Client`, built in `lib.rs`:
+
+| Setting | Value |
+| --- | --- |
+| `https_only` | `true`. Plain HTTP requests fail. |
+| Redirects | `Policy::none()`. A redirect can't carry the cookie to another host. |
+| Timeout | 20 seconds. |
+| User agent | `Toolblox/<version>`. |
+
+The session is attached by `cookie_header`, which builds `Cookie: .ROBLOSECURITY=<value>` and marks
+the `HeaderValue` sensitive with `set_sensitive(true)`, so `reqwest` and `http` omit it from debug
+output.
+
+### Endpoints
+
+| Constant | URL | Session | Used by | Purpose |
+| --- | --- | --- | --- | --- |
+| `AUTH_URL` | `GET https://users.roblox.com/v1/users/authenticated` | Yes | `authenticated_profile` | Validates a session and returns its user. Used at sign-in. |
+| `USERS_URL` | `GET https://users.roblox.com/v1/users/{id}` | No | `public_profile` | Public profile for backfill. A response for a different ID is rejected. |
+| `THUMBNAIL_URL` | `GET https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={id}&size=150x150&format=Png&isCircular=false` | No | `profile_with_avatar` | Avatar headshot. Any failure leaves `avatar_url` as `None`. |
+| `PRESENCE_URL` | `POST https://presence.roblox.com/v1/presence/users` with `{"userIds": [...]}` | Yes | `fetch_presence_details`, `fetch_presence` | Presence, place, universe, and location for several users. |
+| `GAMES_URL` | `GET https://games.roblox.com/v1/games?universeIds=1,2,...` | No | `fetch_game_names` | Game names by universe ID. |
+| `PLACE_UNIVERSE_URL` | `GET https://apis.roblox.com/universes/v1/places/{placeId}/universe` | No | `fetch_place_universe` | Whether a place exists, and its universe. |
+| `TICKET_URL` | `POST https://auth.roblox.com/v1/authentication-ticket` | Yes | `build_join_uri` | One-time authentication ticket for launching the client. |
+| `PLACE_LAUNCHER_URL` | `https://assetgame.roblox.com/game/PlaceLauncher.ashx` | — | `join_uri` | Not requested by Toolblox. Embedded in the launch URI for the Roblox client. |
+
+### Profiles
+
+`authenticated_profile` and `public_profile` both decode `{ id, name, displayName }` and pass the
+user to `profile_with_avatar`, which adds the headshot URL. An empty or missing `displayName`
+falls back to `name`. The result is a `Profile { id, name, display_name, avatar_url }`.
+
+### Presence and CSRF
+
+Roblox protects `POST` endpoints with a CSRF token that it hands out by rejecting the first request.
+`fetch_presence_details` sends the request; if Roblox answers `403 Forbidden`, it copies the
+`x-csrf-token` response header and retries once with it. A `403` without that header is an
+`InvalidResponse`.
+
+`parse_presence_response` maps every requested ID to a `PresenceDetail`. IDs missing from the
+response stay `Unknown`. `userPresenceType` maps to `PresenceState`:
+
+| `userPresenceType` | `PresenceState` | Interface `presence` |
+| --- | --- | --- |
+| `0` | `Offline` | `offline` |
+| `1` | `Online` (on Roblox, not in a game) | `warning` |
+| `2` | `InGame` | `playing` |
+| `3` | `InStudio` | `playing` |
+| other or missing | `Unknown` | `warning` |
+
+The interface column comes from `account_views` in `app_commands.rs`. `warning` is displayed as
+"Status unavailable". Place, universe, and the `lastLocation` game name are kept only for users in
+game or in Studio; zero IDs are dropped and the name is trimmed and capped at 100 characters.
+
+`fetch_presence` is the same call reduced to `id → PresenceState`. It backs the widget method
+`roblox.status`, which returns a map of account ID to the snake_case state name (see
+[IPC reference](/docs/widgets/reference/ipc/)).
+
+### How the account list gets presence
+
+`account_views` runs on every `get_app_state`:
+
+<Steps>
+
+1. Try each account's session in list order until one is accepted. A `Rejected` status moves on to
+   the next account; any other error (such as a network failure) stops trying. If none succeeds,
+   every account shows `warning`.
+2. When **Show game names** is on, accounts that are in game but whose place Roblox hid from the
+   first session are re-queried with their own session, which can see its own place.
+3. Universes of in-game accounts without a `lastLocation` name are looked up with
+   `fetch_game_names`. That function never fails: network errors, bad statuses, and malformed JSON
+   all return no names, because names are display-only. Only requested universe IDs are kept.
+4. Each `AccountView` gets `presence`, and when game names are on, `gameName` and `gamePlaceId`.
+
+</Steps>
+
+### Places
+
+`parse_place_id` accepts either a string of ASCII digits or an `https` URL on `roblox.com` or
+`www.roblox.com` whose path starts `/games/<digits>`, and returns the digits. Everything else is
+`RobloxError::InvalidPlace`. Tests confirm it rejects `words 1818`, `http://` links, other hosts,
+and `/users/` paths. The interface has a matching `parsePlaceId` in `src/logic.ts` for instant
+feedback; Rust re-parses every value it receives.
+
+`fetch_place_universe` first runs `parse_place_id`, then returns `Ok(Some(universe))`, or
+`Ok(None)` when Roblox answers `400` or `404`. Other failures are errors, so the `place_exists`
+command can distinguish "no such place" from "couldn't check".
+
+Recent places are named by `name_recent_places` during `get_app_state` when **Show game names** is
+on: for each recent place with no name, the universe is resolved and its name looked up. A place
+with no universe is saved with an empty name; a network failure leaves the name unset so the next
+refresh tries again.
+
+### Errors and redaction
+
+All Roblox failures collapse to four `RobloxError` variants with fixed messages. None of them
+includes a URL, header, response body, or the underlying `reqwest` error, which is discarded with
+`map_err(|_| ...)`.
+
+| Variant | Message |
+| --- | --- |
+| `InvalidPlace` | The place ID isn't valid. Can you check the game link? |
+| `InvalidResponse` | Roblox returned an unexpected response. Can you try again? |
+| `Network` | Toolblox couldn't reach Roblox. Is your connection working? |
+| `Rejected(status)` | Roblox rejected the request (status `status`). Is the account still signed in? |
+
+As a second layer, the log writer in
+[`logs.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/logs.rs) redacts
+`.ROBLOSECURITY` values, cookie and authorization headers, `rbx-authentication-ticket`, ticket and
+token values in JSON or query strings, and everything after `roblox-player:` or `roblox-studio:`
+before any line reaches disk. See [Logs and failures](/docs/widgets/reference/logs-and-failures/).
+
+## Launching Roblox
+
+A join turns a stored session into a one-time ticket, wraps it in a `roblox-player:` URI, and hands
+that URI to the operating system, which starts the installed Roblox client.
+
+```text
+ bridge.joinAccounts(ids, placeId?)    or  widget roblox.join  or  auto-rejoin
+        │                                      │                       │
+        ▼                                      ▼                       ▼
+ join_accounts ──────────────► join_account_ids(runtime, ids, record_play, place?) ◄──
+   (rejects empty ids,               for each id, in order:
+    parses placeId)                    place = explicit ▸ account.place_id ▸ settings.place_id
+                                       secret = credentials.get(id)
+                                       build_join_uri ─┬─ POST auth-ticket (no token) ─► 403 + x-csrf-token
+                                                       ├─ POST auth-ticket + token ───► rbx-authentication-ticket
+                                                       └─ join_uri(place, ticket)
+                                         retry up to 3× on non-place errors, backing off 1→2→4→5 s
+                                       if multiInstance: clear_new_roblox_instances (Windows)
+                                       opener::open("roblox-player:1+...")  ─► OS ─► Roblox client
+                                       if record_play: record_play(now, place)
+                                       sleep(delay) before the next account
+        ▼
+ if minimizeOnJoin: minimize main window
+```
+
+### Choosing the place
+
+`join_account_ids` resolves a place per account in this order:
+
+1. the `place_id` argument, when the caller passed one;
+2. the account's own `place_id` override;
+3. the default place, `settings.place_id`.
+
+If none is set the join fails with "No place is set to join. Can you set one on the Accounts
+screen?". The interface usually prevents this: `join` in
+[`App.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/App.tsx) checks whether any
+selected account lacks a place while no default is set, and if so opens the "Set default place"
+dialog, saves the place, and then launches.
+
+### Building the ticket and URI
+
+`build_join_uri` re-parses the place ID, then posts an empty JSON body to the ticket endpoint with
+the cookie, `referer: https://www.roblox.com/games/<placeId>`, and `origin: https://www.roblox.com`.
+The first response must carry `x-csrf-token`; the second request repeats the call with that token.
+A successful second response must carry a non-empty `rbx-authentication-ticket` header. Anything
+else is `InvalidResponse` or `Rejected`.
+
+`join_uri` then formats the URI. Only two values come from outside: the place ID, which is digits
+only after `parse_place_id`, and the ticket. The rest is fixed or generated locally:
+
+```text
+roblox-player:1
+  +launchmode:play
+  +gameinfo:<ticket>
+  +launchtime:<Unix milliseconds>
+  +placelauncherurl:<form-urlencoded PlaceLauncher.ashx?request=RequestGame&browserTrackerId=<tracker>&placeId=<placeId>&isPlayTogetherGame=false>
+  +browsertrackerid:<tracker>
+  +robloxLocale:en_us
+  +gameLocale:en_us
+  +channel:
+```
+
+(The real URI is one line; it's split here for reading.) The tracker is the low 32 bits of the
+current time in nanoseconds XORed with an atomic counter, so two joins in the same instant get
+distinct IDs. The launcher URL is fully form-urlencoded, so its `?`, `&`, and `=` can't be confused
+with the `+`-separated protocol fields; the test
+`join_uri_encodes_the_launcher_but_keeps_the_protocol_shape` checks this. Because the URI contains
+the ticket, it's never logged or returned; the doc comment on `build_join_uri` says so explicitly.
+
+### Retries and pacing
+
+Ticket requests that fail for any reason other than `InvalidPlace` are retried up to
+`LAUNCH_RETRIES` (3) times. Each failure doubles the delay with `next_launch_delay`, starting at
+`FIRST_LAUNCH_DELAY` (1 s) and capped at `MAX_LAUNCH_DELAY` (5 s), so the sequence is 1, 2, 4, 5, 5
+seconds. The increased delay persists for the rest of the batch and is also the gap between
+consecutive launches. An `InvalidPlace` fails immediately.
+
+### Opening the client and recording the join
+
+`opener::open(uri)` asks the OS to open the URI with its registered handler, the Roblox player. A
+failure returns "Roblox couldn't be opened. Is Roblox installed?". When `record_play` is true, the
+account's `play_count`, `last_played_at`, and `last_place_id` are updated through
+`update_accounts`. Manual joins (`join_accounts` and the widget method `roblox.join`) record plays;
+auto-rejoin calls `join_account_ids` with `record_play: false`, so automatic rejoins don't change
+sort order or counts. See [Background services](/docs/app/background-services/).
+
+After the batch, `join_accounts` minimizes the main window if `minimizeOnJoin` is on. The widget
+path doesn't.
+
+### Several accounts at once
+
+Roblox normally allows one client per machine by holding a singleton handle. With
+**multiInstance** on, `join_account_ids` calls
+`multi_instance::clear_new_roblox_instances` before opening each URI:
+
+<Steps>
+
+1. Confirm the bundled helper exists at
+   `<resources>/resources/multi-instance/multi_instance_helper.exe`. If it doesn't: "The
+   multi-instance helper isn't installed. Can you reinstall Toolblox?".
+2. Run `tasklist.exe /FI "IMAGENAME eq RobloxPlayerBeta.exe" /FO CSV /NH` (with `CREATE_NO_WINDOW`)
+   and parse the PIDs.
+3. Drop PIDs that have exited from `Runtime::cleared_roblox_pids`, and find the ones not handled yet.
+4. Run the helper with those PIDs as arguments. On success, remember them.
+
+</Steps>
+
+Because the cleanup runs before each launch, the client opened by the previous launch in a batch
+has its handle closed before the next one starts. On macOS the function does nothing and returns
+`Ok(())`; the setting is documented as Windows only.
+
+## The Accounts screen
+
+[`src/screens/Accounts.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Accounts.tsx)
+renders `state.accounts` from `AppState`. It never holds anything secret; every mutation is a
+`bridge` call followed by `refresh()`, and failures become a toast that ends in the error text.
+
+### Toolbar
+
+| Control | Behavior |
+| --- | --- |
+| `accounts.toolbar` slot | Widget-contributed toolbar items. See [Slots](/docs/widgets/reference/slots/). |
+| Default place field | Accepts a place ID or game link. On blur or Enter: empty clears the default; otherwise `parsePlaceId` runs, `bridge.placeExists` confirms the place (a failed check is treated as existing), and `patchSettings("placeId", ...)` saves it. The map pin turns `text-destructive` when no default is set. |
+| Recent places menu | Shown when `recentPlaces` is non-empty. Anchored to the field, it lists names (or "Unknown game") and IDs; choosing one sets the default. |
+| Search | Filters by username, display name, and notes, case-insensitively. |
+| Select toggle | Enters selection mode, showing checkboxes and a panel with **Select all**, **Clear**, and **Join selected**. |
+| **Add** | Calls `bridge.beginRobloxLogin()`, shows a spinner while the sign-in window is open, then refreshes. |
+
+### Rows
+
+Accounts are ordered by `sortAccounts` from `logic.ts`: `last_played` sorts by `lastPlayedAt`
+(falling back to `addedAt`) newest first, `alphabetical` by display name with `localeCompare`, and
+`manual` keeps the saved order. Each row shows:
+
+- a drag handle, only in manual order with no search query. Dragging uses pointer capture and
+  `document.elementFromPoint` to find the target row, then saves with `bridge.reorderAccounts`;
+- a checkbox in selection mode;
+- the avatar when **Show avatars** is on (smaller in compact mode);
+- the display name, and `@username` when different;
+- a place badge when the account has an override, labelled with the recent place name when known;
+- a presence badge from `presenceLabel` in `shared.tsx`: "In game: *name* (*placeId*)" or
+  "Status unavailable". Offline shows no badge;
+- the `accounts.row` widget slot, which receives `{ account }`;
+- an inline notes field (hidden in compact mode) that saves on blur through
+  `bridge.updateAccountNotes`;
+- a **Join** button;
+- a menu with **Move up** and **Move down** (manual order only), **Set place…** or **Change
+  place…**, **Use default place** when an override exists, and **Remove**.
+
+**Remove** opens a confirmation ("Removes the account and its saved session from this device.")
+and calls `bridge.removeAccount`. On the Rust side, `remove_account` deletes the account from
+`accounts.json` first, then deletes its session. If the session can't be deleted, the account is
+put back at its original index and the credential error is returned, so the app never forgets an
+account whose session is still stored.
+
+## Trust boundaries
+
+| Boundary | What crosses | Enforcement |
+| --- | --- | --- |
+| Roblox sign-in page → Rust | The `.ROBLOSECURITY` cookie | Read by Rust from the webview cookie store, never through page scripts. Name, flags, and domain are checked. The webview is incognito, navigation-restricted, without devtools or capabilities, and cleared before storing. |
+| Rust → credential store | The session | Windows Credential Manager or macOS Keychain only. No other platform stores sessions. |
+| Rust → disk | Account display data | Validated on load and save; secret-looking legacy keys rejected; atomic writes; `0600` on Unix. |
+| Rust → Roblox | Cookie, CSRF token | HTTPS only, no redirects, sensitive header, fixed error messages. |
+| Rust → OS | `roblox-player:` URI with ticket | Place ID is digits only; launcher URL encoded; URI never logged or returned. |
+| Rust → React and widgets | `AccountView`, `SettingsDto`, IDs | Typed DTOs with no secret fields, guarded by a test. |
+| React and widgets → Rust | Account IDs, place input, notes | Every command re-validates: place IDs re-parsed, notes length-checked, account IDs looked up, orders checked for completeness. |
+
+Module widgets run with the same JavaScript privileges as the interface, so these Rust-side checks
+are what keep sessions out of reach of widget code. See
+[Permissions](/docs/widgets/reference/permissions/) for how frame widgets are further restricted.

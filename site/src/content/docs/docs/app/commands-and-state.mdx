@@ -1,0 +1,382 @@
+---
+title: Commands and state
+description: The Tauri command boundary between React and Rust, the AppState snapshot it returns, and how the interface and widgets use it.
+sidebar:
+  order: 3
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Toolblox has exactly one doorway between JavaScript and the Rust host: Tauri commands. React never
+reads files, calls Roblox, or touches the credential store. It calls a command through
+`invoke`, Rust does the work, and Rust returns display data or a user-facing error string. This page
+documents every command, the `AppState` snapshot the interface renders from, how that snapshot is
+refreshed, and how widgets reach the same functionality.
+
+## The pieces
+
+| File | Role |
+| --- | --- |
+| [`src-tauri/src/app_commands.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/app_commands.rs) | Almost every command, the shared `Runtime`, and the frontend DTOs. |
+| [`src-tauri/src/startup.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/startup.rs) | The three startup-gate commands. |
+| [`src-tauri/src/lib.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/lib.rs) | Builds the `Runtime`, registers commands with `invoke_handler`, and starts background work. |
+| [`src/bridge.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/bridge.ts) | The typed `bridge` object that wraps every command, plus the demo stand-in. |
+| [`src/types.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/types.ts) | TypeScript mirrors of the DTOs. |
+| [`src/logic.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/logic.ts) | Pure helpers over that data: sorting, names, relative times, place parsing, sidebar widths. |
+| [`src/App.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/App.tsx) | Owns the `AppState`, polls and refreshes it, and hands it to screens and the widget host. |
+
+```text
+ React screen / widget module
+        │  bridge.joinAccounts([101], "1818")
+        ▼
+ src/bridge.ts  call("join_accounts", { accountIds, placeId }, demoFn)
+        │  Tauri build?  ── no ──► demoFn() on in-memory sample data
+        │  yes
+        ▼
+ invoke("join_accounts", …)  ── IPC (ipc: / http://ipc.localhost, main window only) ──►
+        ▼
+ lib.rs invoke_handler ─► app_commands::join_accounts(app, account_ids, place_id, State<Runtime>)
+        │  Ok(value)  ─► serialized with serde (camelCase) ─► Promise resolves
+        │  Err(String) ─────────────────────────────────────► Promise rejects with the message
+        ▼                                                    bridge logs "Command … failed" and rethrows
+ screen shows a toast and/or calls refresh() ─► get_app_state
+```
+
+Tauri converts argument names automatically: a Rust parameter `account_ids` is passed from
+JavaScript as `accountIds`. Return values use explicit `#[serde(rename_all = "camelCase")]` on each
+DTO.
+
+## The shared `Runtime`
+
+Every app command receives `State<'_, Runtime>`, a single struct created in `lib.rs` during
+`setup` and registered with `app.manage`. See
+[`Runtime` in rustdoc](/api/toolblox_lib/app_commands/struct.Runtime.html).
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `legacy_root` | `PathBuf` | The Toolblox data folder, where the legacy Flet app kept its files. |
+| `storage` | `Arc<Storage>` | Locked, atomic JSON persistence rooted at `<data>/v2`. See [Accounts](/docs/app/accounts/#locking-and-atomic-writes). |
+| `credentials` | `Arc<OsCredentialStore>` | Roblox sessions in Credential Manager or the Keychain. |
+| `client` | `reqwest::Client` | HTTPS-only, no redirects, 20-second timeout, `Toolblox/<version>` user agent. |
+| `widgets_root` | `PathBuf` | `<data>/v2/widgets`. |
+| `catalogue` | `Mutex<Option<Catalogue>>` | The verified widget catalogue, once loaded. |
+| `catalogue_error` | `Mutex<Option<String>>` | Why the catalogue couldn't load, shown on the Widgets screen. |
+| `processes` | `Arc<Mutex<WidgetProcessManager>>` | Running widget sidecar processes. |
+| `widget_sessions` | `Mutex<WidgetSessions>` | Open widget sessions and their granted permissions. |
+| `multi_instance_helper` | `Option<PathBuf>` | Path of the bundled Windows multi-instance helper. |
+| `cleared_roblox_pids` | `Mutex<HashSet<u32>>` | Roblox processes the helper already handled. |
+| `safe_mode` | `bool` | Widgets stay unloaded for this session. |
+
+`lib.rs` also manages an `Arc<LifecycleState>` (window and tray state) and a
+`startup::StartupState` (the update gate), which the startup commands read.
+
+## Every command
+
+`lib.rs` registers 28 commands in `tauri::generate_handler!`. All of them are invoked only through
+`bridge`, except where noted. "Async" commands run on Tauri's async runtime and may await network
+calls; the others run synchronously on a command thread.
+
+### Startup gate
+
+These are defined in `startup.rs` and work before the app is ready. See
+[Startup and updates](/docs/app/startup-and-updates/).
+
+| Command | Arguments | Returns | What it does | Bridge |
+| --- | --- | --- | --- | --- |
+| `startup_status` | — | `StartupView` | Returns the current startup phase: `{ phase: "checking" }`, `{ phase: "installing", version }`, `{ phase: "ready" }`, or `{ phase: "failed", message }`. | `startupStatus()` |
+| `retry_startup_update` | — | `()` (async) | Runs the startup check again after a failure. | `retryStartupUpdate()` |
+| `quit_startup` | — | `()` | Exits the app from the startup screen. | `quitStartup()` |
+
+### State and settings
+
+| Command | Arguments | Returns | What it does | Bridge |
+| --- | --- | --- | --- | --- |
+| `get_app_state` | — | `AppStateDto` (async) | Builds the full interface snapshot. Loads the catalogue first if it hasn't been tried, names recent places, and fetches presence. [Details below](#how-get_app_state-builds-the-snapshot). | `getAppState()` |
+| `save_settings` | `settings: SettingsDto` | `()` | Copies every DTO field onto the saved settings, re-parses `placeId` (blank clears it), remembers a changed place in recent places, saves, applies **always on top** to the main window, and enables or disables launch at login. If the login item can't change, the previous settings are restored and it fails with "The startup setting couldn't be changed. Does this account allow startup apps?". | `saveSettings(settings)` |
+| `place_exists` | `place_id: String` | `bool` (async) | Asks Roblox whether the place has a universe. `false` only for a `400` or `404`; network failures are errors. | `placeExists(placeId)` |
+| `check_for_updates` | — | `UpdateAvailability` (async) | Runs the startup update check again. A required update installs and restarts the app, so a returned value is always `{ available: false, version: null }`. A failed check returns its message as an error. | `checkForUpdates()` |
+| `restart_app` | `safe_mode: bool` | `()` | Writes or removes the `safe-mode-next-launch` marker, then restarts. | `restartApp(safeMode)` |
+
+### Accounts
+
+The account flows are explained in depth on [Accounts](/docs/app/accounts/).
+
+| Command | Arguments | Returns | What it does | Bridge |
+| --- | --- | --- | --- | --- |
+| `begin_roblox_login` | — | `AccountView` (async) | Opens the isolated sign-in window, waits for it, stores the session, and adds or updates the account. Restores the previous session if saving fails. Returns the account with `presence: "warning"`. | `beginRobloxLogin()` |
+| `update_account_notes` | `account_id: u64`, `notes: String` | `()` | Replaces an account's notes. Fails above 10,000 characters with "The note is too long. Can you shorten it?". | `updateAccountNotes(accountId, notes)` |
+| `set_account_place` | `account_id: u64`, `place_id: Option<String>` | `()` | Sets the account's place override from an ID or game link, or clears it for `null` or blank input. A new place is added to recent places. | `setAccountPlace(accountId, placeId)` |
+| `remove_account` | `account_id: u64` | `()` | Removes the account, then deletes its session. Puts the account back if the session can't be deleted. | `removeAccount(accountId)` |
+| `reorder_accounts` | `account_ids: Vec<u64>` | `()` | Saves a manual order. The list must contain every saved account exactly once. | `reorderAccounts(accountIds)` |
+| `join_accounts` | `account_ids: Vec<u64>`, `place_id: Option<String>` | `()` (async) | Launches each account in order, at `place_id` when given, otherwise at its override or the default place. Records each join and minimizes the window afterwards when **minimize on join** is on. Rejects an empty list. | `joinAccounts(accountIds, placeId?)` |
+
+### Widgets
+
+The widget lifecycle is covered in the widget reference; this table lists the commands.
+
+| Command | Arguments | Returns | What it does | Bridge |
+| --- | --- | --- | --- | --- |
+| `install_widget` | `widget_id: String` | `()` (async) | Downloads the catalogue package (at most 20 MB) and installs it after hash, version, and permission checks. Fails if already installed. | `installWidget(entry)` (sends `entry.id`) |
+| `update_widget` | `widget_id: String` | `()` (async) | Requires a strictly newer semver in the catalogue, stops the widget's processes, and installs the new version. | `updateWidget(widgetId)` |
+| `uninstall_widget` | `widget_id: String` | `()` | Stops processes, removes the widget folder, and removes the widget from `disabledWidgets`, `widgetsStartOnLaunch`, and `widgetSettings`. Per-account `widget_data` isn't removed. | `uninstallWidget(widgetId)` |
+| `set_widget_enabled` | `widget_id: String`, `enabled: bool` | `()` | Adds or removes the widget from `disabledWidgets`. Disabling stops its processes. | `setWidgetEnabled(widgetId, enabled)` |
+| `set_widget_start_on_launch` | `widget_id: String`, `enabled: bool` | `()` | Adds or removes the widget from `widgetsStartOnLaunch`. | `setWidgetStartOnLaunch(widgetId, enabled)` |
+| `retry_catalogue` | — | `()` (async) | Downloads and verifies the signed catalogue again, recording any error. | `retryCatalogue()` |
+| `open_widget` | `widget_id: String`, `surface: Option<String>` | `WidgetHostSession` | Starts a session for `main` (default), `settings`, `dashboard`, or `module` and returns `{ sessionId, url }`. Frame surfaces get the manifest's permissions; `module` gets every permission. Fails in safe mode, for disabled widgets, and for surfaces the manifest doesn't declare. | `openWidget(widgetId, surface)` |
+| `close_widget_session` | `session_id: String` | `()` | Forgets a session. | `closeWidgetSession(sessionId)` |
+| `widget_request` | `session_id: String`, `widget_id: String`, `message: String` | `WidgetResponse` (async) | Authorizes a JSON message against the session and runs the method. Method failures come back inside the response, not as a rejected promise. | `widgetRequest(sessionId, widgetId, message)` (stringifies `message`) |
+| `get_widget_store` | `widget_id: String` | `Value` | Returns the widget's own JSON from `widgetSettings`, or `null`. | `getWidgetStore(widgetId)` |
+| `set_widget_store` | `widget_id: String`, `value: Value` | `()` | Replaces that JSON (at most 1 MB serialized). `null` deletes it. | `setWidgetStore(widgetId, value)` |
+
+### Logs
+
+| Command | Arguments | Returns | What it does | Bridge |
+| --- | --- | --- | --- | --- |
+| `read_log` | `lines: Option<usize>` | `String` | The most recent log lines, 300 by default. | `readLog(lines?)` |
+| `open_log_folder` | — | `()` | Opens the log folder in Explorer or Finder. | `openLogFolder()` |
+| `write_log` | `level: "debug" \| "info" \| "warn" \| "error"`, `message: String`, `widget_id: Option<String>` | `()` | Writes a record under the `interface` target, or under the widget's target when `widget_id` is a valid widget ID. Lines are redacted and long messages cut. | `writeLog(level, message, widgetId?)` |
+
+`bridge.openExternal(url)` isn't a Toolblox command. It calls `openUrl` from
+`@tauri-apps/plugin-opener`, allowed by the `opener:default` permission in
+[`capabilities/default.json`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/capabilities/default.json),
+and falls back to `window.open` in demo mode.
+
+<Aside>
+The capability file applies only to the window labelled `main`. The Roblox sign-in window and
+widget frames can't invoke any of these commands directly. Frame widgets go through the host
+page's `postMessage` relay; see [Iframe widgets](/docs/widgets/reference/iframe-widgets/).
+</Aside>
+
+## The `AppState` snapshot
+
+`get_app_state` returns `AppStateDto`, mirrored by `AppState` in `src/types.ts`. It's the only
+source of truth the interface renders from, and it contains no secrets.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `version` | `string` | `CARGO_PKG_VERSION` of the running build. |
+| `channel` | `"stable"` \| `"canary"` | `canary` for debug builds, which the sidebar shows as `-canary`. |
+| `platform` | `"windows"` \| `"macos"` | `macos` on macOS, otherwise `windows`. |
+| `widgetsPath` | `string` | The installed widgets folder. |
+| `logsPath` | `string` | The log folder, or empty when logging didn't start. |
+| `accounts` | `Account[]` | Accounts in saved order, with presence. See below. |
+| `installedWidgets` | `WidgetSummary[]` | Valid installed widgets. See below. |
+| `widgetErrors` | `string[]` | Messages for installed widget folders that failed to load. |
+| `catalogue` | `CatalogueEntry[]` | Catalogue widgets that aren't installed. |
+| `catalogueError` | `string?` | Why the catalogue couldn't load. Serialized as `null` when there's none. |
+| `settings` | `Settings` | The editable settings. See below. |
+| `recentPlaces` | `RecentPlace[]` | Up to six `{ placeId, name? }`, newest first. |
+| `safeMode` | `boolean` | Widgets are off for this session. |
+
+### `Account`
+
+`AccountView` flattens [`AccountDto`](/docs/app/accounts/#persisted-types-versus-frontend-views)
+and adds presence.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | `number` | Roblox user ID. The opaque handle every account command takes. |
+| `name` | `string` | Username. |
+| `displayName` | `string` | Display name. |
+| `avatarUrl` | `string \| null` | Headshot URL. Rust sends `null` when unknown; the TypeScript type marks it optional. |
+| `notes` | `string` | The account's note. |
+| `addedAt` | `number` | Unix **seconds**. |
+| `lastPlayedAt` | `number \| null` | Unix seconds of the last manual join. |
+| `playCount` | `number` | Manual joins. Sent by Rust but not declared in `types.ts`. |
+| `placeId` | `string \| null` | Place override. |
+| `lastPlaceId` | `string \| null` | Place of the last manual join. |
+| `presence` | `"offline"` \| `"playing"` \| `"warning"` | `playing` covers in game and in Studio. `warning` covers online-but-not-in-game, unknown, and "presence couldn't be fetched". |
+| `gameName` | `string?` | Game name, when **show game names** is on and the account is in game. Omitted otherwise. |
+| `gamePlaceId` | `number?` | Place the account is in, when Roblox reveals it. Omitted otherwise. |
+
+### `WidgetSummary` and `CatalogueEntry`
+
+| `WidgetSummary` field | Meaning |
+| --- | --- |
+| `id`, `name`, `description`, `icon`, `version` | From the installed manifest. |
+| `enabled` | Not listed in `disabledWidgets`. |
+| `availableVersion`, `availablePermissions` | Set when the catalogue has a strictly newer semver; the permissions are the newer version's. |
+| `permissions` | The installed manifest's permissions. |
+| `hasSettings`, `hasDashboardTile`, `hasPageFrame` | Whether the manifest declares `settingsEntry`, `dashboardEntry`, and `entry`. |
+| `moduleUrl` | URL of the manifest's `module`, when declared. |
+| `canStartOnLaunch`, `startOnLaunch` | Whether the manifest declares processes, and whether the widget is in `widgetsStartOnLaunch`. |
+| `hostUrl` | URL of the widget's `index.html`. |
+
+Widget asset URLs use `http://widget.localhost/<id>/<path>` on Windows (WebView2 serves custom
+schemes over HTTP) and `widget://localhost/<id>/<path>` elsewhere.
+
+A `CatalogueEntry` carries `id`, `name`, `description`, `version`, `logoUrl` (the catalogue's
+`iconUrl`), and `permissions`. See [Manifest](/docs/widgets/reference/manifest/) and
+[Catalogue](/docs/widgets/publishing/catalogue/).
+
+### `Settings`
+
+`SettingsDto` is the subset of [persisted settings](/docs/app/accounts/#settings) the interface can
+read and write through `save_settings`.
+
+| Field | Type |
+| --- | --- |
+| `sidebarPosition` | `"left"` \| `"right"` |
+| `themeMode` | `"system"` \| `"light"` \| `"dark"` |
+| `showAvatars`, `compactMode` | `boolean` |
+| `sortOrder` | `"last_played"` \| `"alphabetical"` \| `"manual"` |
+| `placeId` | `string` |
+| `multiInstance`, `autoRejoin`, `openOnLaunch`, `runInBackground`, `minimizeOnJoin`, `showGameNames`, `notifyOnDrop`, `alwaysOnTop` | `boolean` |
+
+Widget-related settings (`disabledWidgets`, `widgetsStartOnLaunch`, `widgetSettings`) and
+`recentPlaces` are deliberately absent. They change only through their dedicated commands, so a
+`save_settings` call from a stale snapshot can't overwrite them.
+
+### How `get_app_state` builds the snapshot
+
+<Steps>
+
+1. If the catalogue has never been loaded and there's no recorded error, download and verify it.
+   A failure is recorded in `catalogueError` rather than failing the command.
+2. Load settings. When **show game names** is on, name any unnamed recent places through the
+   Roblox universe and games APIs, saving the names.
+3. Load accounts and run `account_views`: fetch presence with the first session Roblox accepts,
+   re-check hidden places with each account's own session, and look up game names.
+4. Discover installed widgets, summarizing valid ones and collecting load errors.
+5. Filter the catalogue to entries whose folder isn't present in `widgets_root`.
+
+</Steps>
+
+Because step 3 makes network calls, `get_app_state` can take up to the client timeout when Roblox
+is slow. Storage errors fail the whole command; Roblox errors only degrade presence to `warning`.
+
+## How state refreshes
+
+`App.tsx` holds `AppState` in React state and replaces it wholesale on every load.
+
+| Trigger | What happens |
+| --- | --- |
+| App start | `startupStatus()` is polled every 500 ms until the phase is `ready`, then `getAppState()` loads the first snapshot. Before that the startup screen is shown. |
+| Every 60 seconds | A timer reloads the snapshot while the app is ready. |
+| Window focus | The `focus` event reloads the snapshot. |
+| After a mutation | Screens call `refresh()` (the same `load` function) after a successful command. |
+| After a join | `launch` calls `bridge.joinAccounts` and then reloads. |
+| Settings changes | `patchSettings(key, value)` updates the local snapshot immediately, then calls `saveSettings` with the full `Settings` object. On failure it shows a toast and reloads to undo the optimistic change. |
+
+If the first load fails, the app shows "Toolblox failed to load. Does restarting it help?" with the
+error text and a **Retry** button.
+
+There's no push channel from Rust to React for app state. Background services such as auto-rejoin
+act on their own and the next poll, focus, or refresh picks up the result.
+
+Every render also calls `syncWidgetHost(state, { navigate, notify, refresh, join })` from
+`src/widgets/host.tsx`. That keeps the widget host's copy of the snapshot current and notifies
+widget subscribers when the object changes.
+
+## Error conventions
+
+Every command returns `Result<T, String>`. `command_error` in `app_commands.rs` converts any error
+with `Display` into its message, and every error type in the host displays as a user-facing
+sentence followed by a recovery question:
+
+```text
+Toolblox couldn't reach Roblox. Is your connection working?
+The account wasn't found. Can you refresh the list?
+The widget is disabled. Can you enable it first?
+The startup setting couldn't be changed. Does this account allow startup apps?
+```
+
+Underlying causes (I/O errors, `reqwest` errors, keyring errors, HTTP bodies) are logged where
+useful but never returned. That keeps cookies, tickets, URLs, and file contents out of JavaScript
+even when something unexpected fails.
+
+On the frontend, `call` in `bridge.ts` catches a rejected `invoke`, writes
+`Command <name> failed: <error>` to the log at `warn` level, and rethrows. Screens add their own
+context and show it as a toast, for example "The note wasn't saved. Does retrying help? (…)".
+`bridge.writeLog` itself never rejects; it swallows failures so logging can't break a caller.
+
+`widget_request` is the exception to the rejection rule. Authorization failures (unknown session,
+bad protocol, missing permission, rate limit, oversized message) reject the command, but once a
+request is authorized, a failing method returns a `WidgetResponse` with `error` set and is logged
+under the widget's target. The host API's `request` turns that into a thrown `Error`.
+
+## Demo mode
+
+`bridge.ts` decides at each call whether a real host exists:
+
+```ts
+const isTauri = () => "__TAURI_INTERNALS__" in window && import.meta.env.MODE !== "demo";
+export const isDemo = () => !isTauri();
+```
+
+Demo mode applies in two situations:
+
+| Run | Result |
+| --- | --- |
+| `npm run dev` in a normal browser | No `__TAURI_INTERNALS__`, so every call uses sample data. |
+| `npm run demo` | Runs `tauri dev` with `src-tauri/tauri.demo.conf.json`, which starts Vite with `--mode demo`. The app runs in a real Tauri window but still uses sample data. |
+
+Each `bridge` method passes a demo function to `call`. In demo mode `call` returns
+`structuredClone(demo())`, so callers can't mutate the sample data by reference. The demo
+functions operate on an in-memory `demoState`:
+
+- five sample accounts with mixed presence, notes, and place overrides;
+- five installed widgets and six catalogue entries, including two module widgets loaded from
+  `src/demo-widgets/`;
+- a `demoStores` map for `getWidgetStore` and `setWidgetStore`;
+- a fixed `demoLog` for `readLog`.
+
+Mutating methods change `demoState` the way the real command would change storage: sign-in appends
+a `demo_user_N` account, joins set `lastPlayedAt` and `lastPlaceId`, `saveSettings` and
+`setAccountPlace` update recent places, and widget install, enable, and uninstall edit the lists.
+`widgetRequest` always answers `{ protocol: 1, requestId: "demo", result: null }`. Nothing in demo
+mode touches real accounts, files, or the network.
+
+`previewUpdater("update" | "failure")` stores a scenario in `sessionStorage` and reloads, after
+which the demo `startupStatus` replays the checking, installing, and failed screens with sample
+timing. It's meant for demo builds only.
+
+Demo data uses millisecond timestamps while Rust sends seconds; `relativeTime` in `logic.ts`
+accepts both.
+
+## Helpers in `logic.ts`
+
+| Export | Purpose |
+| --- | --- |
+| `accountName(account)` | `displayName`, or `name` when the display name is empty. |
+| `relativeTime(timestamp, now?)` | "Never played", "Last played just now", or `Nm`/`Nh`/`Nd ago`. Values below 10<sup>12</sup> are treated as seconds. |
+| `sortAccounts(accounts, order)` | Returns a sorted copy: `manual` keeps order, `alphabetical` uses `localeCompare` on `accountName`, `last_played` sorts by `lastPlayedAt` or `addedAt`, newest first. |
+| `parsePlaceId(input)` | Client-side mirror of Rust's `parse_place_id`: digits, or an `https` `roblox.com`/`www.roblox.com` `/games/<id>` link. Returns `undefined` when invalid. |
+| `SIDEBAR_COLLAPSED`, `SIDEBAR_MIN`, `SIDEBAR_MAX`, `SIDEBAR_DEFAULT` | Sidebar widths: 56, 160, 320, and 192 pixels. |
+| `clampSidebarWidth(width)` | Snaps widths below the midpoint of collapsed and minimum to icon-only, and clamps the rest. |
+| `stepSidebarWidth(width, grow)` | Keyboard resizing in 16-pixel steps that cross between icon-only and the minimum. |
+
+These are covered by `src/logic.test.ts`.
+
+## How widgets reach the same functionality
+
+Module widgets run in the app window. Their `activate` export receives a host API object built by
+`createApi` in
+[`src/widgets/host.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/widgets/host.tsx).
+Several of its members are thin layers over the same state and commands described above:
+
+| Host API member | Backed by |
+| --- | --- |
+| `getState()`, `useAppState()`, `onStateChange(listener)` | The `AppState` snapshot passed in by `syncWidgetHost`. `getState` throws "Toolblox state isn't loaded yet." before the first load. |
+| `refresh()` | The app's `load`, which calls `get_app_state`. |
+| `join(accountIds)` | The app's `join`, including the default-place dialog, which ends in `join_accounts`. |
+| `navigate(route)`, `notify(message)` | App routing and the toast. |
+| `storage.get()`, `storage.set(value)` | `get_widget_store` and `set_widget_store` for this widget's ID. |
+| `log.debug/info/warn/error(message)` | `write_log` with this widget's ID. |
+| `request(method, params)` | `widget_request` with the session from `open_widget(id, "module")`, wrapped as `{ protocol: 1, requestId, method, params }`. Resolves with `result` or throws `error`. |
+
+`request` exposes the IPC methods that need Rust: `accounts.list`, `widgetData.get`,
+`widgetData.set`, `roblox.status`, `roblox.join`, `network.fetch`, `log.write`, and the
+`process.*` family. Module sessions are granted every permission; frame sessions get only what the
+manifest declares.
+
+The full surface is documented in [Host API](/docs/widgets/reference/host-api/) and
+[IPC](/docs/widgets/reference/ipc/), with permissions on
+[Permissions](/docs/widgets/reference/permissions/).
+
+<Aside>
+Module widgets share the interface's JavaScript context and its access to every command above.
+None of those commands returns a session, ticket, or launch URI, which is why full trust in
+JavaScript doesn't extend to Roblox credentials. The host API is the supported path: it logs under
+the widget's ID, ties requests to the widget's session, and falls back to sample data in demo mode.
+</Aside>

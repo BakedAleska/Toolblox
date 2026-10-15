@@ -40,12 +40,32 @@ The site contains the download page from `site/`, the update manifest and widget
 the API docs under `/docs/`. The Docs workflow regenerates the API docs with rustdoc whenever Rust
 code changes and replaces the `docs` branch with a single commit of the output.
 
+## Domain
+
+`toolblox.dev` is registered with Cloudflare. A Cloudflare Worker named `toolblox-site`, routed
+to `toolblox.dev/*`, serves the Pages site at that domain:
+
+```js
+export default {
+  fetch(request) {
+    const { pathname, search } = new URL(request.url);
+    return fetch(`https://bakedaleska.github.io/Toolblox${pathname}${search}`);
+  },
+};
+```
+
+The app's HTTP client doesn't follow redirects, and builds up to 0.2.0 beta fetch from
+`bakedaleska.github.io`. Don't add a `CNAME` to Pages or a Cloudflare redirect rule: either one
+answers one set of builds with a redirect, and those apps stop opening once their manifest
+expires. Builds made after 0.2.0 beta fetch from `toolblox.dev`. Once no supported build uses
+`github.io`, Pages can take the custom domain directly and the Worker can be removed.
+
 ## Endpoints and keys
 
 | Value | Where it lives |
 | --- | --- |
-| Update manifest | `https://bakedaleska.github.io/Toolblox/updates/stable.json` and `.sig` |
-| Widget catalogue | `https://bakedaleska.github.io/Toolblox/catalogue/v1.json` and `.sig` |
+| Update manifest | `https://toolblox.dev/updates/stable.json` and `.sig` |
+| Widget catalogue | `https://toolblox.dev/catalogue/v1.json` and `.sig` |
 | Manifest public key | `EuDCNgMRTr2hMG4/aNBJH2gFK/i6VAkQRlc1YFSlh1U=` |
 | Catalogue public key | `SRsx1ZzYpQGnV6NhPa00Mt5I6xubH3DXuNdGOfbQSVE=` |
 | Updater public key | `plugins.updater.pubkey` in `src-tauri/tauri.conf.json` |

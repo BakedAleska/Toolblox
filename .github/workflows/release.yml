@@ -60,9 +60,9 @@ jobs:
       - name: Build the installer
         run: npm run tauri build -- --bundles nsis
         env:
-          TOOLBLOX_UPDATE_MANIFEST_URL: https://bakedaleska.github.io/Toolblox/updates/stable.json
+          TOOLBLOX_UPDATE_MANIFEST_URL: https://toolblox.dev/updates/stable.json
           TOOLBLOX_MANIFEST_PUBLIC_KEY: EuDCNgMRTr2hMG4/aNBJH2gFK/i6VAkQRlc1YFSlh1U=
-          TOOLBLOX_CATALOGUE_URL: https://bakedaleska.github.io/Toolblox/catalogue/v1.json
+          TOOLBLOX_CATALOGUE_URL: https://toolblox.dev/catalogue/v1.json
           TOOLBLOX_CATALOGUE_PUBLIC_KEY: SRsx1ZzYpQGnV6NhPa00Mt5I6xubH3DXuNdGOfbQSVE=
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}

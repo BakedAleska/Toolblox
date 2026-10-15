@@ -612,7 +612,7 @@ that needs it has to build or bundle its own. The full exported set and its use 
 
 [`src/index.css`](https://github.com/BakedAleska/Toolblox/blob/main/src/index.css) imports
 `tailwindcss`, `tw-animate-css` (the `animate-in`, `fade-in-0`, `slide-in-from-*`, and `zoom-in-95`
-utilities), the `shadcn/tailwind.css` support layer, and `@fontsource-variable/geist`. It declares
+utilities), the shared `src/component-variants.css` support layer, and `@fontsource-variable/geist`. It declares
 `@custom-variant dark (&:is(.dark *))`, so `dark:` utilities apply under the `dark` class that
 `useTheme` sets on `<html>`, not under the media query.
 

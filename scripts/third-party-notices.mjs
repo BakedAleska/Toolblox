@@ -37,5 +37,6 @@ const sections = packages.map((pkg) => {
   const texts = licenseTexts(pkg.folder);
   return [`${pkg.name} ${pkg.version} (${pkg.license ?? "license not declared"})`, ...(texts.length ? texts : ["No license file is included in this package."])].join("\n\n");
 });
+sections.push("shadcn CSS variants (MIT)\n\n" + readFileSync("src/component-variants.css", "utf8").split("*/")[0].replace("/*!\n", ""));
 writeFileSync(output, `Toolblox includes the following third-party software.\n\n${sections.join(`\n\n${"=".repeat(80)}\n\n`)}\n`);
 console.log(`Wrote notices for ${packages.length} packages to ${output}.`);

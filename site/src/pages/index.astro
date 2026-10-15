@@ -26,7 +26,7 @@ const questions = [
   { os: "windows", question: "Why does Windows show a warning?", answer: "Windows shows this warning for applications from publishers it doesn't recognize yet, and Toolblox doesn't currently have a paid code-signing certificate. Select More info, then Run anyway, but only for a file downloaded from this site or the official GitHub page." },
   { question: "Is Toolblox made by Roblox?", answer: "No. Toolblox is an independent project and isn't affiliated with or endorsed by Roblox Corporation." },
   { os: "mac", question: "Why does macOS say it can't verify Toolblox?", answer: "macOS shows this for apps that aren't notarized by Apple, and Toolblox doesn't currently have a paid Apple Developer ID. Select Done, then open System Settings, Privacy & Security, and select Open Anyway, but only for a file downloaded from this site or the official GitHub page." },
-  { question: "Is a macOS version available?", answer: "Yes. Toolblox runs on Apple silicon and Intel Macs with the same features as on Windows, including multiple Roblox instances. The first macOS download is published with the next release." },
+  { question: "Is a macOS version available?", answer: "Yes. Toolblox runs on Apple silicon and Intel Macs with the same features as on Windows, including multiple Roblox instances. Download the universal macOS app below." },
 ];
 
 /** Hides a question from visitors on the other operating system. */
@@ -46,7 +46,7 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
         </ul>
         <div class="flex flex-wrap justify-center gap-3">
           <span class="contents mac:hidden"><a href={installer} class={buttonVariants({ size: "lg", className: "h-10 px-4" })}><Download />Download for Windows</a></span>
-          <span class="hidden mac:contents"><a href="#download" data-mac-hero class={buttonVariants({ size: "lg", className: "h-10 px-4" })}><Download />Download for macOS</a></span>
+          <span class="hidden mac:contents"><a href={macInstaller} data-mac-hero class={buttonVariants({ size: "lg", className: "h-10 px-4" })}><Download />Download for macOS</a></span>
           <a href={repo} class={buttonVariants({ size: "lg", variant: "outline", className: "h-10 px-4" })}><GitHubIcon />View source code</a>
         </div>
         <p class="text-sm text-muted-foreground">
@@ -194,7 +194,7 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
                 </ol>
               </CardContent>
               <CardFooter className="mt-auto">
-                <a href={`${repo}/releases`} data-mac-download data-href={macInstaller} data-ready-class={buttonVariants({ className: "w-full" })} class={buttonVariants({ variant: "outline", className: "w-full" })}><span data-mac-download-label>Coming in the next release</span></a>
+                <a href={macInstaller} data-mac-download data-href={macInstaller} data-ready-class={buttonVariants({ className: "w-full" })} class={buttonVariants({ className: "w-full" })}><Download /><span data-mac-download-label>Download for macOS</span></a>
               </CardFooter>
             </Card>
           </div>
@@ -223,7 +223,6 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
                 link.href = link.dataset.href;
                 link.className = link.dataset.readyClass ?? link.className;
                 label.textContent = "Download for macOS";
-                label.insertAdjacentHTML("beforebegin", document.querySelector("[data-mac-hero] svg")?.outerHTML ?? "");
               }
               if (macVersion) {
                 macVersion.textContent = version;

@@ -50,12 +50,12 @@ export function Accounts({ state, refresh, notify, confirm, join, askPlace, patc
     void patchSettings("placeId", placeId);
   };
 
-  return <Screen title="Accounts" actions={<>
+  return <Screen title="Accounts" toolbar={<>
     <WidgetSlot name="accounts.toolbar" props={{}} />
     <label ref={placeField} className="relative min-w-0 flex-1 basis-0" title={settings.placeId ? `Default place: ${placeLabel(state, settings.placeId)}` : "No default place set"}>
       <span className="sr-only">Default place ID or Roblox game link</span>
       <MapPin className={cn("pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2", settings.placeId ? "text-muted-foreground" : "text-destructive")} aria-hidden="true" />
-      <Input key={settings.placeId} defaultValue={settings.placeId} placeholder="Place ID or link" aria-describedby="place-hint"
+      <Input key={settings.placeId} defaultValue={settings.placeId} placeholder="Place ID" aria-describedby="place-hint"
         className={cn("pl-8 font-mono placeholder:font-sans", state.recentPlaces.length > 0 && "pr-8", !settings.placeId && "border-destructive/60 placeholder:text-destructive/80")}
         onBlur={(event) => void savePlace(event.currentTarget)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
       <span id="place-hint" className="sr-only">{settings.placeId ? `Default place: ${placeLabel(state, settings.placeId)}.` : "No default place set."}</span>

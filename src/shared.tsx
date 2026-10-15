@@ -41,13 +41,17 @@ const permissionLabels: Record<string, string> = {
 
 export const permissionSummary = (permissions: string[]) => permissions.map((permission) => permissionLabels[permission] || permission).join(", ");
 
-/** Scrolling page with a sticky header, width-capped so fullscreen stays readable. */
-export function Screen({ title, actions, children, className }: { title: string; actions?: ReactNode; children: ReactNode; className?: string }) {
+/** Scrolling page with a sticky header, width-capped so fullscreen stays readable. A toolbar sits
+ * under the title, the same distance from it as content on pages without one. */
+export function Screen({ title, actions, toolbar, children, className }: { title: string; actions?: ReactNode; toolbar?: ReactNode; children: ReactNode; className?: string }) {
   return <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
     <div className={cn("mx-auto flex min-h-full max-w-5xl flex-col gap-4 px-6 pb-6", className)}>
-      <header className="sticky top-0 z-10 -mx-6 flex h-14 shrink-0 items-center gap-2 bg-background/90 px-6 backdrop-blur-sm">
-        <h1 className="mr-auto shrink-0 pr-2 text-lg font-semibold tracking-tight">{title}</h1>
-        {actions}
+      <header data-slot="screen-header" className="sticky top-0 z-10 -mx-6 shrink-0 bg-background/90 px-6 backdrop-blur-sm">
+        <div className="flex h-14 items-center gap-2">
+          <h1 className="mr-auto shrink-0 pr-2 text-lg font-semibold tracking-tight">{title}</h1>
+          {actions}
+        </div>
+        {toolbar && <div className="mt-4 flex items-center gap-2">{toolbar}</div>}
       </header>
       {children}
     </div>

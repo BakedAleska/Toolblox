@@ -9,6 +9,31 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Account, AppRoute, AppState, Settings, WidgetSummary } from "@/types";
 
+/** The core commitments from `PRODUCT.md`, shown on the dashboard and in Settings. */
+export const commitments = (platform: AppState["platform"]) => [
+  { icon: <Eye />, title: "Free and open source", text: "No ads or paid features. Every line of source code is public under the MIT License." },
+  { icon: <ShieldCheck />, title: "No injection", text: "Never injects code into Roblox or reads or changes its memory or files. Roblox opens through its own sign-in page and launcher." },
+  { icon: <HardDrive />, title: "Data stays on this device", text: `Accounts and settings are stored on this device and sessions in ${platform === "macos" ? "the macOS login Keychain" : "Windows Credential Manager"}. There's no Toolblox server or telemetry.` },
+];
+
+/** The commitments as icons. Pressing one slides its title out beside it, and hovering an open
+ * one shows its description. */
+export function Commitments({ platform, className }: { platform: AppState["platform"]; className?: string }) {
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const toggle = (title: string) => setOpen((current) => { const next = new Set(current); if (next.has(title)) next.delete(title); else next.add(title); return next; });
+  return <ul className={cn("flex flex-wrap items-center gap-1", className)}>
+    {commitments(platform).map(({ icon, title, text }) => <li key={title}>
+      <button type="button" aria-expanded={open.has(title)} aria-label={title} aria-description={text} title={open.has(title) ? text : title} onClick={() => toggle(title)}
+        className="inline-flex h-7 items-center rounded-lg px-1.5 text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 aria-expanded:text-foreground [&_svg]:size-4 [&_svg]:shrink-0">
+        {icon}
+        <span className={cn("grid transition-[grid-template-columns,opacity] duration-200 ease-enter motion-reduce:transition-none", open.has(title) ? "grid-cols-[1fr] opacity-100" : "grid-cols-[0fr] opacity-0")} aria-hidden="true">
+          <span className="overflow-hidden pl-1 text-xs whitespace-nowrap">{title}</span>
+        </span>
+      </button>
+    </li>)}
+  </ul>;
+}
+
 export type PlaceRequest = { title: string; description: string; action: string; run: (placeId: string) => Promise<void> };
 
 /** A place's game name when Toolblox knows it, otherwise its ID. */

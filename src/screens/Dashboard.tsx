@@ -1,9 +1,9 @@
-import { Gamepad2, Play, Plus, Puzzle, ShieldCheck, Users } from "lucide-react";
+import { Gamepad2, Play, Plus, Puzzle, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { accountName, relativeTime, sortAccounts } from "@/logic";
-import { Avatar, Panel, SectionTitle, Screen, StatTile, WidgetFrame, placeLabel, presenceLabel, type ScreenProps } from "@/shared";
-import { WIDGETS_AVAILABLE } from "@/screens/Widgets";
+import { AccountCard, Commitments, Panel, SectionTitle, Screen, StatTile, WidgetFrame, placeLabel, presenceLabel, type ScreenProps } from "@/shared";
 import { WidgetSlot } from "@/widgets/host";
+import { WIDGETS_AVAILABLE } from "@/screens/Widgets";
 
 export function Dashboard({ state, navigate, join }: ScreenProps) {
   const { accounts, settings, installedWidgets } = state;
@@ -55,9 +55,9 @@ export function Dashboard({ state, navigate, join }: ScreenProps) {
       <WidgetFrame widget={widget} surface="dashboard" title={`${widget.name} dashboard`} />
     </section>)}
 
-    <p className="mt-auto flex items-start gap-2 pt-2 text-xs text-muted-foreground">
-      <ShieldCheck className="mt-px size-3.5 shrink-0" aria-hidden="true" />
-      All data is stored on this device. Roblox sessions are kept in the operating system's credential store, and no telemetry is collected.
-    </p>
+    <footer className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-2 pt-2 text-xs text-muted-foreground">
+      <Commitments platform={state.platform} className="-ml-1.5" />
+      <Button variant="link" size="sm" className="ml-auto h-auto px-0 text-xs text-muted-foreground" onClick={() => navigate("/settings")}>Details</Button>
+    </footer>
   </Screen>;
 }

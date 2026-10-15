@@ -23,6 +23,9 @@ and installing reviewed game-specific widgets. `PRODUCT.md` is the product autho
 ## Code style
 
 - Use plain, factual doc comments for non-obvious behavior. Avoid explanatory inline comments.
+- Repeat the three core commitments in `PRODUCT.md` (free and open source, no injection, data
+  stays on this device) with their exact titles. Never claim Roblox Terms of Use compliance, and
+  don't add a feature that would make a commitment untrue.
 - Keep user-facing text short, neutral, and professional. Use sentence case, short noun or verb
   phrases for labels, and one factual sentence for descriptions. Avoid conversational filler and
   second-person asides. Use one term per concept, such as "In game", "permissions", and "this

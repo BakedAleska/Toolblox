@@ -32,6 +32,31 @@ Toolblox combines local multi-account Roblox management with an open widget syst
 add game-specific tools without giving a hosted service custody of their account sessions or
 waiting for every feature to enter the core app.
 
+## Core Commitments
+
+Toolblox repeats three commitments wherever users decide whether to trust it: the website hero
+and highlights, the README, the dashboard, Settings, and the sign-in flow. Use these titles and
+keep each description to what the linked evidence shows.
+
+1. **Free and open source.** No ads or paid features. Every line of source code is public under
+   the MIT License. Evidence: the repository and license.
+2. **No injection.** Toolblox never injects code into Roblox or reads or changes its memory or
+   files. It signs in through Roblox's own page and launches Roblox through its standard
+   `roblox-player:` link, the same way the Roblox website does. Evidence: `roblox.rs` and
+   `multi_instance.rs`. On Windows, the multi-instance helper closes Roblox's single-instance
+   handle so several clients can run at once. On macOS, Toolblox removes the name of Roblox's
+   single-instance semaphore and starts the player with the same link. Don't describe Toolblox as never touching the
+   Roblox process.
+3. **Data stays on this device.** Accounts, notes, and settings are stored on this device and
+   sessions in the operating system's credential store. There's no Toolblox server, account
+   service, or telemetry. Toolblox connects only to Roblox and to GitHub for updates and widgets.
+   Evidence: the [privacy policy](https://toolblox.dev/policies/#privacy), which lists every connection, and the source code. Installed widgets
+   can connect to services their authors choose, so copy that covers widgets must say so.
+
+Don't claim that Toolblox is compliant with or approved under the Roblox Terms of Use. Roblox
+decides how its terms apply to third-party apps. State the facts above and keep the disclaimer
+that no outside app can guarantee an account's standing.
+
 ## Operating Context
 
 Users sign into Roblox through Roblox's own login page, keep several accounts organized, launch

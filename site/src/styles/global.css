@@ -42,16 +42,19 @@
     @apply mt-0;
   }
   .policy section {
-    @apply scroll-mt-20;
+    @apply scroll-mt-20 rounded-xl bg-card px-6 pb-6 ring-1 ring-border sm:px-8 sm:pb-8;
   }
-  .policy section + section {
-    @apply mt-16 border-t pt-12;
+  .policy-header {
+    @apply -mx-6 mb-6 flex flex-col gap-1 rounded-t-xl border-b bg-muted/50 px-6 py-6 sm:-mx-8 sm:px-8;
   }
-  .policy h2 {
-    @apply mb-2 text-2xl font-semibold tracking-tight text-foreground;
+  .policy .policy-header h2 {
+    @apply m-0 text-2xl font-semibold tracking-tight text-foreground;
   }
-  .policy .policy-meta {
-    @apply mt-0 mb-8 text-sm text-muted-foreground;
+  .policy .policy-header p {
+    @apply m-0 text-sm text-muted-foreground;
+  }
+  .policy .policy-header + * {
+    @apply mt-0;
   }
   .policy h3 {
     @apply mt-10 mb-3 scroll-mt-20 text-lg font-semibold tracking-tight text-foreground;

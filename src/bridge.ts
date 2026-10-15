@@ -84,9 +84,21 @@ const demoStores = new Map<string, unknown>([
   ["rogue_lineage", { showIcons: true, accounts: { 101: { race: "lightborn", cls: "druid" }, 102: { race: "vind", cls: "shinobi" }, 104: { race: "gaian", cls: "necromancer" } } }],
 ]);
 
+let demoTheme = "";
+
+/** Saves the demo theme as a download, standing in for the Downloads folder. */
+const downloadDemoTheme = () => {
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([demoTheme], { type: "text/css" }));
+  link.download = "Toolblox theme.css";
+  link.click();
+  URL.revokeObjectURL(link.href);
+  return link.download;
+};
+
 const rememberDemoPlace = (placeId: string) => {
   const existing = demoState.recentPlaces.find((place) => place.placeId === placeId);
-  demoState.recentPlaces = [existing || { placeId }, ...demoState.recentPlaces.filter((place) => place.placeId !== placeId)].slice(0, 6);
+  demoState.recentPlaces = [existing || { placeId }, ...demoState.recentPlaces.filter((place) => place.placeId !== placeId)].slice(0, 5);
 };
 
 const isTauri = () => "__TAURI_INTERNALS__" in window && import.meta.env.MODE !== "demo";
@@ -255,6 +267,14 @@ export const bridge = {
   readLog: (lines?: number) => call<string>("read_log", { lines: lines ?? null }, () => demoLog.slice(-(lines ?? 300)).join("\n")),
   openLogFolder: () => call<void>("open_log_folder", {}, () => undefined),
   writeLog,
+  /** The custom theme CSS. */
+  getTheme: () => call<string>("get_theme", {}, () => demoTheme),
+  /** Validates and saves the custom theme CSS. */
+  saveTheme: (css: string) => call<void>("save_theme", { css }, () => { demoTheme = css; }),
+  /** Inlines the local CSS files that theme CSS imports and embeds the files its `url()`s name. */
+  embedThemeFiles: (css: string) => call<string>("embed_theme_files", { css }, () => css),
+  /** Writes the saved theme to a CSS file in Downloads and returns its path. */
+  exportTheme: () => call<string>("export_theme", {}, downloadDemoTheme),
   closeWidgetSession: (sessionId: string) => call<void>("close_widget_session", { sessionId }, () => undefined),
   widgetRequest: (sessionId: string, widgetId: string, message: unknown) => call<unknown>("widget_request", { sessionId, widgetId, message: JSON.stringify(message) }, () => ({ protocol: 1, requestId: "demo", result: null })),
 };

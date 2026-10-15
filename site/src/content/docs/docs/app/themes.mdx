@@ -59,10 +59,26 @@ main[data-page="dashboard"] {
 }
 ```
 
-## Images and limits
+## Local files and limits
 
-A theme can't load anything from outside this device. Images must be `data:` URLs, and `@import`
-and other URLs are rejected when the CSS is saved. A theme can be up to 16 MB.
+A theme can't load anything from outside this device, but the Custom CSS field can use files on
+it. Name a file by absolute path or `file:` URL, and **Apply** embeds it, so the saved theme
+doesn't depend on the file afterward:
+
+- `url()` can name an image, SVG, cursor, or font file. It's embedded as a `data:` URL.
+- `@import` can name a CSS file, which is inlined. Inside that file, relative paths resolve
+  against its folder. Imports with media or layer conditions aren't supported.
+
+```css
+@import "/Users/me/Toolblox/theme.css";
+
+main {
+  background: url("/Users/me/Pictures/corner.png") right 16px bottom 16px / 160px no-repeat;
+}
+```
+
+Imported theme files must already be self-contained. Web links and network paths are rejected. A
+theme can be up to 16 MB.
 
 ## Recovery
 

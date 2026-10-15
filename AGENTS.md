@@ -43,15 +43,18 @@ and installing reviewed game-specific widgets. `PRODUCT.md` is the product autho
   sidebar is user-resizable and snaps to icon-only when dragged narrow.
 - Menus opened from a field sit flush with that field: pass the field as `anchor` to
   `DropdownMenuContent`, align to its start, and match its width (`className="min-w-0"`).
+- Style only through the tokens in `src/theme.css`. Never hardcode a color, radius, or shadow
+  color, in class names or inline styles. A custom theme overrides these tokens, and
+  `src/globals.test.ts` enforces this. Add a token when a new value is needed.
 - Keep the palette neutral. Don't use purple accents. Status colors are `success`, `warning`,
   and `destructive`, and status is never conveyed by color alone.
 - Use semantic HTML, visible keyboard focus, labelled controls, reduced-motion support, and
-  responsive layouts. Fix inaccessible Flet interactions rather than reproducing them.
+  responsive layouts.
 - Use the shared spacing scale: 4, 8, 12, 16, and 24 pixels.
 - Radii: 8 pixels for controls (`rounded-lg`), 12 for panels (`rounded-xl`), 16 for the hero
   (`rounded-2xl`). Surfaces use tonal layering and hairline rings; only floating layers (menus,
   dialogs, toasts) get shadows. Group related rows in one `Panel` with dividers.
-- Do not add actual widgets during the initial port. Implement and test the host contract.
+- Don't add actual widgets to this repository. Implement and test the host contract.
 
 ## Verification
 

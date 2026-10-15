@@ -68,7 +68,7 @@ impl From<serde_json::Error> for StorageError {
     }
 }
 
-/// Reads and writes `settings.json` and `accounts.json` in the data folder.
+/// Reads and writes `settings.json`, `accounts.json`, and `theme.css` in the data folder.
 ///
 /// One lock serializes every read and write, so read-modify-write updates can't lose changes.
 pub struct Storage {
@@ -124,6 +124,7 @@ impl Storage {
     }
 
     /// Validates and atomically replaces the saved accounts.
+    #[cfg(test)]
     pub fn save_accounts(&self, accounts: &[StoredAccount]) -> Result<(), StorageError> {
         let _guard = self.gate.lock().map_err(|_| StorageError::Locked)?;
         validate_accounts(accounts)?;
@@ -142,6 +143,25 @@ impl Storage {
         validate_accounts(&accounts)?;
         write_json_atomic(&self.root.join("accounts.json"), &accounts)?;
         Ok(result)
+    }
+
+    /// Loads the custom theme CSS, or none when it isn't saved.
+    pub fn load_theme(&self) -> Result<String, StorageError> {
+        let _guard = self.gate.lock().map_err(|_| StorageError::Locked)?;
+        let path = self.root.join("theme.css");
+        if !path.exists() {
+            return Ok(String::new());
+        }
+        let css = fs::read_to_string(path)?;
+        crate::theme::validate(&css).map_err(StorageError::Invalid)?;
+        Ok(css)
+    }
+
+    /// Validates and atomically replaces the custom theme CSS.
+    pub fn save_theme(&self, css: &str) -> Result<(), StorageError> {
+        let _guard = self.gate.lock().map_err(|_| StorageError::Locked)?;
+        crate::theme::validate(css).map_err(StorageError::Invalid)?;
+        write_atomic(&self.root.join("theme.css"), css.as_bytes())
     }
 
     /// Loads settings without taking the lock. Callers must hold it.
@@ -186,9 +206,16 @@ fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T, StorageError> {
     Ok(serde_json::from_reader(File::open(path)?)?)
 }
 
-/// Writes JSON to a temporary file, flushes it, and moves it over `path`, so a crash leaves
-/// either the old or the new file. On Unix the file is readable only by its owner.
+/// Writes pretty-printed JSON with `write_atomic`.
 fn write_json_atomic(path: &Path, value: &(impl Serialize + ?Sized)) -> Result<(), StorageError> {
+    let mut contents = serde_json::to_vec_pretty(value)?;
+    contents.push(b'\n');
+    write_atomic(path, &contents)
+}
+
+/// Writes to a temporary file, flushes it, and moves it over `path`, so a crash leaves either
+/// the old or the new file. On Unix the file is readable only by its owner.
+fn write_atomic(path: &Path, contents: &[u8]) -> Result<(), StorageError> {
     let parent = path.parent().ok_or_else(|| {
         StorageError::Invalid("The local data path isn't valid. Can you restart the app?".into())
     })?;
@@ -213,8 +240,7 @@ fn write_json_atomic(path: &Path, value: &(impl Serialize + ?Sized)) -> Result<(
             options.mode(0o600);
         }
         let mut file = options.open(&temp)?;
-        serde_json::to_writer_pretty(&mut file, value)?;
-        file.write_all(b"\n")?;
+        file.write_all(contents)?;
         file.sync_all()?;
         replace_file(&temp, path)?;
         sync_directory(parent)?;
@@ -335,6 +361,22 @@ mod tests {
             thread.join().unwrap();
         }
         assert_eq!(store.load_accounts().unwrap()[0].play_count, 8);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn theme_round_trips_and_rejects_remote_css() {
+        let root = test_root("theme");
+        let store = Storage::new(root.clone());
+        assert_eq!(store.load_theme().unwrap(), "");
+        let css = ":root.dark { --primary: #336699; }";
+        store.save_theme(css).unwrap();
+        assert!(
+            store
+                .save_theme("@import 'https://example.com/a.css';")
+                .is_err()
+        );
+        assert_eq!(store.load_theme().unwrap(), css);
         fs::remove_dir_all(root).unwrap();
     }
 

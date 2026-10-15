@@ -94,3 +94,6 @@ export type StartupStatus =
   | { phase: "installing"; version: string }
   | { phase: "ready" }
   | { phase: "failed"; message: string };
+
+/** A page as named by the `data-page` attribute custom CSS can target. */
+export type ThemePage = "dashboard" | "accounts" | "widgets" | "settings";

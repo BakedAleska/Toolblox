@@ -59,6 +59,12 @@ changes before they are merged or released.
   doesn't require administrator access.
 - Users can add, remove, annotate, sort, reorder, select, and launch Roblox accounts.
 - Users can install, enable, disable, configure, update, and uninstall extensible widgets.
+- Users can theme the app with custom CSS, which is also how themes are imported and exported.
+  Setting a token in the CSS changes it across the app, and the color pickers in Settings show
+  and edit those tokens for light and dark mode. A theme can't load anything from outside this
+  device, and safe mode turns it off.
+- Every color and radius in the interface comes from the tokens in `src/theme.css`, so a theme
+  changes the whole app from one place.
 - Module widgets run in the app window with full access to the interface and the host API. They
   can add screens, replace core screens other than Settings, extend any slot, and restyle the app.
   Safety comes from review: only widgets that pass marketplace review are listed in the signed
@@ -90,6 +96,19 @@ These aren't built yet. Each replaces the matching constraint above once it ship
   other widgets when published.
 - The Starlight docs at `toolblox.dev/docs/` serve committed widget authors, and cover the full
   host API, windows, processes, and packaging in depth.
+
+## Planned Theme Capabilities
+
+These aren't built yet. They build on the token system, so it must stay the only source of colors
+and radii.
+
+- More globals can be set in Settings without writing CSS: accent color, corner radius, panel
+  opacity, and backdrop blur. Each control sets one token, as font, text size, and density already
+  do, and exported themes carry the values.
+- Accent color derives the related tokens (`primary`, `ring`, `sidebar-primary`, and their
+  foregrounds) so contrast stays readable.
+- Users can keep several themes and switch between them, and start from bundled presets.
+- Users can pick a background image for all pages or one page without writing CSS.
 
 ## Brand Commitments
 

@@ -54,7 +54,12 @@ export function Screen({ title, actions, children, className }: { title: string;
 }
 
 export function Panel({ className, ...props }: ComponentProps<"div">) {
-  return <div className={cn("rounded-xl bg-card ring-1 ring-foreground/8", className)} {...props} />;
+  return <div data-slot="panel" className={cn("rounded-xl bg-card ring-1 ring-foreground/8", className)} {...props} />;
+}
+
+/** A titled section of related settings. */
+export function Group({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
+  return <section className="flex flex-col gap-2"><SectionTitle action={action}>{title}</SectionTitle>{children}</section>;
 }
 
 export function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
@@ -86,7 +91,7 @@ export const presenceLabel = (account: Account) => {
   return account.gameName ? `In game: ${account.gameName} ${place}`.trim() : place ? `In game ${place}` : "In game";
 };
 
-function SettingRow({ title, description, control }: { title: string; description?: string; control: (labelId: string, descriptionId?: string) => ReactNode }) {
+export function SettingRow({ title, description, control }: { title: string; description?: string; control: (labelId: string, descriptionId?: string) => ReactNode }) {
   const id = useId();
   return <div className="flex min-h-14 flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
     <div className="min-w-0 flex-1 basis-40">

@@ -37,6 +37,7 @@ mod multi_instance;
 mod roblox;
 mod startup;
 mod storage;
+mod theme;
 mod update;
 mod widget_ipc;
 mod widget_process;
@@ -338,6 +339,10 @@ pub fn run() {
             app_commands::read_log,
             app_commands::open_log_folder,
             app_commands::write_log,
+            app_commands::get_theme,
+            app_commands::save_theme,
+            app_commands::embed_theme_files,
+            app_commands::export_theme,
             startup::startup_status,
             startup::retry_startup_update,
             startup::quit_startup,

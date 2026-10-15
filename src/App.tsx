@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { bridge } from "@/bridge";
+import { pageOf, useCustomTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MAX, clampSidebarWidth, parsePlaceId, stepSidebarWidth } from "@/logic";
 import { Accounts } from "@/screens/Accounts";
@@ -58,6 +59,7 @@ function App() {
   const [placeRequest, setPlaceRequest] = useState<PlaceRequest>();
   const [placeOpen, setPlaceOpen] = useState(false);
   useTheme(state?.settings.themeMode);
+  const themes = useCustomTheme(startup?.phase === "ready", !state?.safeMode, setToast);
   const registry = useWidgetRegistry();
   const host = useRef<Parameters<typeof syncWidgetHost>>(undefined);
   useEffect(() => { if (host.current) syncWidgetHost(...host.current); });
@@ -146,7 +148,7 @@ function App() {
   if (route === "/") screen = replaced("dashboard") || <Dashboard {...props} />;
   else if (route === "/accounts") screen = replaced("accounts") || <Accounts {...props} />;
   else if (route === "/widgets") screen = replaced("widgets") || <Widgets {...props} />;
-  else if (route === "/settings") screen = <SettingsScreen {...props} />;
+  else if (route === "/settings") screen = <SettingsScreen {...props} themes={themes} />;
   else {
     const match = route.match(/^\/widgets\/([\w-]+)(\/settings)?$/);
     const widget = match ? state.installedWidgets.find(({ id }) => id === match[1]) : undefined;
@@ -213,7 +215,7 @@ function Sidebar({ state, route, navigate }: { state: AppState; route: AppRoute;
     </TooltipTrigger>
     <TooltipContent side={right ? "left" : "right"} className={cn(!collapsed && "hidden")}>{enabled ? label : `${label} is disabled`}</TooltipContent>
   </Tooltip>;
-  return <aside style={{ width }} className={cn("relative flex shrink-0 flex-col gap-1 bg-sidebar p-2", !dragging && "transition-[width] duration-150", right ? "border-l border-sidebar-border" : "border-r border-sidebar-border")} aria-label="Main navigation">
+  return <aside data-slot="sidebar" style={{ width }} className={cn("relative flex shrink-0 flex-col gap-1 bg-sidebar p-2", !dragging && "transition-[width] duration-150", right ? "border-l border-sidebar-border" : "border-r border-sidebar-border")} aria-label="Main navigation">
     <div className="mb-2 flex h-10 items-center gap-2 overflow-hidden px-1.5">
       <img src="/assets/logo.svg" alt="" width="24" height="24" className="shrink-0" />
       {!collapsed && <span className="truncate font-semibold tracking-tight">Toolblox</span>}

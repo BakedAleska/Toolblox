@@ -135,6 +135,7 @@ The widget lifecycle is covered in the widget reference; this table lists the co
 | `open_log_folder` | — | `()` | Opens the log folder in Explorer or Finder. | `openLogFolder()` |
 | `get_theme` | — | `String` | Loads the custom theme CSS from `theme.css`, or an empty string when there's none. | `getTheme()` |
 | `save_theme` | `css: String` | `()` | Validates and saves the custom theme CSS. It must be under 16 MB and can't load anything except data URLs. | `saveTheme(css)` |
+| `embed_theme_files` | `css: String` | `String` | Inlines each unconditional `@import` of a local CSS file and replaces each `url()` that names a local image or font file with a data URL. Absolute paths and `file:` URLs are local, and paths inside an imported file resolve against its folder. Other URLs are left unchanged. | `embedThemeFiles(css)` |
 | `export_theme` | — | `String` | Writes the saved theme to a new `Toolblox theme.css` file in Downloads, shows it in Explorer or Finder, and returns its path. | `exportTheme()` |
 | `write_log` | `level: "debug" \| "info" \| "warn" \| "error"`, `message: String`, `widget_id: Option<String>` | `()` | Writes a record under the `interface` target, or under the widget's target when `widget_id` is a valid widget ID. Lines are redacted and long messages cut. | `writeLog(level, message, widgetId?)` |
 

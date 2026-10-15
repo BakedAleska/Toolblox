@@ -1780,6 +1780,55 @@ pub fn write_log(
     Ok(())
 }
 
+/// Returns the custom theme CSS.
+#[tauri::command]
+pub fn get_theme(runtime: State<'_, Runtime>) -> Result<String, String> {
+    runtime.storage.load_theme().map_err(command_error)
+}
+
+/// Validates and saves the custom theme CSS.
+#[tauri::command]
+pub fn save_theme(css: String, runtime: State<'_, Runtime>) -> Result<(), String> {
+    runtime.storage.save_theme(&css).map_err(command_error)
+}
+
+/// Inlines the local CSS files that theme CSS imports and embeds the files its `url()`s name.
+#[tauri::command]
+pub fn embed_theme_files(css: String) -> Result<String, String> {
+    crate::theme::embed_files(&css)
+}
+
+/// Writes the saved theme to a new CSS file in the Downloads folder, shows it in Explorer or
+/// Finder, and returns its path.
+#[tauri::command]
+pub fn export_theme(app: AppHandle, runtime: State<'_, Runtime>) -> Result<String, String> {
+    let css = runtime.storage.load_theme().map_err(command_error)?;
+    let folder = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().home_dir())
+        .map_err(|_| "The Downloads folder couldn't be found. Does it exist?".to_string())?;
+    let written = (1..100).find_map(|copy| {
+        let name = match copy {
+            1 => "Toolblox theme.css".to_string(),
+            _ => format!("Toolblox theme ({copy}).css"),
+        };
+        let path = folder.join(name);
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .ok()?;
+        std::io::Write::write_all(&mut file, css.as_bytes()).ok()?;
+        Some(path)
+    });
+    let path = written.ok_or_else(|| {
+        "The theme couldn't be saved to the Downloads folder. Is it writable?".to_string()
+    })?;
+    let _ = tauri_plugin_opener::reveal_item_in_dir(&path);
+    Ok(path.display().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

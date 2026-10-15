@@ -145,7 +145,7 @@ the CSP, and it cascades after `theme.css`, so setting a token such as `--primar
 changes it everywhere. The stylesheet is replaced before the state updates, so a render can read the
 resulting token values with `getComputedStyle`. `<main>` carries a `data-page` attribute
 (`dashboard`, `accounts`, `widgets`, or `settings`) that the CSS can target, for example to set a
-background image as a data URL. In safe mode the stylesheet is emptied, so a broken theme can
+background image. In safe mode the stylesheet is emptied, so a broken theme can
 always be undone.
 
 ### Widget host wiring

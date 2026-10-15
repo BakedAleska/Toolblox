@@ -1,0 +1,54 @@
+---
+import Site from "../layouts/Site.astro";
+import * as privacy from "../policies/privacy.md";
+import * as security from "../policies/security.md";
+import license from "../../../LICENSE?raw";
+
+const repo = "https://github.com/BakedAleska/Toolblox";
+const legal = {
+  title: "Legal",
+  description: "Toolblox's relationship to Roblox, its license, and the licenses of the software it's built from.",
+  updated: "October 15, 2026",
+};
+---
+
+<Site title="Policies" description="The Toolblox privacy policy, security policy, and legal notices.">
+  <div class="mx-auto flex max-w-3xl flex-col gap-8 px-4 pt-12 pb-20 sm:pt-16">
+    <h1 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Policies</h1>
+    <article class="policy">
+      <section id="privacy">
+        <h2>{privacy.frontmatter.title}</h2>
+        <p class="policy-meta">{privacy.frontmatter.description} Last updated {privacy.frontmatter.updated}.</p>
+        <privacy.Content />
+      </section>
+      <section id="security">
+        <h2>{security.frontmatter.title}</h2>
+        <p class="policy-meta">{security.frontmatter.description} Last updated {security.frontmatter.updated}.</p>
+        <security.Content />
+      </section>
+      <section id="legal">
+        <h2>{legal.title}</h2>
+        <p class="policy-meta">{legal.description} Last updated {legal.updated}.</p>
+        <h3 id="disclaimer">Disclaimer</h3>
+        <p>
+          Toolblox is an independent project. It isn't affiliated with, endorsed by, or sponsored by Roblox Corporation. Roblox
+          is a trademark of Roblox Corporation.
+        </p>
+        <p>
+          Using Toolblox is subject to the <a href="https://www.roblox.com/info/terms">Roblox Terms of Use</a>. Roblox decides
+          how its terms apply to third-party tools and may restrict accounts that use them, so no outside app can guarantee an
+          account's standing.
+        </p>
+        <p>Toolblox is provided as is, without warranty of any kind, under the MIT License below.</p>
+        <h3 id="license">License</h3>
+        <p>Toolblox's source code is available under the MIT License.</p>
+        <pre><code>{license.trim()}</code></pre>
+        <h3 id="third-party-notices">Third-party notices</h3>
+        <p>
+          Toolblox is built from open-source software. Each release includes a list of those packages and their license texts.
+        </p>
+        <p><a href={`${repo}/releases/latest/download/THIRD-PARTY-NOTICES.txt`}>Download the notices for the latest release</a></p>
+      </section>
+    </article>
+  </div>
+</Site>

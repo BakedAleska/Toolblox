@@ -6,6 +6,11 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   site: "https://toolblox.dev",
   vite: { plugins: [tailwindcss()] },
+  redirects: {
+    "/privacy": "/policies/#privacy",
+    "/security": "/policies/#security",
+    "/legal": "/policies/#legal",
+  },
   integrations: [
     react(),
     starlight({

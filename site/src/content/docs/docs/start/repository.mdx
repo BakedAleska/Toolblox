@@ -99,11 +99,12 @@ from the top.
 | [`vite.config.ts`](https://github.com/BakedAleska/Toolblox/blob/main/vite.config.ts) | Vite with the React and Tailwind CSS plugins, the `@` alias for `/src`, a fixed dev port of 1420 (`strictPort`), and `src-tauri` excluded from file watching. |
 | [`tsconfig.json`](https://github.com/BakedAleska/Toolblox/blob/main/tsconfig.json) | Strict TypeScript for `src`, with `noUnusedLocals`, `noUnusedParameters`, and the `@/*` path alias. `tsconfig.node.json` covers `vite.config.ts`. |
 | [`components.json`](https://github.com/BakedAleska/Toolblox/blob/main/components.json) | The shadcn/ui configuration used by `npx shadcn@latest add <name>`. |
-| `LICENSE` | The MIT license. The website's legal page reads it at build time. |
+| `LICENSE` | The MIT license. The website's policies page reads it at build time. |
 
-The privacy policy, security policy, and legal notices are pages of the website, in
-`site/src/pages` (`privacy.md`, `security.md`, and `legal.astro`), and share `site/src/layouts/Policy.astro`.
-The app's Settings links to them on toolblox.dev.
+The privacy policy, security policy, and legal notices share one page of the website,
+`site/src/pages/policies.astro`, which renders `site/src/policies/privacy.md` and `security.md`
+followed by the legal notices. `/privacy/`, `/security/`, and `/legal/` redirect to it. The app's
+Settings links to them on toolblox.dev.
 
 `.gitignore` excludes `node_modules`, `dist`, logs, `_site` (the assembled Pages output),
 `THIRD-PARTY-NOTICES.txt`, and `.astro`. `.vscode/extensions.json` recommends the Tauri and

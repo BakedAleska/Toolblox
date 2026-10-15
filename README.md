@@ -55,9 +55,8 @@ cargo test
 
 ## Policies
 
-The [privacy policy](https://toolblox.dev/privacy/), [security policy](https://toolblox.dev/security/),
-and [legal notices](https://toolblox.dev/legal/) are published on the website, from
-`site/src/pages`. Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
+The [privacy policy, security policy, and legal notices](https://toolblox.dev/policies/) are
+published on the website, from `site/src/policies` and `site/src/pages/policies.astro`. Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
 
 Toolblox isn't affiliated with or endorsed by Roblox Corporation. It's available under the
 [MIT License](LICENSE), and each release includes `THIRD-PARTY-NOTICES.txt` with the licenses of

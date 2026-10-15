@@ -15,7 +15,7 @@ const repo = "https://github.com/BakedAleska/Toolblox";
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang="en" data-os="other">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -23,6 +23,10 @@ const repo = "https://github.com/BakedAleska/Toolblox";
     <meta name="description" content={description} />
     <link rel="icon" href="/logo.svg" type="image/svg+xml" />
     <script is:inline>
+      const platform = navigator.userAgentData?.platform || navigator.platform || "";
+      const isMac = (/mac/i.test(platform) || /Macintosh/.test(navigator.userAgent)) && navigator.maxTouchPoints < 2;
+      const isWindows = /win/i.test(platform) || /Windows/.test(navigator.userAgent);
+      document.documentElement.dataset.os = isMac ? "mac" : isWindows ? "windows" : "other";
       const scheme = matchMedia("(prefers-color-scheme: dark)");
       const applyScheme = () => document.documentElement.classList.toggle("dark", scheme.matches);
       applyScheme();
@@ -55,9 +59,7 @@ const repo = "https://github.com/BakedAleska/Toolblox";
         <nav class="flex flex-wrap justify-center gap-x-6 gap-y-2" aria-label="Footer">
           <a href="/#download" class="hover:text-foreground">Download</a>
           <a href="/docs/" class="hover:text-foreground">Widget docs</a>
-          <a href="/privacy/" class="hover:text-foreground">Privacy</a>
-          <a href="/security/" class="hover:text-foreground">Security</a>
-          <a href="/legal/" class="hover:text-foreground">Legal</a>
+          <a href="/policies/" class="hover:text-foreground">Policies</a>
           <a href={repo} class="hover:text-foreground">Source code</a>
         </nav>
         <Separator />

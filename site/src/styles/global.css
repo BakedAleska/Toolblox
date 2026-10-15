@@ -6,6 +6,11 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* The visitor's operating system, set on `<html>` by the layout. `other` covers unknown systems. */
+@custom-variant windows (&:where([data-os="windows"], [data-os="windows"] *));
+@custom-variant mac (&:where([data-os="mac"], [data-os="mac"] *));
+@custom-variant other (&:where([data-os="other"], [data-os="other"] *));
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -36,11 +41,20 @@
   .policy > :first-child {
     @apply mt-0;
   }
+  .policy section {
+    @apply scroll-mt-20;
+  }
+  .policy section + section {
+    @apply mt-16 border-t pt-12;
+  }
   .policy h2 {
-    @apply mt-12 mb-3 scroll-mt-20 border-t pt-8 text-xl font-semibold tracking-tight text-foreground;
+    @apply mb-2 text-2xl font-semibold tracking-tight text-foreground;
+  }
+  .policy .policy-meta {
+    @apply mt-0 mb-8 text-sm text-muted-foreground;
   }
   .policy h3 {
-    @apply mt-8 mb-2 scroll-mt-20 text-base font-semibold text-foreground;
+    @apply mt-10 mb-3 scroll-mt-20 text-lg font-semibold tracking-tight text-foreground;
   }
   .policy p,
   .policy ul,

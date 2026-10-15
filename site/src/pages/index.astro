@@ -15,7 +15,7 @@ const macInstaller = `${repo}/releases/latest/download/Toolblox.dmg`;
 const commitments = [
   { icon: Eye, title: "Free and open source", text: "No ads or paid features. Every line of source code is public under the MIT License, and every release is built from it in the open.", link: { label: "Source code", href: repo } },
   { icon: ShieldCheck, title: "No injection", text: "Toolblox never injects code into Roblox or reads or changes its memory or files. It signs in through Roblox's own page and launches Roblox the same way the Roblox website does.", link: { label: "Launch code", href: `${repo}/blob/main/src-tauri/src/roblox.rs` } },
-  { icon: HardDrive, title: "Data stays on your device", text: "Accounts and settings are stored on your computer and logins in its secure storage: Windows Credential Manager or the macOS Keychain. There's no Toolblox server or telemetry, and Toolblox connects only to Roblox and GitHub.", link: { label: "Every connection", href: "/privacy/#network-connections" } },
+  { icon: HardDrive, title: "Data stays on your device", text: "Accounts and settings are stored on your computer and logins in its secure storage: {storage}. There's no Toolblox server or telemetry, and Toolblox connects only to Roblox and GitHub.", link: { label: "Every connection", href: "/policies/#network-connections" } },
 ];
 
 const questions = [
@@ -23,11 +23,14 @@ const questions = [
   { question: "Can Toolblox see my password?", answer: "No. Accounts are added through Roblox's own sign-in page. Toolblox stores only the login token Roblox provides, keeps it in your computer's secure storage, and never sends it anywhere other than Roblox." },
   { question: "Does Toolblox inject into Roblox?", answer: "No. Toolblox never injects code into Roblox, reads or changes its memory or files, or provides any in-game advantage. It launches Roblox the same way the Roblox website does. Roblox decides how its Terms of Use apply to third-party apps, so no outside app can guarantee an account's standing." },
   { question: "Does my data leave my computer?", answer: "Not to Toolblox. There's no Toolblox server, account service, or telemetry. The app connects only to Roblox, to sign in and join games, and to GitHub, to check for updates and widgets. The privacy policy lists every connection, and the source code shows them." },
-  { question: "Why does Windows show a warning?", answer: "Windows shows this warning for applications from publishers it doesn't recognize yet, and Toolblox doesn't currently have a paid code-signing certificate. Select More info, then Run anyway, but only for a file downloaded from this site or the official GitHub page." },
+  { os: "windows", question: "Why does Windows show a warning?", answer: "Windows shows this warning for applications from publishers it doesn't recognize yet, and Toolblox doesn't currently have a paid code-signing certificate. Select More info, then Run anyway, but only for a file downloaded from this site or the official GitHub page." },
   { question: "Is Toolblox made by Roblox?", answer: "No. Toolblox is an independent project and isn't affiliated with or endorsed by Roblox Corporation." },
-  { question: "Why does macOS say it can't verify Toolblox?", answer: "macOS shows this for apps that aren't notarized by Apple, and Toolblox doesn't currently have a paid Apple Developer ID. Select Done, then open System Settings, Privacy & Security, and select Open Anyway, but only for a file downloaded from this site or the official GitHub page." },
+  { os: "mac", question: "Why does macOS say it can't verify Toolblox?", answer: "macOS shows this for apps that aren't notarized by Apple, and Toolblox doesn't currently have a paid Apple Developer ID. Select Done, then open System Settings, Privacy & Security, and select Open Anyway, but only for a file downloaded from this site or the official GitHub page." },
   { question: "Is a macOS version available?", answer: "Yes. Toolblox runs on Apple silicon and Intel Macs with the same features as on Windows, including multiple Roblox instances. The first macOS download is published with the next release." },
 ];
+
+/** Hides a question from visitors on the other operating system. */
+const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
 ---
 
 <Site>
@@ -42,7 +45,8 @@ const questions = [
           ))}
         </ul>
         <div class="flex flex-wrap justify-center gap-3">
-          <a href={installer} data-hero-download class={buttonVariants({ size: "lg", className: "h-10 px-4" })}><Download /><span data-hero-download-label>Download for Windows</span></a>
+          <span class="contents mac:hidden"><a href={installer} class={buttonVariants({ size: "lg", className: "h-10 px-4" })}><Download />Download for Windows</a></span>
+          <span class="hidden mac:contents"><a href="#download" data-mac-hero class={buttonVariants({ size: "lg", className: "h-10 px-4" })}><Download />Download for macOS</a></span>
           <a href={repo} class={buttonVariants({ size: "lg", variant: "outline", className: "h-10 px-4" })}><GitHubIcon />View source code</a>
         </div>
         <p class="text-sm text-muted-foreground">
@@ -71,7 +75,16 @@ const questions = [
               <li class="flex flex-col gap-3 rounded-xl bg-card p-6 ring-1 ring-border">
                 <span class="flex size-9 items-center justify-center rounded-lg bg-muted"><Icon className="size-4" /></span>
                 <h3 class="font-medium">{title}</h3>
-                <p class="text-sm text-muted-foreground">{text}</p>
+                <p class="text-sm text-muted-foreground">
+                  {text.split("{storage}").map((part, index) => (
+                    <Fragment>
+                      {index > 0 && (
+                        <Fragment><span class="hidden windows:inline">Windows Credential Manager</span><span class="hidden mac:inline">the macOS Keychain</span><span class="hidden other:inline">Windows Credential Manager or the macOS Keychain</span></Fragment>
+                      )}
+                      {part}
+                    </Fragment>
+                  ))}
+                </p>
                 <a href={link.href} class="mt-auto inline-flex items-center gap-1 text-sm underline-offset-4 hover:underline">{link.label}<ArrowRight className="size-3.5" /></a>
               </li>
             ))}
@@ -92,8 +105,8 @@ const questions = [
               </div>
               <div class="flex flex-col gap-2">
                 <p class="text-sm font-medium">Verify a download</p>
-                <pre class="overflow-x-auto rounded-lg bg-muted p-3 font-mono text-sm leading-6"><code><span class="text-muted-foreground select-none">PS&gt; </span>Get-FileHash .\Toolblox-Setup.exe
-<span class="text-muted-foreground select-none">$ </span>shasum -a 256 Toolblox.dmg</code></pre>
+                <pre class="overflow-x-auto rounded-lg bg-muted p-3 font-mono text-sm leading-6"><code><span class="mac:hidden"><span class="text-muted-foreground select-none">PS&gt; </span>Get-FileHash .\Toolblox-Setup.exe
+</span><span class="windows:hidden"><span class="text-muted-foreground select-none">$ </span>shasum -a 256 Toolblox.dmg</span></code></pre>
                 <p class="text-xs text-muted-foreground">Compare the result with the SHA-256 on the <a href={`${repo}/releases`} class="underline underline-offset-4">release page</a>.</p>
                 <div class="mt-auto flex flex-wrap gap-x-4 gap-y-1 text-xs">
                   <a href={`${repo}/blob/main/src-tauri/src/credentials.rs`} class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Login storage code<ArrowRight className="size-3" /></a>
@@ -104,8 +117,7 @@ const questions = [
             </div>
           </details>
           <div class="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm">
-            <a href="/privacy/" class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Privacy policy<ArrowRight className="size-3.5" /></a>
-            <a href="/security/" class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Security policy<ArrowRight className="size-3.5" /></a>
+            <a href="/policies/" class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Privacy and security policies<ArrowRight className="size-3.5" /></a>
           </div>
         </div>
       </section>
@@ -128,8 +140,8 @@ const questions = [
             <h2 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Frequently asked questions</h2>
           </div>
           <div class="divide-y rounded-xl bg-card ring-1 ring-border">
-            {questions.map(({ question, answer }) => (
-              <details class="group">
+            {questions.map(({ os, question, answer }) => (
+              <details class:list={["group", os && questionClass[os]]}>
                 <summary class="flex cursor-pointer list-none items-center gap-4 px-4 py-4 font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
                   {question}
                   <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
@@ -168,7 +180,7 @@ const questions = [
                 <a href={installer} class={buttonVariants({ className: "w-full" })}><Download />Download for Windows</a>
               </CardFooter>
             </Card>
-            <Card>
+            <Card className="mac:order-first">
               <CardHeader>
                 <Laptop className="mb-2 size-6" />
                 <CardTitle>macOS</CardTitle>
@@ -188,7 +200,7 @@ const questions = [
           </div>
           <p class="text-center text-sm text-pretty text-muted-foreground">
             Download Toolblox only from this site or its official GitHub page.{" "}
-            <a href="/security/#verify-a-download" class="underline underline-offset-4">How to verify a download</a>
+            <a href="/policies/#verify-a-download" class="underline underline-offset-4">How to verify a download</a>
           </p>
         </div>
       </section>
@@ -211,18 +223,14 @@ const questions = [
                 link.href = link.dataset.href;
                 link.className = link.dataset.readyClass ?? link.className;
                 label.textContent = "Download for macOS";
-                label.insertAdjacentHTML("beforebegin", document.querySelector("[data-hero-download] svg")?.outerHTML ?? "");
+                label.insertAdjacentHTML("beforebegin", document.querySelector("[data-mac-hero] svg")?.outerHTML ?? "");
               }
               if (macVersion) {
                 macVersion.textContent = version;
                 macVersion.hidden = false;
               }
-              const hero = document.querySelector<HTMLAnchorElement>("[data-hero-download]");
-              const heroLabel = document.querySelector<HTMLElement>("[data-hero-download-label]");
-              if (hero && heroLabel && link?.dataset.href && /Macintosh/.test(navigator.userAgent)) {
-                hero.href = link.dataset.href;
-                heroLabel.textContent = "Download for macOS";
-              }
+              const macHero = document.querySelector<HTMLAnchorElement>("[data-mac-hero]");
+              if (macHero && link?.dataset.href) macHero.href = link.dataset.href;
             }
           }
           const total = releases

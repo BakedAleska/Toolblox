@@ -64,9 +64,12 @@ export function Accounts({ state, refresh, notify, confirm, join, askPlace, patc
         <DropdownMenuContent anchor={placeField} align="start" className="min-w-0">
           <DropdownMenuGroup>
             <DropdownMenuLabel>Recent places</DropdownMenuLabel>
-            {state.recentPlaces.map((place) => <DropdownMenuItem key={place.placeId} onClick={() => void patchSettings("placeId", place.placeId)}>
+            {state.recentPlaces.map((place) => <DropdownMenuItem key={place.placeId} className="pr-1" onClick={() => void patchSettings("placeId", place.placeId)}
+              onKeyDown={(event) => { if (event.key === "Delete" || event.key === "Backspace") { event.preventDefault(); void forgetPlace(place.placeId); } }}>
               <span className="min-w-0 flex-1 truncate">{place.name || "Unknown game"}</span>
               <span className="font-mono text-xs text-muted-foreground">{place.placeId}</span>
+              <Button variant="ghost" size="icon-xs" tabIndex={-1} aria-label={`Remove ${place.name || place.placeId} from recent places`} title="Remove (Delete)"
+                onClick={(event) => { event.stopPropagation(); event.preventDefault(); void forgetPlace(place.placeId); }}><X /></Button>
             </DropdownMenuItem>)}
           </DropdownMenuGroup>
         </DropdownMenuContent>

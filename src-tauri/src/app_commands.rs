@@ -371,10 +371,11 @@ async fn account_views(
         .collect()
 }
 
-/// Looks up names for recent places that don't have one yet. Network failures leave the name
-/// unset so the next refresh tries again.
+/// Looks up names for recent places that don't have one yet and drops places Roblox doesn't
+/// know. Network failures leave the name unset so the next refresh tries again.
 async fn name_recent_places(runtime: &Runtime, settings: Settings) -> Settings {
     let mut named = BTreeMap::new();
+    let mut missing = BTreeSet::new();
     for place in settings
         .recent_places
         .iter()
@@ -385,25 +386,25 @@ async fn name_recent_places(runtime: &Runtime, settings: Settings) -> Settings {
         else {
             continue;
         };
-        let name = match universe {
-            Some(universe) => {
-                let ids = BTreeSet::from([universe]);
-                let names = crate::roblox::fetch_game_names(&runtime.client, &ids).await;
-                let Some(name) = names.get(&universe) else {
-                    continue;
-                };
-                name.clone()
-            }
-            None => String::new(),
+        let Some(universe) = universe else {
+            missing.insert(place.place_id.clone());
+            continue;
         };
-        named.insert(place.place_id.clone(), name);
+        let ids = BTreeSet::from([universe]);
+        let names = crate::roblox::fetch_game_names(&runtime.client, &ids).await;
+        if let Some(name) = names.get(&universe) {
+            named.insert(place.place_id.clone(), name.clone());
+        }
     }
-    if named.is_empty() {
+    if named.is_empty() && missing.is_empty() {
         return settings;
     }
     runtime
         .storage
         .update_settings(|saved| {
+            saved
+                .recent_places
+                .retain(|place| !missing.contains(&place.place_id));
             for place in &mut saved.recent_places {
                 if let Some(name) = named.get(&place.place_id) {
                     place.name = Some(name.clone());
@@ -486,7 +487,12 @@ pub async fn get_app_state(runtime: State<'_, Runtime>) -> Result<AppStateDto, S
         widget_errors,
         catalogue,
         catalogue_error,
-        recent_places: settings.recent_places.clone(),
+        recent_places: settings
+            .recent_places
+            .iter()
+            .take(crate::models::RECENT_PLACES_LIMIT)
+            .cloned()
+            .collect(),
         safe_mode: runtime.safe_mode,
         settings: SettingsDto::from(&settings),
     })
@@ -495,7 +501,7 @@ pub async fn get_app_state(runtime: State<'_, Runtime>) -> Result<AppStateDto, S
 /// Validates and saves settings, applies always on top, and changes launch at login. The settings
 /// are restored if launch at login can't be changed.
 #[tauri::command]
-pub fn save_settings(
+pub async fn save_settings(
     app: AppHandle,
     settings: SettingsDto,
     runtime: State<'_, Runtime>,
@@ -526,10 +532,9 @@ pub fn save_settings(
     saved.show_game_names = settings.show_game_names;
     saved.notify_on_drop = settings.notify_on_drop;
     saved.always_on_top = settings.always_on_top;
-    if !saved.place_id.is_empty() && saved.place_id != previous.place_id {
-        let place_id = saved.place_id.clone();
-        saved.remember_place(&place_id);
-    }
+    saved
+        .recent_places
+        .truncate(crate::models::RECENT_PLACES_LIMIT);
     runtime
         .storage
         .save_settings(&saved)
@@ -554,7 +559,43 @@ pub fn save_settings(
             "The startup setting couldn't be changed. Does this account allow startup apps?".into(),
         );
     }
+    if !saved.place_id.is_empty() && saved.place_id != previous.place_id {
+        remember_verified_place(&runtime, &saved.place_id).await?;
+    }
     Ok(())
+}
+
+/// Adds a place to the recent list once Roblox confirms it exists. A place that doesn't exist, or
+/// can't be checked, isn't added.
+async fn remember_verified_place(runtime: &Runtime, place_id: &str) -> Result<(), String> {
+    match crate::roblox::fetch_place_universe(&runtime.client, place_id).await {
+        Ok(Some(_)) => runtime
+            .storage
+            .update_settings(|settings| {
+                settings.remember_place(place_id);
+                Ok(())
+            })
+            .map_err(command_error),
+        Ok(None) => Ok(()),
+        Err(error) => {
+            log::warn!("Place {place_id} wasn't added to recent places: {error}");
+            Ok(())
+        }
+    }
+}
+
+/// Removes a place from the recent list.
+#[tauri::command]
+pub fn forget_recent_place(place_id: String, runtime: State<'_, Runtime>) -> Result<(), String> {
+    runtime
+        .storage
+        .update_settings(|settings| {
+            settings
+                .recent_places
+                .retain(|place| place.place_id != place_id);
+            Ok(())
+        })
+        .map_err(command_error)
 }
 
 /// Reports whether Roblox knows the place. Network failures are errors, not a missing place.
@@ -568,7 +609,7 @@ pub async fn place_exists(place_id: String, runtime: State<'_, Runtime>) -> Resu
 
 /// Sets or clears the place a single account joins instead of the default place.
 #[tauri::command]
-pub fn set_account_place(
+pub async fn set_account_place(
     account_id: u64,
     place_id: Option<String>,
     runtime: State<'_, Runtime>,
@@ -593,13 +634,7 @@ pub fn set_account_place(
         })
         .map_err(command_error)?;
     if let Some(place_id) = place_id {
-        runtime
-            .storage
-            .update_settings(|settings| {
-                settings.remember_place(&place_id);
-                Ok(())
-            })
-            .map_err(command_error)?;
+        remember_verified_place(&runtime, &place_id).await?;
     }
     Ok(())
 }

@@ -318,6 +318,7 @@ pub fn run() {
             app_commands::update_account_notes,
             app_commands::set_account_place,
             app_commands::place_exists,
+            app_commands::forget_recent_place,
             app_commands::get_widget_store,
             app_commands::set_widget_store,
             app_commands::restart_app,

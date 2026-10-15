@@ -70,10 +70,13 @@ pub struct Settings {
 }
 
 /// Most places kept in the recent list.
-pub const RECENT_PLACES_LIMIT: usize = 6;
+pub const RECENT_PLACES_LIMIT: usize = 5;
 
-/// A place the user has joined from. `name` is `None` until Toolblox looks it up and empty when
-/// Roblox has no name for it.
+/// Largest recent list a saved settings file may contain. Older versions kept more than
+/// `RECENT_PLACES_LIMIT`, so longer lists still load and are trimmed when shown or saved.
+const MAX_RECENT_PLACES: usize = 10;
+
+/// A place Roblox confirmed exists. `name` is `None` until Toolblox looks it up.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RecentPlace {
@@ -114,7 +117,7 @@ impl Settings {
         if !self.place_id.is_empty() && !is_place_id(&self.place_id) {
             return Err("The saved place ID isn't valid. Can you enter it again?".into());
         }
-        if self.recent_places.len() > RECENT_PLACES_LIMIT
+        if self.recent_places.len() > MAX_RECENT_PLACES
             || self.recent_places.iter().any(|place| {
                 !is_place_id(&place.place_id)
                     || place
@@ -335,6 +338,15 @@ mod tests {
         assert!(settings.validate().is_ok());
         settings.recent_places[1].place_id = "12a".into();
         assert!(settings.validate().is_err());
+    }
+
+    #[test]
+    fn longer_saved_recent_lists_still_load() {
+        let saved: Settings = serde_json::from_str(
+            r#"{"recentPlaces":[{"placeId":"1"},{"placeId":"2"},{"placeId":"3"},{"placeId":"4"},{"placeId":"5"},{"placeId":"6"}]}"#,
+        )
+        .unwrap();
+        assert!(saved.validate().is_ok());
     }
 
     #[test]

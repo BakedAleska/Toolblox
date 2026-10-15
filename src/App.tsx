@@ -1,4 +1,4 @@
-import { ExternalLink, LayoutDashboard, Puzzle, Settings as SettingsIcon, ShieldAlert, Users } from "lucide-react";
+import { ExternalLink, LayoutDashboard, Puzzle, Settings as SettingsIcon, ShieldAlert, Users, X } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import "./index.css";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -273,7 +273,7 @@ function NotFound({ navigate }: { navigate: (route: AppRoute) => void }) {
   return <EmptyState icon={<ExternalLink />} title="Page unavailable" text="This widget is disabled or uninstalled." action={<Button onClick={() => navigate("/")}>Go to Dashboard</Button>} />;
 }
 
-function PlaceDialog({ request, recentPlaces, open, close }: { request: PlaceRequest; recentPlaces: RecentPlace[]; open: boolean; close: () => void }) {
+function PlaceDialog({ request, recentPlaces, open, close, forget }: { request: PlaceRequest; recentPlaces: RecentPlace[]; open: boolean; close: () => void; forget: (placeId: string) => Promise<void> }) {
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -297,16 +297,20 @@ function PlaceDialog({ request, recentPlaces, open, close }: { request: PlaceReq
           <AlertDialogDescription>{request.description}</AlertDialogDescription>
         </AlertDialogHeader>
         <div className="grid gap-1.5">
-          <Input autoFocus value={value} onChange={(event) => { setValue(event.target.value); setError(""); }} placeholder="roblox.com/games/1818/… or 1818" className="font-mono"
+          <Input autoFocus value={value} onChange={(event) => { setValue(event.target.value); setError(""); }} placeholder="roblox.com/games/1818/… or 1818…" className="font-mono"
             aria-label="Place ID or Roblox game link" aria-invalid={!!error} aria-describedby={error ? "place-dialog-error" : undefined} />
           {error && <p id="place-dialog-error" className="text-xs text-destructive">{error}</p>}
         </div>
         {recentPlaces.length > 0 && <div className="grid gap-1.5">
           <p className="text-xs text-muted-foreground">Recent places</p>
           <div className="flex flex-wrap gap-1.5">
-            {recentPlaces.map((place) => <Button key={place.placeId} type="button" variant="outline" size="sm" disabled={busy} className="max-w-full" title={place.placeId} onClick={() => void save(place.placeId)}>
-              <span className="truncate">{place.name || place.placeId}</span>
-            </Button>)}
+            {recentPlaces.map((place) => <span key={place.placeId} className="inline-flex max-w-full">
+              <Button type="button" variant="outline" size="sm" disabled={busy} className="min-w-0 rounded-r-none" title={place.placeId} onClick={() => void save(place.placeId)}>
+                <span className="truncate">{place.name || place.placeId}</span>
+              </Button>
+              <Button type="button" variant="outline" size="icon-sm" disabled={busy} className="-ml-px rounded-l-none" aria-label={`Remove ${place.name || place.placeId} from recent places`} title="Remove"
+                onClick={() => void forget(place.placeId)}><X /></Button>
+            </span>)}
           </div>
         </div>}
         <AlertDialogFooter>

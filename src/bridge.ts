@@ -200,6 +200,11 @@ export const bridge = {
 
   placeExists: (placeId: string) => call<boolean>("place_exists", { placeId }, () => true),
 
+  forgetRecentPlace: (placeId: string) =>
+    call<void>("forget_recent_place", { placeId }, () => {
+      demoState.recentPlaces = demoState.recentPlaces.filter((place) => place.placeId !== placeId);
+    }),
+
   setAccountPlace: (accountId: number, placeId: string | null) =>
     call<void>("set_account_place", { accountId, placeId }, () => {
       const account = demoState.accounts.find(({ id }) => id === accountId);

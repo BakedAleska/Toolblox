@@ -2,6 +2,7 @@ import { Gamepad2, Play, Plus, Puzzle, ShieldCheck, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { accountName, relativeTime, sortAccounts } from "@/logic";
 import { Avatar, Panel, SectionTitle, Screen, StatTile, WidgetFrame, placeLabel, presenceLabel, type ScreenProps } from "@/shared";
+import { WIDGETS_AVAILABLE } from "@/screens/Widgets";
 import { WidgetSlot } from "@/widgets/host";
 
 export function Dashboard({ state, navigate, join }: ScreenProps) {

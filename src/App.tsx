@@ -12,7 +12,7 @@ import { SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MAX, clampSidebarWidth, par
 import { Accounts } from "@/screens/Accounts";
 import { Dashboard } from "@/screens/Dashboard";
 import { SettingsScreen } from "@/screens/Settings";
-import { Widgets } from "@/screens/Widgets";
+import { WIDGETS_AVAILABLE, Widgets } from "@/screens/Widgets";
 import { EmptyState, IconButton, Panel, Screen, Spinner, SwitchRow, WidgetFrame, type ConfirmRequest, type PlaceRequest, type ScreenProps } from "@/shared";
 import { WidgetBoundary, WidgetSlot, syncWidgetHost, syncWidgetModules, useWidgetRegistry, type CoreScreen } from "@/widgets/host";
 import type { AppRoute, AppState, RecentPlace, Settings, StartupStatus, ThemeMode, WidgetSummary } from "@/types";
@@ -20,7 +20,7 @@ import type { AppRoute, AppState, RecentPlace, Settings, StartupStatus, ThemeMod
 const coreRoutes = [
   { route: "/" as const, label: "Dashboard", icon: LayoutDashboard },
   { route: "/accounts" as const, label: "Accounts", icon: Users },
-  { route: "/widgets" as const, label: "Widgets", icon: Puzzle },
+  { route: "/widgets" as const, label: "Widgets", icon: Puzzle, enabled: WIDGETS_AVAILABLE },
   { route: "/settings" as const, label: "Settings", icon: SettingsIcon },
 ];
 
@@ -221,7 +221,7 @@ function Sidebar({ state, route, navigate }: { state: AppState; route: AppRoute;
       {!collapsed && <span className="truncate font-semibold tracking-tight">Toolblox</span>}
     </div>
     <nav className="flex flex-1 flex-col gap-0.5 overflow-hidden">
-      {coreRoutes.map(({ route: target, label, icon: Icon }) => item(target, label, <Icon aria-hidden="true" />))}
+      {coreRoutes.map(({ route: target, label, icon: Icon, enabled }) => item(target, label, <Icon aria-hidden="true" />, enabled))}
       {state.installedWidgets.length > 0 && (collapsed ? <hr className="my-2 border-sidebar-border" /> : <p className="mt-4 mb-1 truncate px-2.5 text-xs text-muted-foreground">Widgets</p>)}
       {state.installedWidgets.map((widget) => item(`/widgets/${widget.id}`, widget.name, <Puzzle aria-hidden="true" />, widget.enabled))}
     </nav>

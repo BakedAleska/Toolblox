@@ -9,10 +9,18 @@ import { EmptyState, IconButton, Panel, Screen, SectionTitle, Spinner, permissio
 import { useWidgetRegistry } from "@/widgets/host";
 import type { CatalogueEntry, WidgetSummary } from "@/types";
 
+/** Widgets aren't released yet. The page shows an empty state and its navigation is disabled. */
+export const WIDGETS_AVAILABLE = false;
+
 const grid = "grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3";
 const access = (permissions: string[]) => permissions.length ? `Permissions: ${permissionSummary(permissions)}.` : "No special permissions.";
 
-export function Widgets({ state, refresh, navigate, notify, confirm }: ScreenProps) {
+export function Widgets(props: ScreenProps) {
+  if (!WIDGETS_AVAILABLE) return <Screen title="Widgets"><Panel><EmptyState icon={<Puzzle />} title="No widgets yet" text="Widgets aren't available in this version." /></Panel></Screen>;
+  return <WidgetsCatalogue {...props} />;
+}
+
+function WidgetsCatalogue({ state, refresh, navigate, notify, confirm }: ScreenProps) {
   const [working, setWorking] = useState<Set<string>>(new Set());
   const { settingsPages, errors } = useWidgetRegistry();
   const run = async (id: string, action: () => Promise<void>, failure: string) => {

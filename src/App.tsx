@@ -134,7 +134,7 @@ function App() {
     if (placeId) { void launch(accountIds, placeId); return; }
     const needsPlace = !state.settings.placeId && accountIds.some((id) => !state.accounts.find((account) => account.id === id)?.placeId);
     if (!needsPlace) { void launch(accountIds); return; }
-    askPlace({ title: "Set default place", description: "Enter a Roblox game link or place ID. It can be changed on the Accounts page.", action: "Save and join",
+    askPlace({ title: "Set default place", description: "Enter a Roblox game link or place ID.", action: "Save and join",
       run: async (placeId) => { await patchSettings("placeId", placeId); await launch(accountIds); } });
   };
   const props: ScreenProps = { state, refresh: load, navigate, notify: setToast, confirm: (request) => { setConfirm(request); setConfirmOpen(true); }, join, askPlace, patchSettings };

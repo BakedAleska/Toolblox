@@ -23,7 +23,7 @@ a one-line change to `TARGET_OBJECT_SUBSTRING` in `helper.c`, not a redesign.
 ## How it works
 
 1. Take the pids passed on the command line (decimal, space-separated) -
-   `toolblox/roblox/multi_instance.py` passes only the RobloxPlayerBeta.exe
+   `src-tauri/src/multi_instance.rs` passes only the RobloxPlayerBeta.exe
    pids it hasn't already cleared in an earlier call this run. A pid that
    isn't currently a real running `RobloxPlayerBeta.exe` process (stale,
    reused, or garbage) is silently dropped.
@@ -106,10 +106,9 @@ standalone Build Tools). Run `build.ps1` from a plain PowerShell prompt —
 it locates `vcvars64.bat` itself:
 
 ```powershell
-.\native\multi_instance_helper\build.ps1
+.\src-tauri\resources\multi-instance\build.ps1
 ```
 
-This produces `multi_instance_helper.exe` next to `helper.c`. Toolblox
-loads it from that fixed path at runtime (see
-`toolblox/roblox/multi_instance.py`); there's no install step for it yet,
-which matches this project having no packaging/signing setup in general.
+This produces `multi_instance_helper.exe` next to `helper.c`. The Windows
+installer bundles it as a resource, and Toolblox runs it from the resource
+folder (see `src-tauri/src/lib.rs` and `src-tauri/src/multi_instance.rs`).

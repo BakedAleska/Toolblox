@@ -5,7 +5,7 @@
 //! redacted before it's written, so cookies, tickets, authorization headers, and launch URLs never
 //! reach the file, whoever logged them.
 //!
-//! The file is `v2/logs/toolblox.log` in the data folder. It rotates at 1 MB and keeps three older
+//! The file is `logs/toolblox.log` in the data folder. It rotates at 1 MB and keeps three older
 //! files, `toolblox.log.1` through `toolblox.log.3`.
 
 use std::fmt::Write as _;

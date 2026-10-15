@@ -13,7 +13,7 @@ const account = (id: number, name: string, addedAt: number, lastPlayedAt?: numbe
 });
 
 describe("relativeTime", () => {
-  it("accepts legacy Unix seconds and JavaScript milliseconds", () => {
+  it("accepts Unix seconds and JavaScript milliseconds", () => {
     const now = 1_800_000_000_000;
     expect(relativeTime(1_799_999_880, now)).toBe("Last played 2m ago");
     expect(relativeTime(1_799_999_880_000, now)).toBe("Last played 2m ago");

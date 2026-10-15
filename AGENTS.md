@@ -1,9 +1,7 @@
 # Toolblox
 
 Toolblox is a Windows-first, macOS-supported Tauri 2 desktop app for managing Roblox accounts
-and installing reviewed game-specific widgets. `PRODUCT.md` is the product authority. The
-legacy Flet implementation lives at `../Multitool` and is the behavioral and visual parity
-reference during the port.
+and installing reviewed game-specific widgets. `PRODUCT.md` is the product authority.
 
 ## Stack and boundaries
 
@@ -32,9 +30,9 @@ reference during the port.
 - Preserve Windows and macOS behavior together. Platform-specific code must have a sibling path
   or an explicit unsupported state.
 
-## UI parity
+## UI
 
-- Preserve the legacy information architecture with a minimal, neutral visual language.
+- Keep the information architecture stable, with a minimal, neutral visual language.
 - Build UI from Tailwind CSS and the shadcn/ui components in `src/components/ui` (Base UI,
   `base-nova` style). Add components with `npx shadcn@latest add <name>`. Theme tokens live in
   `src/index.css`. Don't add libraries that inject `<style>` tags at runtime; the CSP blocks them.
@@ -59,4 +57,4 @@ reference during the port.
   `cargo test` from `src-tauri`.
 - Security-sensitive branches, parsers, persistence, migration, updater decisions, widget
   packaging, and safe mode require focused tests.
-- Do not claim parity from a build alone. Verify each workflow against the legacy implementation.
+- Don't claim a workflow works from a build alone. Verify it in the running app.

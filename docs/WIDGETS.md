@@ -105,7 +105,7 @@ no permission. Levels default to `info`.
 
 ## Logs
 
-Toolblox writes one log for the app and its widgets: `v2/logs/toolblox.log` in the data folder,
+Toolblox writes one log for the app and its widgets: `logs/toolblox.log` in the data folder,
 rotated at 1 MB with three older files kept. **Settings > Diagnostics** shows, copies, and opens
 it. Widget records appear under `widget:<id>`, along with failed IPC requests, render and load
 errors caught by the host, process starts and stops, and the first 200 lines of each process's

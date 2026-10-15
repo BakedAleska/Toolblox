@@ -31,43 +31,29 @@ pub enum SortOrder {
     Manual,
 }
 
-/// Saved preferences. Missing fields take defaults, legacy snake_case names are accepted, and
-/// unknown fields are preserved.
+/// Saved preferences. Missing fields take defaults and unknown fields are preserved.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
-    #[serde(alias = "sidebar_pos")]
     pub sidebar_pos: SidebarPosition,
-    #[serde(alias = "theme_mode")]
     pub theme_mode: ThemeMode,
-    #[serde(alias = "show_avatars")]
     pub show_avatars: bool,
-    #[serde(alias = "sort_order")]
     pub sort_order: SortOrder,
-    #[serde(alias = "compact_mode")]
     pub compact_mode: bool,
     /// Default place to join. Empty when none is set.
-    #[serde(alias = "place_id")]
     pub place_id: String,
     /// IDs of installed widgets that are turned off.
-    #[serde(alias = "disabled_widgets")]
     pub disabled_widgets: Vec<String>,
     /// Per-widget settings, keyed by widget ID.
-    #[serde(alias = "widget_settings")]
     pub widget_settings: BTreeMap<String, Value>,
     /// Allow several Roblox clients at once (Windows only).
-    #[serde(alias = "multi_instance")]
     pub multi_instance: bool,
-    #[serde(alias = "auto_rejoin")]
     pub auto_rejoin: bool,
     /// Launch Toolblox at login.
-    #[serde(alias = "open_on_launch")]
     pub open_on_launch: bool,
     /// Closing the window hides to the tray instead of quitting.
-    #[serde(alias = "run_in_background")]
     pub run_in_background: bool,
     /// IDs of widgets whose processes start with the app.
-    #[serde(alias = "widgets_start_on_launch")]
     pub widgets_start_on_launch: Vec<String>,
     /// Minimize the window after a manual join.
     pub minimize_on_join: bool,
@@ -217,8 +203,8 @@ pub struct StoredAccount {
 }
 
 impl StoredAccount {
-    /// Checks the IDs, dates, place IDs, and widget IDs, and rejects legacy fields that look like
-    /// secrets. Returns a user-facing message on failure.
+    /// Checks the IDs, dates, place IDs, and widget IDs, and rejects fields that look like secrets.
+    /// Returns a user-facing message on failure.
     pub fn validate(&self) -> Result<(), String> {
         if self.id == 0 || self.name.trim().is_empty() {
             return Err("A saved account is incomplete. Can you add the account again?".into());
@@ -252,7 +238,7 @@ impl StoredAccount {
             key.contains("cookie") || key.contains("secret") || key.contains("ticket")
         }) {
             return Err(
-                "A saved account contains unsafe legacy data. Can you migrate it again?".into(),
+                "A saved account contains session data. Can you add the account again?".into(),
             );
         }
         Ok(())
@@ -321,7 +307,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_match_the_legacy_app() {
+    fn defaults_are_stable() {
         let settings = Settings::default();
         assert_eq!(settings.sidebar_pos, SidebarPosition::Left);
         assert_eq!(settings.theme_mode, ThemeMode::System);

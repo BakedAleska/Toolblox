@@ -17,7 +17,7 @@
  * client versions tested showed an Event by this name, not a Mutant).
  *
  * Only the process ids passed on the command line are touched (decimal
- * pids, space-separated) - see toolblox/roblox/multi_instance.py, which
+ * pids, space-separated) - see src-tauri/src/multi_instance.rs, which
  * only ever passes pids it hasn't already cleared in a previous call.
  * Earlier versions of this helper self-discovered and closed the handle
  * for *every* running RobloxPlayerBeta.exe process on every single call,

@@ -306,39 +306,8 @@ async fn run_inner(app: &AppHandle) -> Result<(), String> {
     }
 }
 
-/// Imports legacy data once, then creates the widget folder.
+/// Creates the widget folder.
 fn prepare_local_data(runtime: &crate::app_commands::Runtime) -> Result<(), String> {
-    let data_root = runtime.storage.root();
-    let migration_marker = data_root.join(".legacy-migration-complete");
-    if !migration_marker.exists()
-        && (runtime.legacy_root.join("accounts.json").exists()
-            || runtime.legacy_root.join("settings.json").exists())
-    {
-        let summary = crate::migration::migrate_legacy(
-            &runtime.legacy_root,
-            &runtime.storage,
-            runtime.credentials.as_ref(),
-        )
-        .map_err(|error| {
-            log::error!("Legacy data import failed: {error}");
-            error.to_string()
-        })?;
-        log::info!(
-            "Imported legacy data: {} accounts, {} sessions, settings {}",
-            summary.accounts_imported,
-            summary.sessions_imported,
-            if summary.settings_imported {
-                "imported"
-            } else {
-                "not found"
-            }
-        );
-        fs::create_dir_all(data_root)
-            .map_err(|_| "Toolblox couldn't create its data folder. Is it writable?".to_string())?;
-        fs::write(&migration_marker, b"1\n").map_err(|_| {
-            "Toolblox couldn't finish account migration. Is the data folder writable?".to_string()
-        })?;
-    }
     fs::create_dir_all(&runtime.widgets_root)
         .map_err(|_| "Toolblox couldn't create the widget folder. Is it writable?".to_string())
 }

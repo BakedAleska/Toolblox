@@ -21,8 +21,6 @@ type CredentialRollback = Arc<Mutex<Option<(u64, Option<Secret>)>>>;
 
 /// Shared state for commands, managed by Tauri.
 pub struct Runtime {
-    /// Folder the legacy Flet app stored its data in.
-    pub legacy_root: PathBuf,
     pub storage: Arc<Storage>,
     pub credentials: Arc<OsCredentialStore>,
     pub client: reqwest::Client,
@@ -210,7 +208,7 @@ fn now_seconds() -> f64 {
         .as_secs_f64()
 }
 
-/// Fills in names and avatars for accounts saved without an avatar, such as imported ones.
+/// Fills in names and avatars for accounts saved without an avatar.
 pub(crate) async fn backfill_profiles(runtime: &Runtime) {
     let Ok(accounts) = runtime.storage.load_accounts() else {
         return;

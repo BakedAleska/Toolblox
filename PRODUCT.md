@@ -26,11 +26,6 @@ Toolblox lets players manage and launch multiple Roblox accounts safely from one
 app, then extend the app with game-specific widgets. Success means growing it into a useful,
 trusted open-source community product.
 
-The current Flet application is the behavioral and visual reference for a full port. The new
-application must preserve every core feature and closely reproduce its sleek interface. Legacy
-widget implementations aren't part of the initial port, but the widget platform, catalogue,
-installation, settings, navigation, data, and process capabilities are required.
-
 ## Positioning
 
 Toolblox combines local multi-account Roblox management with an open widget system. Users can
@@ -52,7 +47,6 @@ changes before they are merged or released.
 
 ## Capabilities and Constraints
 
-- The port must reach functional parity with the Flet application before replacing it.
 - Toolblox stores account data locally. It doesn't provide a hosted account service.
 - Roblox session cookies must remain protected by operating-system-backed credential storage
   and must never leave the user's computer through Toolblox.
@@ -103,20 +97,18 @@ The product name is Toolblox. Its voice is plain, factual, concise, and reassuri
 making unsupported security claims. User-facing errors state what went wrong and follow with a
 question that points toward a likely fix.
 
-The new interface should preserve the current Flet application's sleek character and familiar
-information architecture while improving usability, maintainability, and platform-native
-behavior.
+The interface should stay sleek and familiar while improving usability, maintainability, and
+platform-native behavior.
 
 Safety communication must make local data handling understandable to non-technical users. It
 must distinguish what Toolblox can substantiate from what it can't guarantee.
 
 ## Evidence on Hand
 
-- The legacy Flet repository contains the complete behavioral and visual migration reference.
-- Its credential persistence uses Windows DPAPI and the macOS login Keychain.
-- Its login flow uses Roblox's own page rather than collecting a password.
-- Its catalogue installer verifies archive hashes before extraction.
-- Its source code and MIT license are public.
+- Sessions are stored in Windows Credential Manager and the macOS login Keychain.
+- Sign-in uses Roblox's own page rather than collecting a password.
+- Catalogue widgets are signed and hash-pinned, and are verified before installation.
+- The source code and MIT license are public.
 - Release VirusTotal results are planned once packaged releases are shipping. No results should
   be presented until they exist for the exact published artifacts.
 - The project doesn't currently have a paid code-signing certificate or an Apple Developer ID.

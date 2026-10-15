@@ -14,7 +14,6 @@
 //! - [`roblox`]: Roblox web APIs for profiles, presence, games, and join tickets.
 //! - [`auto_rejoin`]: presence monitoring for drop notifications and auto-rejoin.
 //! - [`multi_instance`]: running several Roblox clients on Windows and macOS.
-//! - [`migration`]: one-time import from the legacy Flet app.
 //! - [`lifecycle`]: window, tray, and single-instance behavior.
 //! - [`logs`]: the rotating, redacted log file.
 //! - [`widgets`], [`widget_protocol`], [`widget_ipc`], and [`widget_process`]: signed widget
@@ -22,8 +21,8 @@
 //!
 //! # Data
 //!
-//! Current data lives in the `v2` folder inside the Toolblox data folder: `%LOCALAPPDATA%\Toolblox`
-//! on Windows and `~/Library/Application Support/Toolblox` on macOS.
+//! Data lives in the Toolblox data folder: `%LOCALAPPDATA%\Toolblox` on Windows and
+//! `~/Library/Application Support/Toolblox` on macOS.
 
 #![allow(rustdoc::private_intra_doc_links)]
 
@@ -33,7 +32,6 @@ mod credentials;
 mod lifecycle;
 mod login;
 mod logs;
-mod migration;
 mod models;
 mod multi_instance;
 mod roblox;
@@ -52,7 +50,7 @@ use app_commands::Runtime;
 use lifecycle::LifecycleState;
 use tauri::Manager;
 
-/// Returns the legacy Toolblox data folder, whose `v2` subfolder holds current data.
+/// Returns the Toolblox data folder.
 ///
 /// This is `%LOCALAPPDATA%\Toolblox` on Windows and `~/Library/Application Support/Toolblox` on
 /// macOS. Debug builds use `TOOLBLOX_DATA_DIR` instead when it's set.
@@ -80,6 +78,31 @@ fn toolblox_data_root() -> Result<PathBuf, std::io::Error> {
             "Toolblox couldn't locate its data folder. Is the user profile available?",
         )
     })
+}
+
+/// Moves data that 0.2.0 beta saved in a `v2` subfolder into the data folder.
+///
+/// Moved entries replace same-named ones already in the data folder. An interrupted move
+/// continues on the next launch, and nothing happens once the subfolder is gone.
+fn move_beta_data(data_root: &std::path::Path) -> std::io::Result<()> {
+    let beta_root = data_root.join("v2");
+    let entries = match std::fs::read_dir(&beta_root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let target = data_root.join(entry.file_name());
+        match std::fs::symlink_metadata(&target) {
+            Ok(metadata) if metadata.is_dir() => std::fs::remove_dir_all(&target)?,
+            Ok(_) => std::fs::remove_file(&target)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        std::fs::rename(entry.path(), target)?;
+    }
+    std::fs::remove_dir(beta_root)
 }
 
 /// Name of the marker file that requests safe mode for the next launch.
@@ -153,8 +176,8 @@ pub fn run() {
                 None,
             ))?;
 
-            let legacy_root = toolblox_data_root()?;
-            let data_root = legacy_root.join("v2");
+            let data_root = toolblox_data_root()?;
+            let moved = move_beta_data(&data_root);
             let widgets_root = data_root.join("widgets");
             let safe_mode = take_safe_mode(&data_root);
             let _ = logs::init(&data_root.join("logs"));
@@ -170,6 +193,9 @@ pub fn run() {
                 std::env::consts::ARCH,
                 if safe_mode { " in safe mode" } else { "" }
             );
+            if let Err(error) = moved {
+                log::error!("Moving data from the 0.2.0 beta folder failed: {error}");
+            }
             let storage = Arc::new(storage::Storage::new(data_root.clone()));
             let credentials = Arc::new(credentials::OsCredentialStore);
             let client = reqwest::Client::builder()
@@ -180,7 +206,6 @@ pub fn run() {
                 .build()?;
             let processes = Arc::new(Mutex::new(widget_process::WidgetProcessManager::default()));
             let runtime = Runtime {
-                legacy_root,
                 storage,
                 credentials,
                 client,
@@ -340,6 +365,64 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Module widgets share the main webview, so its permissions and network policy are pinned.
+    /// Widening them needs security review: no permission may create or script webviews, read
+    /// cookies, or reach the network outside IPC.
+    #[test]
+    fn webview_permissions_match_the_reviewed_list() {
+        let capability: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        assert_eq!(
+            capability["permissions"],
+            serde_json::json!(["core:default", "opener:default"])
+        );
+        let capabilities = std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/capabilities"))
+            .unwrap()
+            .count();
+        assert_eq!(capabilities, 1);
+
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let security = &config["app"]["security"];
+        assert_eq!(security["capabilities"], serde_json::json!(["default"]));
+        let connect = security["csp"]
+            .as_str()
+            .unwrap()
+            .split(';')
+            .map(str::trim)
+            .find(|directive| directive.starts_with("connect-src"));
+        assert_eq!(connect, Some("connect-src ipc: http://ipc.localhost"));
+    }
+
+    #[test]
+    fn beta_data_moves_up_and_replaces_older_entries() {
+        let root = tempfile::tempdir().unwrap();
+        let data = root.path();
+        std::fs::create_dir_all(data.join("v2/logs")).unwrap();
+        std::fs::create_dir_all(data.join("logs")).unwrap();
+        std::fs::write(data.join("v2/accounts.json"), "new").unwrap();
+        std::fs::write(data.join("v2/logs/toolblox.log"), "new").unwrap();
+        std::fs::write(data.join("accounts.json"), "old").unwrap();
+        std::fs::write(data.join("logs/old.log"), "old").unwrap();
+        std::fs::write(data.join("notes.txt"), "kept").unwrap();
+
+        move_beta_data(data).unwrap();
+
+        assert!(!data.join("v2").exists());
+        assert_eq!(
+            std::fs::read_to_string(data.join("accounts.json")).unwrap(),
+            "new"
+        );
+        assert!(data.join("logs/toolblox.log").exists());
+        assert!(!data.join("logs/old.log").exists());
+        assert!(data.join("notes.txt").exists());
+        move_beta_data(data).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(data.join("accounts.json")).unwrap(),
+            "new"
+        );
+    }
 
     #[test]
     fn safe_mode_marker_applies_to_one_launch() {

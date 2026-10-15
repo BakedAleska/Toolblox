@@ -16,7 +16,7 @@ const demoState: AppState = {
   channel: "canary",
   platform: "windows",
   widgetsPath: "C:\\Users\\you\\AppData\\Roaming\\Toolblox\\widgets",
-  logsPath: "C:\\Users\\you\\AppData\\Local\\Toolblox\\v2\\logs",
+  logsPath: "C:\\Users\\you\\AppData\\Local\\Toolblox\\logs",
   accounts: [
     demoAccount(101, "builderman_alt", "Builder", { presence: "playing", gameName: "Pet Simulator 99", gamePlaceId: 8737899170, lastPlayedAt: minutesAgo(4), lastPlaceId: "8737899170", notes: "Main farming account" }),
     demoAccount(102, "crossroads_fan", "Crossroads Fan", { presence: "playing", gamePlaceId: 1818, lastPlayedAt: minutesAgo(38), lastPlaceId: "1818" }),

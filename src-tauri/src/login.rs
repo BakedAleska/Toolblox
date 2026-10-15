@@ -343,6 +343,13 @@ mod tests {
         ));
     }
 
+    crate::credentials::assert_not_impl!(
+        RobloxCookie: Clone,
+        std::fmt::Debug,
+        std::fmt::Display,
+        serde::Serialize
+    );
+
     #[test]
     fn cookie_secret_has_no_debug_or_serialized_representation() {
         let cookie = RobloxCookie(Zeroizing::new("secret".to_owned()));

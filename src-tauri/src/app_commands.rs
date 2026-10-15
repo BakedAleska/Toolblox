@@ -1321,7 +1321,10 @@ pub async fn widget_request(
         .map_err(|_| "The widget session manager is busy. Can you try again?".to_string())?
         .authorize(&session_id, &widget_id, message.as_bytes())?;
     let request_id = request.request_id.clone();
-    match dispatch_widget_request(&runtime, &widget_id, &request.method, request.params).await {
+    match dispatch_widget_request(&runtime, &widget_id, &request.method, request.params)
+        .await
+        .and_then(without_session_cookie)
+    {
         Ok(result) => Ok(crate::widget_ipc::success(request_id, result)),
         Err(error) => {
             log::warn!(
@@ -1332,6 +1335,17 @@ pub async fn widget_request(
             Ok(crate::widget_ipc::failure(request_id, error))
         }
     }
+}
+
+/// Refuses a widget response that contains a Roblox session cookie, whatever its source.
+fn without_session_cookie(result: Value) -> Result<Value, String> {
+    if crate::credentials::contains_session_cookie(&result.to_string()) {
+        return Err(
+            "The response was blocked because it contained a Roblox session. Can you report this widget?"
+                .into(),
+        );
+    }
+    Ok(result)
 }
 
 /// Runs an authorized widget method.
@@ -1760,6 +1774,16 @@ mod tests {
         assert!(write_log(LogLevel::Info, "ok".into(), Some("sample_widget".into())).is_ok());
         assert!(write_log(LogLevel::Info, "ok".into(), Some("Bad ID".into())).is_err());
         assert!(write_log(LogLevel::Info, "é".repeat(MAX_WRITTEN_LOG_BYTES), None).is_ok());
+    }
+
+    #[test]
+    fn widget_responses_never_carry_a_session_cookie() {
+        let cookie = "_|WARNING:-DO-NOT-SHARE-THIS.--Sharing|_ABCDEF";
+        let nested = json!({ "events": [{ "line": format!("token {cookie}") }] });
+        assert!(without_session_cookie(nested).is_err());
+        assert!(without_session_cookie(json!({ "status": 200, "body": cookie })).is_err());
+        let safe = json!([{ "id": 1, "name": "builderman" }]);
+        assert_eq!(without_session_cookie(safe.clone()).unwrap(), safe);
     }
 
     #[test]

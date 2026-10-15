@@ -14,6 +14,9 @@ and installing reviewed game-specific widgets. `PRODUCT.md` is the product autho
   React components, and every IPC method. Don't add artificial limits to that API. Safety comes
   from catalogue review, signed and hash-pinned packages, safe mode, and error boundaries.
 - Remote pages receive no Tauri capabilities. Legacy iframe widget surfaces stay sandboxed.
+- Tests pin every place a session secret is read or exposed (`SECRET_ACCESS` in
+  `credentials.rs`) and the main webview's permissions and CSP (`lib.rs`). Changing either list
+  needs security review. Widget IPC responses that contain a session cookie are blocked.
 - Keep the implementation small. Prefer standard-library and native platform behavior over new
   dependencies or speculative abstractions.
 

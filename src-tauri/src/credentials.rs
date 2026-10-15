@@ -6,6 +6,14 @@ use zeroize::Zeroize;
 /// Keychain and Credential Manager service name for Roblox sessions.
 const SERVICE: &str = "Toolblox";
 
+/// Start of every Roblox session cookie value, in lowercase.
+pub(crate) const SESSION_COOKIE_MARKER: &str = "_|warning:";
+
+/// Whether text contains a Roblox session cookie value, ignoring case.
+pub(crate) fn contains_session_cookie(text: &str) -> bool {
+    text.to_ascii_lowercase().contains(SESSION_COOKIE_MARKER)
+}
+
 /// A Roblox session cookie. Its `Debug` output is redacted and its memory is zeroed on drop.
 pub struct Secret(String);
 
@@ -134,112 +142,103 @@ impl CredentialStore for OsCredentialStore {
     }
 }
 
-/// Decrypts a session the legacy Flet app protected with Windows DPAPI for the current user.
-#[cfg(windows)]
-pub(crate) fn decrypt_legacy_dpapi(stored: &str) -> Result<Secret, CredentialError> {
-    use base64::Engine;
-    use windows_sys::Win32::Foundation::LocalFree;
-    use windows_sys::Win32::Security::Cryptography::{CRYPT_INTEGER_BLOB, CryptUnprotectData};
-
-    let ciphertext = match base64::engine::general_purpose::STANDARD.decode(stored) {
-        Ok(value) => value,
-        Err(_) => return Ok(Secret(stored.to_owned())),
-    };
-    let input = CRYPT_INTEGER_BLOB {
-        cbData: ciphertext.len() as u32,
-        pbData: ciphertext.as_ptr().cast_mut(),
-    };
-    let mut output = CRYPT_INTEGER_BLOB {
-        cbData: 0,
-        pbData: std::ptr::null_mut(),
-    };
-    let ok = unsafe {
-        CryptUnprotectData(
-            &input,
-            std::ptr::null_mut(),
-            std::ptr::null(),
-            std::ptr::null(),
-            std::ptr::null(),
-            0,
-            &mut output,
-        )
-    };
-    if ok == 0 {
-        return Err(CredentialError::Platform);
-    }
-    let bytes = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) };
-    let plaintext = String::from_utf8(bytes.to_vec()).map_err(|_| CredentialError::Platform);
-    unsafe {
-        LocalFree(output.pbData.cast());
-    }
-    plaintext.map(Secret)
+/// Fails to compile when the type implements any of the traits.
+#[cfg(test)]
+macro_rules! assert_not_impl {
+    ($type:ty: $($trait:path),+ $(,)?) => {$(
+        const _: fn() = || {
+            trait AmbiguousIfImplemented<Marker> {
+                fn check() {}
+            }
+            impl<T: ?Sized> AmbiguousIfImplemented<()> for T {}
+            struct Implemented;
+            impl<T: ?Sized + $trait> AmbiguousIfImplemented<Implemented> for T {}
+            let _ = <$type as AmbiguousIfImplemented<_>>::check;
+        };
+    )+};
 }
-
-/// Reads a session the legacy Flet app stored in the macOS login Keychain.
-#[cfg(target_os = "macos")]
-pub(crate) fn lookup_legacy_keychain(account_id: u64) -> Result<Secret, CredentialError> {
-    use std::process::Command;
-
-    let output = Command::new("security")
-        .args([
-            "find-generic-password",
-            "-a",
-            &format!("account-{account_id}"),
-            "-s",
-            SERVICE,
-            "-w",
-        ])
-        .output()
-        .map_err(|_| CredentialError::Platform)?;
-    if !output.status.success() {
-        return Err(CredentialError::Missing);
-    }
-    let secret = String::from_utf8(output.stdout).map_err(|_| CredentialError::Platform)?;
-    let secret = secret.trim_end_matches(['\r', '\n']).to_owned();
-    if secret.is_empty() {
-        Err(CredentialError::Missing)
-    } else {
-        Ok(Secret(secret))
-    }
-}
+#[cfg(test)]
+pub(crate) use assert_not_impl;
 
 #[cfg(test)]
-pub(crate) mod test_support {
-    use std::collections::HashMap;
-    use std::sync::Mutex;
+mod tests {
+    use std::path::Path;
 
     use super::*;
 
-    #[derive(Default)]
-    pub struct MemoryCredentialStore {
-        values: Mutex<HashMap<u64, String>>,
+    assert_not_impl!(Secret: Clone, std::fmt::Display, serde::Serialize);
+
+    /// Every place a session secret is read from the platform or exposed as text, with the files
+    /// allowed to do it and how often. A new entry needs security review: it must not return the
+    /// secret to JavaScript, a widget, a log, or a non-Roblox host.
+    const SECRET_ACCESS: &[(&str, &[(&str, usize)])] = &[
+        (".expose()", &[("app_commands.rs", 1), ("roblox.rs", 1)]),
+        (".expose_secret()", &[("app_commands.rs", 2)]),
+        ("cookie_header(", &[("roblox.rs", 4)]),
+        ("keyring::", &[("credentials.rs", 4)]),
+        ("get_password", &[("credentials.rs", 1)]),
+        (".cookies()", &[("login.rs", 1)]),
+        ("find-generic-password", &[]),
+        ("CryptUnprotectData", &[]),
+    ];
+
+    /// Returns a source file's non-test code with comment lines removed.
+    fn production_source(path: &Path) -> String {
+        let source = std::fs::read_to_string(path).unwrap();
+        let end = ["#[cfg(test)]\nmod ", "#[cfg(test)]\npub(crate) mod "]
+            .iter()
+            .filter_map(|marker| source.find(marker))
+            .min()
+            .unwrap_or(source.len());
+        source[..end]
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
-    impl CredentialStore for MemoryCredentialStore {
-        fn get(&self, account_id: u64) -> Result<Secret, CredentialError> {
-            self.values
-                .lock()
-                .map_err(|_| CredentialError::Platform)?
-                .get(&account_id)
-                .cloned()
-                .map(Secret)
-                .ok_or(CredentialError::Missing)
+    #[test]
+    fn secret_access_points_match_the_reviewed_list() {
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files: Vec<_> = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+            .collect();
+        files.sort();
+        assert!(!files.is_empty());
+        let mut problems = Vec::new();
+        for (pattern, allowed) in SECRET_ACCESS {
+            for path in &files {
+                let name = path.file_name().unwrap().to_str().unwrap();
+                let found = production_source(path).matches(pattern).count();
+                let expected = allowed
+                    .iter()
+                    .find(|(file, _)| *file == name)
+                    .map_or(0, |(_, count)| *count);
+                if found != expected {
+                    problems.push(format!(
+                        "{name} uses `{pattern}` {found} times; the reviewed count is {expected}"
+                    ));
+                }
+            }
         }
+        assert!(
+            problems.is_empty(),
+            "Session secret access changed. Review that the secret can't reach JavaScript, a \
+             widget, a log, or a non-Roblox host, then update SECRET_ACCESS.\n{}",
+            problems.join("\n")
+        );
+    }
 
-        fn set(&self, account_id: u64, secret: &str) -> Result<(), CredentialError> {
-            self.values
-                .lock()
-                .map_err(|_| CredentialError::Platform)?
-                .insert(account_id, secret.to_owned());
-            Ok(())
-        }
-
-        fn delete(&self, account_id: u64) -> Result<(), CredentialError> {
-            self.values
-                .lock()
-                .map_err(|_| CredentialError::Platform)?
-                .remove(&account_id);
-            Ok(())
-        }
+    #[test]
+    fn session_cookies_are_detected_in_any_case() {
+        assert!(contains_session_cookie(
+            r#"{"value":"_|WARNING:-DO-NOT-SHARE-THIS.--Sharing|_ABC"}"#
+        ));
+        assert!(contains_session_cookie("_|warning:-do-not-share-this"));
+        assert!(!contains_session_cookie(
+            r#"{"name":".ROBLOSECURITY docs"}"#
+        ));
     }
 }

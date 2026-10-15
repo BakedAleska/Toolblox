@@ -17,6 +17,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use log::{Level, LevelFilter, Log, Metadata, Record};
 
+use crate::credentials::SESSION_COOKIE_MARKER as COOKIE_MARKER;
+
 /// Name of the current log file.
 const FILE_NAME: &str = "toolblox.log";
 /// Size at which the current file rotates.
@@ -72,9 +74,6 @@ const WHOLE_VALUE_KEYS: &[&str] = &[
 
 /// Schemes whose URIs carry join tickets. Everything after the scheme is redacted.
 const LAUNCH_SCHEMES: &[&str] = &["roblox-player:", "roblox-studio:"];
-
-/// Start of every Roblox session cookie value.
-const COOKIE_MARKER: &str = "_|warning:";
 
 static LOGGER: OnceLock<FileLogger> = OnceLock::new();
 

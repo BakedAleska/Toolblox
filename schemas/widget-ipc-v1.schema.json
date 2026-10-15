@@ -16,6 +16,7 @@
         "roblox.status",
         "roblox.join",
         "network.fetch",
+        "log.write",
         "process.spawn",
         "process.send",
         "process.poll",

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Account, AppState, CatalogueEntry, Settings, StartupStatus, WidgetSummary } from "./types";
+import type { Account, AppState, CatalogueEntry, LogLevel, Settings, StartupStatus, WidgetSummary } from "./types";
 
 const minutesAgo = (minutes: number) => Date.now() - minutes * 60_000;
 const demoAccount = (id: number, name: string, displayName: string, extra: Partial<Account> = {}): Account =>
@@ -16,6 +16,7 @@ const demoState: AppState = {
   channel: "canary",
   platform: "windows",
   widgetsPath: "C:\\Users\\you\\AppData\\Roaming\\Toolblox\\widgets",
+  logsPath: "C:\\Users\\you\\AppData\\Local\\Toolblox\\v2\\logs",
   accounts: [
     demoAccount(101, "builderman_alt", "Builder", { presence: "playing", gameName: "Pet Simulator 99", gamePlaceId: 8737899170, lastPlayedAt: minutesAgo(4), lastPlaceId: "8737899170", notes: "Main farming account" }),
     demoAccount(102, "crossroads_fan", "Crossroads Fan", { presence: "playing", gamePlaceId: 1818, lastPlayedAt: minutesAgo(38), lastPlaceId: "1818" }),
@@ -63,6 +64,22 @@ const demoState: AppState = {
   ],
 };
 
+/** `?showcase` limits the sample data to shipped features for the website screenshots. */
+if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("showcase")) {
+  demoState.channel = "stable";
+  demoState.accounts = [
+    demoAccount(101, "builderman_alt", "Builder", { presence: "playing", gameName: "Classic: Crossroads", gamePlaceId: 1818, lastPlayedAt: minutesAgo(4), lastPlaceId: "1818", notes: "Main account" }),
+    demoAccount(102, "crossroads_fan", "Crossroads Fan", { presence: "playing", gameName: "Classic: Crossroads", gamePlaceId: 1818, lastPlayedAt: minutesAgo(38), lastPlaceId: "1818" }),
+    demoAccount(103, "studio_tester", "Studio Tester", { lastPlayedAt: minutesAgo(60 * 5), notes: "Testing builds" }),
+    demoAccount(104, "weekend_player", "Weekend Player", { lastPlayedAt: minutesAgo(60 * 24 * 3), lastPlaceId: "1818" }),
+    demoAccount(105, "new_account_2026", "Fresh Start"),
+  ];
+  demoState.installedWidgets = [];
+  demoState.catalogue = [];
+  demoState.recentPlaces = [{ placeId: "1818", name: "Classic: Crossroads" }];
+  demoState.settings.placeId = "1818";
+}
+
 const demoStores = new Map<string, unknown>([
   ["rogue_lineage", { showIcons: true, accounts: { 101: { race: "lightborn", cls: "druid" }, 102: { race: "vind", cls: "shinobi" }, 104: { race: "gaian", cls: "necromancer" } } }],
 ]);
@@ -104,8 +121,29 @@ const demoStartupStatus = (): StartupStatus => {
   return { phase: "ready" };
 };
 
+const demoLog = [
+  "2026-09-24T18:02:11.412Z INFO  toolblox: Toolblox 0.2.0-beta (debug) starting on windows x86_64",
+  "2026-09-24T18:02:11.530Z DEBUG startup: Debug build: the update check is skipped",
+  "2026-09-24T18:04:37.020Z INFO  app_commands: Joining place 8737899170 as account 101",
+  "2026-09-24T18:09:52.781Z INFO  auto_rejoin: Account 101 left its game",
+  "2026-09-24T18:09:53.104Z INFO  auto_rejoin: Auto-rejoined account 101",
+  "2026-09-24T18:12:40.655Z WARN  widget:trade_tracker: Request network.fetch failed: The widget network request failed. Is the connection working?",
+];
+
+/** Formats an error with its stack when there is one. */
+export const describeError = (error: unknown) => error instanceof Error ? error.stack || `${error.name}: ${error.message}` : String(error);
+
+/** Writes a record to the Toolblox log, under a widget when `widgetId` is set. Never rejects. */
+export const writeLog = (level: LogLevel, message: string, widgetId?: string): Promise<void> => {
+  if (!isTauri()) { console[level === "debug" ? "debug" : level](widgetId ? `[${widgetId}] ${message}` : message); return Promise.resolve(); }
+  return invoke<void>("write_log", { level, message, widgetId: widgetId ?? null }).catch(() => undefined);
+};
+
+/** Runs a Rust command, or the demo implementation on sample data. Failures are logged and rethrown. */
 async function call<T>(command: string, args: Record<string, unknown>, demo: () => T): Promise<T> {
-  return isTauri() ? invoke<T>(command, args) : copy(demo());
+  if (!isTauri()) return copy(demo());
+  try { return await invoke<T>(command, args); }
+  catch (error) { void writeLog("warn", `Command ${command} failed: ${describeError(error)}`); throw error; }
 }
 
 export const bridge = {
@@ -210,6 +248,9 @@ export const bridge = {
   getWidgetStore: (widgetId: string) => call<unknown>("get_widget_store", { widgetId }, () => demoStores.get(widgetId) ?? null),
   setWidgetStore: (widgetId: string, value: unknown) => call<void>("set_widget_store", { widgetId, value }, () => { demoStores.set(widgetId, copy(value)); }),
   restartApp: (safeMode: boolean) => call<void>("restart_app", { safeMode }, () => { demoState.safeMode = safeMode; window.location.reload(); }),
+  readLog: (lines?: number) => call<string>("read_log", { lines: lines ?? null }, () => demoLog.slice(-(lines ?? 300)).join("\n")),
+  openLogFolder: () => call<void>("open_log_folder", {}, () => undefined),
+  writeLog,
   closeWidgetSession: (sessionId: string) => call<void>("close_widget_session", { sessionId }, () => undefined),
   widgetRequest: (sessionId: string, widgetId: string, message: unknown) => call<unknown>("widget_request", { sessionId, widgetId, message: JSON.stringify(message) }, () => ({ protocol: 1, requestId: "demo", result: null })),
 };

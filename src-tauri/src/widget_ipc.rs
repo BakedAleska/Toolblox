@@ -71,6 +71,9 @@ impl WidgetSession {
         if request.request_id.is_empty() || request.request_id.len() > 128 {
             return Err("The widget request ID isn't valid.".into());
         }
+        if UNRESTRICTED_METHODS.contains(&request.method.as_str()) {
+            return Ok(request);
+        }
         let permission = permission_for_method(&request.method)
             .ok_or_else(|| "The widget method isn't supported.".to_string())?;
         if !self.permissions.contains(&permission) {
@@ -152,6 +155,9 @@ pub fn failure(request_id: String, error: impl Into<String>) -> WidgetResponse {
     }
 }
 
+/// Methods every widget session may call without a permission.
+const UNRESTRICTED_METHODS: &[&str] = &["log.write"];
+
 /// Returns the permission a method requires, or `None` for unknown methods.
 fn permission_for_method(method: &str) -> Option<WidgetPermission> {
     match method {
@@ -188,6 +194,17 @@ mod tests {
         );
         let message = br#"{"protocol":1,"requestId":"one","method":"widgetData.get"}"#;
         assert!(sessions.authorize("session", "other", message).is_err());
+    }
+
+    #[test]
+    fn log_writes_need_no_permission() {
+        let mut session = WidgetSession::new("sample".into(), []);
+        let message =
+            br#"{"protocol":1,"requestId":"one","method":"log.write","params":{"message":"hi"}}"#;
+        assert_eq!(
+            session.parse_and_authorize(message).unwrap().method,
+            "log.write"
+        );
     }
 
     #[test]

@@ -1,6 +1,7 @@
 export type ThemeMode = "system" | "light" | "dark";
 export type SortOrder = "last_played" | "alphabetical" | "manual";
 export type Presence = "offline" | "playing" | "warning";
+export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export interface Account {
   id: number;
@@ -74,6 +75,8 @@ export interface AppState {
   channel: "stable" | "canary";
   platform: "windows" | "macos";
   widgetsPath: string;
+  /** Folder holding the log files, or empty when logging didn't start. */
+  logsPath: string;
   accounts: Account[];
   installedWidgets: WidgetSummary[];
   widgetErrors: string[];

@@ -150,6 +150,8 @@ pub struct AppStateDto {
     channel: &'static str,
     platform: &'static str,
     widgets_path: String,
+    /// Folder holding the log files, or empty when logging didn't start.
+    logs_path: String,
     accounts: Vec<AccountView>,
     installed_widgets: Vec<WidgetSummary>,
     widget_errors: Vec<String>,
@@ -219,8 +221,12 @@ pub(crate) async fn backfill_profiles(runtime: &Runtime) {
         .map(|account| account.id)
         .collect();
     for account_id in missing {
-        let Ok(profile) = crate::roblox::public_profile(&runtime.client, account_id).await else {
-            continue;
+        let profile = match crate::roblox::public_profile(&runtime.client, account_id).await {
+            Ok(profile) => profile,
+            Err(error) => {
+                log::warn!("Profile for account {account_id} couldn't be loaded: {error}");
+                continue;
+            }
         };
         let _ = runtime.storage.update_accounts(|accounts| {
             if let Some(account) = accounts.iter_mut().find(|account| account.id == account_id) {
@@ -481,6 +487,9 @@ pub async fn get_app_state(runtime: State<'_, Runtime>) -> Result<AppStateDto, S
             "windows"
         },
         widgets_path: runtime.widgets_root.display().to_string(),
+        logs_path: crate::logs::directory()
+            .map(|path| path.display().to_string())
+            .unwrap_or_default(),
         accounts: account_views(&runtime, &accounts, settings.show_game_names).await,
         installed_widgets: installed_widgets(&runtime, &settings),
         widget_errors,
@@ -547,7 +556,8 @@ pub fn save_settings(
     } else {
         autostart.disable()
     };
-    if result.is_err() {
+    if let Err(error) = result {
+        log::warn!("Launch at startup couldn't be changed: {error}");
         let _ = runtime.storage.save_settings(&previous);
         return Err(
             "The startup setting couldn't be changed. Does this account allow startup apps?".into(),
@@ -649,6 +659,7 @@ pub fn remove_account(account_id: u64, runtime: State<'_, Runtime>) -> Result<()
         })
         .map_err(command_error)?;
     if let Err(error) = runtime.credentials.delete(account_id) {
+        log::error!("Session for removed account {account_id} couldn't be deleted: {error}");
         let rollback = runtime.storage.update_accounts(|accounts| {
             if accounts.iter().all(|account| account.id != account_id) {
                 accounts.insert(removed.0.min(accounts.len()), removed.1.clone());
@@ -660,6 +671,7 @@ pub fn remove_account(account_id: u64, runtime: State<'_, Runtime>) -> Result<()
             Err(_) => Err("The account was removed, but its secure session couldn't be cleared. Can you restart Toolblox and try adding then removing the account again?".into()),
         };
     }
+    log::info!("Removed account {account_id}");
     Ok(())
 }
 
@@ -775,8 +787,12 @@ pub async fn begin_roblox_login(
         .map_err(|_| "The Roblox sign-in stopped unexpectedly. Can you try again?".to_string())?;
     let identity = match notice {
         LoginNotice::Complete(identity) => identity,
-        LoginNotice::Failed(error) => return Err(command_error(error)),
+        LoginNotice::Failed(error) => {
+            log::warn!("Roblox sign-in failed: {error}");
+            return Err(command_error(error));
+        }
         LoginNotice::Cancelled => {
+            log::info!("Roblox sign-in was cancelled");
             return Err("The Roblox sign-in was cancelled. Can you try again?".into());
         }
     };
@@ -812,9 +828,13 @@ pub async fn begin_roblox_login(
             if let Ok(mut rollback) = credential_rollback.lock() {
                 rollback.take();
             }
+            log::info!("Signed in account {}", account.id);
             account
         }
         Err(error) => {
+            log::error!(
+                "Signed-in account couldn't be saved, restoring its previous session: {error}"
+            );
             if let Ok(mut rollback) = credential_rollback.lock()
                 && let Some((account_id, previous)) = rollback.take()
             {
@@ -879,7 +899,15 @@ async fn install_catalogue_widget(widget_id: &str, runtime: &Runtime) -> Result<
         &entry.permissions,
         &runtime.widgets_root,
     )
-    .map(|_| ())
+    .inspect_err(|error| {
+        log::warn!(
+            "Widget {} {} wasn't installed: {error}",
+            entry.id,
+            entry.version
+        );
+    })?;
+    log::info!("Installed widget {} {}", entry.id, entry.version);
+    Ok(())
 }
 
 /// Installs a catalogue widget that isn't installed yet.
@@ -921,6 +949,7 @@ pub fn uninstall_widget(widget_id: String, runtime: State<'_, Runtime>) -> Resul
         .map_err(|_| "The widget process manager is busy. Can you try again?".to_string())?
         .stop_widget(&widget_id);
     crate::widgets::uninstall_widget(&widget_id, &runtime.widgets_root)?;
+    log::info!("Uninstalled widget {widget_id}");
     let mut settings = runtime.storage.load_settings().map_err(command_error)?;
     settings.disabled_widgets.retain(|id| id != &widget_id);
     settings
@@ -945,6 +974,10 @@ pub fn set_widget_enabled(
     }
     let mut settings = runtime.storage.load_settings().map_err(command_error)?;
     settings.disabled_widgets.retain(|id| id != &widget_id);
+    log::info!(
+        "{} widget {widget_id}",
+        if enabled { "Enabled" } else { "Disabled" }
+    );
     if !enabled {
         settings.disabled_widgets.push(widget_id.clone());
         runtime
@@ -1116,6 +1149,7 @@ async fn refresh_catalogue_data(runtime: &Runtime) -> Result<(), String> {
 
 /// Records a catalogue error and returns it.
 fn set_catalogue_error(runtime: &Runtime, error: &str) -> Result<(), String> {
+    log::warn!("Widget catalogue unavailable: {error}");
     *runtime
         .catalogue_error
         .lock()
@@ -1291,7 +1325,14 @@ pub async fn widget_request(
     let request_id = request.request_id.clone();
     match dispatch_widget_request(&runtime, &widget_id, &request.method, request.params).await {
         Ok(result) => Ok(crate::widget_ipc::success(request_id, result)),
-        Err(error) => Ok(crate::widget_ipc::failure(request_id, error)),
+        Err(error) => {
+            log::warn!(
+                target: &widget_target(&widget_id),
+                "Request {} failed: {error}",
+                request.method
+            );
+            Ok(crate::widget_ipc::failure(request_id, error))
+        }
     }
 }
 
@@ -1385,6 +1426,21 @@ async fn dispatch_widget_request(
             Ok(Value::Null)
         }
         "network.fetch" => widget_network_fetch(runtime, widget_id, &params).await,
+        "log.write" => {
+            let level = params
+                .get("level")
+                .cloned()
+                .map_or(Ok(LogLevel::Info), serde_json::from_value)
+                .map_err(|_| {
+                    "The widget parameter level must be debug, info, warn, or error.".to_string()
+                })?;
+            write_record(
+                level,
+                &widget_target(widget_id),
+                required_string(&params, "message")?,
+            );
+            Ok(Value::Null)
+        }
         "process.spawn" => {
             let process_id = required_string(&params, "processId")?;
             let arguments = optional_string_array(&params, "arguments")?;
@@ -1461,19 +1517,27 @@ pub(crate) async fn join_account_ids(
                 "No place is set to join. Can you set one on the Accounts screen?".to_string()
             })?,
         };
-        let secret = runtime.credentials.get(*id).map_err(command_error)?;
+        let secret = runtime
+            .credentials
+            .get(*id)
+            .inspect_err(|error| log::warn!("Session for account {id} couldn't be read: {error}"))
+            .map_err(command_error)?;
+        log::info!("Joining place {place_id} as account {id}");
         let mut attempt = 0;
         let uri = loop {
             match crate::roblox::build_join_uri(&runtime.client, &secret, &place_id).await {
                 Ok(uri) => break uri,
                 Err(error @ crate::roblox::RobloxError::InvalidPlace) => {
+                    log::warn!("Place {place_id} isn't joinable: {error}");
                     return Err(command_error(error));
                 }
                 Err(error) => {
                     attempt += 1;
                     if attempt > LAUNCH_RETRIES {
+                        log::warn!("Join ticket for account {id} failed after retries: {error}");
                         return Err(command_error(error));
                     }
+                    log::info!("Join ticket for account {id} failed, retrying: {error}");
                     delay = next_launch_delay(delay);
                     tokio::time::sleep(delay).await;
                 }
@@ -1487,10 +1551,13 @@ pub(crate) async fn join_account_ids(
             crate::multi_instance::clear_new_roblox_instances(
                 runtime.multi_instance_helper.as_deref(),
                 &mut cleared,
-            )?;
+            )
+            .inspect_err(|error| log::warn!("Multiple instances couldn't be enabled: {error}"))?;
         }
-        opener::open(uri)
-            .map_err(|_| "Roblox couldn't be opened. Is Roblox installed?".to_string())?;
+        opener::open(uri).map_err(|error| {
+            log::error!("Roblox couldn't be opened: {error}");
+            "Roblox couldn't be opened. Is Roblox installed?".to_string()
+        })?;
         if record_play {
             runtime
                 .storage
@@ -1607,9 +1674,89 @@ fn optional_string_array(params: &Value, field: &str) -> Result<Vec<String>, Str
         .collect()
 }
 
+/// Severity of a record written by the interface or a widget.
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl From<LogLevel> for log::Level {
+    fn from(level: LogLevel) -> Self {
+        match level {
+            LogLevel::Debug => log::Level::Debug,
+            LogLevel::Info => log::Level::Info,
+            LogLevel::Warn => log::Level::Warn,
+            LogLevel::Error => log::Level::Error,
+        }
+    }
+}
+
+/// Longest message accepted from the interface or a widget before it's cut.
+const MAX_WRITTEN_LOG_BYTES: usize = 64 * 1024;
+
+/// Log target for a widget's records.
+fn widget_target(widget_id: &str) -> String {
+    format!("{}{widget_id}", crate::logs::WIDGET_TARGET_PREFIX)
+}
+
+/// Writes a record for `target`, cutting overlong messages first.
+fn write_record(level: LogLevel, target: &str, message: &str) {
+    let mut end = message.len().min(MAX_WRITTEN_LOG_BYTES);
+    while !message.is_char_boundary(end) {
+        end -= 1;
+    }
+    log::log!(target: target, level.into(), "{}", &message[..end]);
+}
+
+/// Returns up to `lines` of the most recent log lines, 300 by default.
+#[tauri::command]
+pub fn read_log(lines: Option<usize>) -> Result<String, String> {
+    crate::logs::tail(lines.unwrap_or(300))
+}
+
+/// Opens the log folder in Explorer or Finder.
+#[tauri::command]
+pub fn open_log_folder() -> Result<(), String> {
+    let directory = crate::logs::directory().ok_or_else(|| {
+        "Logging didn't start. Can you check that the data folder is writable?".to_string()
+    })?;
+    opener::open(directory)
+        .map_err(|_| "The log folder couldn't be opened. Does it still exist?".to_string())
+}
+
+/// Writes a record from the interface, or from a widget when `widget_id` is set. Every line is
+/// redacted and messages over 8 KB are cut.
+#[tauri::command]
+pub fn write_log(
+    level: LogLevel,
+    message: String,
+    widget_id: Option<String>,
+) -> Result<(), String> {
+    let target = match widget_id {
+        Some(widget_id) => {
+            crate::widgets::validate_widget_id(&widget_id)?;
+            widget_target(&widget_id)
+        }
+        None => "interface".into(),
+    };
+    write_record(level, &target, &message);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn written_records_need_a_valid_widget_id() {
+        assert!(write_log(LogLevel::Info, "ok".into(), Some("sample_widget".into())).is_ok());
+        assert!(write_log(LogLevel::Info, "ok".into(), Some("Bad ID".into())).is_err());
+        assert!(write_log(LogLevel::Info, "é".repeat(MAX_WRITTEN_LOG_BYTES), None).is_ok());
+    }
 
     #[test]
     fn launch_delay_backs_off_from_one_to_five_seconds() {

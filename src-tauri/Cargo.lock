@@ -4766,6 +4766,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "keyring",
+ "log",
  "opener",
  "reqwest 0.12.28",
  "semver",

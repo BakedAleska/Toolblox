@@ -13,6 +13,8 @@ use crate::widgets::WidgetProcess;
 
 /// Longest line read from or sent to a widget process, in bytes. Longer output lines are cut.
 const MAX_LINE_BYTES: usize = 64 * 1024;
+/// Error output lines logged per process start. Later lines still reach the widget.
+const MAX_LOGGED_STDERR_LINES: usize = 200;
 
 /// One line of output from a widget process.
 #[derive(Clone, Debug, Serialize)]
@@ -125,6 +127,12 @@ impl WidgetProcessManager {
             ProcessStream::Stderr,
             stderr,
         );
+        log::info!(
+            target: &format!("widget:{widget_id}"),
+            "Started process {} (pid {})",
+            declaration.id,
+            child.id()
+        );
         self.processes.insert(key, ManagedProcess { child, stdin });
         Ok(())
     }
@@ -171,6 +179,7 @@ impl WidgetProcessManager {
             .child
             .wait()
             .map_err(|_| "Couldn't finish stopping the widget process.".to_string())?;
+        log::info!(target: &format!("widget:{widget_id}"), "Stopped process {process_id}");
         Ok(())
     }
 
@@ -252,6 +261,8 @@ fn spawn_reader<R: std::io::Read + Send + 'static>(
     reader: R,
 ) {
     thread::spawn(move || {
+        let target = format!("widget:{widget_id}");
+        let mut logged_errors = 0;
         let mut reader = BufReader::new(reader);
         loop {
             let mut bytes = Vec::new();
@@ -260,6 +271,9 @@ fn spawn_reader<R: std::io::Read + Send + 'static>(
                     return;
                 };
                 if buffer.is_empty() {
+                    if matches!(stream, ProcessStream::Stdout) {
+                        log::info!(target: &target, "Process {process_id} closed its output");
+                    }
                     return;
                 }
                 let consumed = buffer
@@ -281,6 +295,14 @@ fn spawn_reader<R: std::io::Read + Send + 'static>(
                 bytes.pop();
             }
             let line = String::from_utf8_lossy(&bytes).into_owned();
+            if matches!(stream, ProcessStream::Stderr) {
+                logged_errors += 1;
+                if logged_errors <= MAX_LOGGED_STDERR_LINES {
+                    log::warn!(target: &target, "{process_id}: {line}");
+                } else if logged_errors == MAX_LOGGED_STDERR_LINES + 1 {
+                    log::warn!(target: &target, "{process_id}: further error output isn't logged");
+                }
+            }
             if sender
                 .send(WidgetProcessEvent {
                     widget_id: widget_id.clone(),

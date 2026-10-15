@@ -1,8 +1,8 @@
-import { ExternalLink, RefreshCw } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { Copy, ExternalLink, FolderOpen, RefreshCw } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { bridge, isDemo, previewUpdater } from "@/bridge";
+import { bridge, describeError, isDemo, previewUpdater } from "@/bridge";
 import { cn } from "@/lib/utils";
 import { ChoiceRow, Panel, Screen, SectionTitle, Spinner, SwitchRow, type ScreenProps } from "@/shared";
 
@@ -12,7 +12,7 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   return <section className="flex flex-col gap-2"><SectionTitle>{title}</SectionTitle>{children}</section>;
 }
 
-export function SettingsScreen({ state, patchSettings }: ScreenProps) {
+export function SettingsScreen({ state, notify, patchSettings }: ScreenProps) {
   const [tab, setTab] = useState<Tab>("general");
   const [checking, setChecking] = useState(false);
   const [updateStatus, setUpdateStatus] = useState("");
@@ -41,6 +41,7 @@ export function SettingsScreen({ state, patchSettings }: ScreenProps) {
           <SwitchRow title="Run in background" description={`Closing the window keeps Toolblox running in the ${state.platform === "macos" ? "menu bar" : "system tray"}.`} checked={settings.runInBackground} change={(value) => void patchSettings("runInBackground", value)} />
           <SwitchRow title="Always on top" description="Keep this window above other windows." checked={settings.alwaysOnTop} change={(value) => void patchSettings("alwaysOnTop", value)} />
         </Panel></Group>
+        <LogGroup logsPath={state.logsPath} notify={notify} />
         <Group title="About"><Panel className="divide-y">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
             <div className="min-w-48 flex-1">
@@ -57,7 +58,18 @@ export function SettingsScreen({ state, patchSettings }: ScreenProps) {
           <div className="space-y-1 px-4 py-3">
             <p className="text-sm font-medium">Privacy</p>
             <p className="text-xs text-muted-foreground">Accounts, notes, settings, and widget data are stored on this device. Roblox sessions are protected by {state.platform === "macos" ? "the macOS login Keychain" : "Windows Credential Manager"}. No telemetry is collected.</p>
-            <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge.openExternal("https://github.com/BakedAleska/Toolblox/blob/main/SECURITY.md")}>Security policy<ExternalLink /></Button>
+            <div className="flex flex-wrap gap-x-4">
+              <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge.openExternal("https://github.com/BakedAleska/Toolblox/blob/main/PRIVACY.md")}>Privacy policy<ExternalLink /></Button>
+              <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge.openExternal("https://github.com/BakedAleska/Toolblox/blob/main/SECURITY.md")}>Security policy<ExternalLink /></Button>
+            </div>
+          </div>
+          <div className="space-y-1 px-4 py-3">
+            <p className="text-sm font-medium">Legal</p>
+            <p className="text-xs text-muted-foreground">Toolblox isn't affiliated with or endorsed by Roblox Corporation. It's provided as is, without warranty, under the MIT License.</p>
+            <div className="flex flex-wrap gap-x-4">
+              <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge.openExternal("https://github.com/BakedAleska/Toolblox/blob/main/LICENSE")}>License<ExternalLink /></Button>
+              <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge.openExternal(`https://github.com/BakedAleska/Toolblox/releases/download/v${state.version}/THIRD-PARTY-NOTICES.txt`)}>Third-party notices<ExternalLink /></Button>
+            </div>
           </div>
         </Panel></Group>
       </TabsContent>
@@ -81,4 +93,47 @@ export function SettingsScreen({ state, patchSettings }: ScreenProps) {
 
     </Tabs>
   </Screen>;
+}
+
+/** Lines shown in the log view. Copying includes up to 2,000. */
+const LOG_VIEW_LINES = 300;
+
+function LogGroup({ logsPath, notify }: { logsPath: string; notify: (message: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [log, setLog] = useState<string>();
+  const [loading, setLoading] = useState(false);
+  const view = useRef<HTMLPreElement>(null);
+  const load = async () => {
+    setLoading(true);
+    try { setLog(await bridge.readLog(LOG_VIEW_LINES)); }
+    catch (error) { setLog(undefined); notify(`The log couldn't be read. Does reopening Settings help? (${describeError(error)})`); }
+    finally { setLoading(false); }
+  };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(await bridge.readLog(2000) || "The log is empty."); notify("Copied."); }
+    catch (error) { notify(`The log wasn't copied. Does retrying help? (${describeError(error)})`); }
+  };
+  const openFolder = () => bridge.openLogFolder().catch((error) => notify(`The log folder couldn't be opened. Does it still exist? (${describeError(error)})`));
+  useEffect(() => { if (view.current) view.current.scrollTop = view.current.scrollHeight; }, [log]);
+
+  return <Group title="Diagnostics"><Panel className="divide-y">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+      <div className="min-w-48 flex-1">
+        <p className="text-sm font-medium">Log</p>
+        <p className="text-xs text-muted-foreground">Recent activity and errors, kept on this device. Sessions, tickets, and launch links are removed before anything is written.</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" aria-expanded={open} aria-controls="log-view" onClick={() => { setOpen(!open); if (!open) void load(); }}>{open ? "Hide" : "Show"}</Button>
+        <Button variant="outline" size="sm" onClick={() => void copy()}><Copy />Copy</Button>
+        <Button variant="outline" size="sm" onClick={() => void openFolder()} disabled={!logsPath} title={logsPath || undefined}><FolderOpen />Open folder</Button>
+      </div>
+    </div>
+    {open && <div id="log-view" className="flex flex-col gap-2 px-4 py-3">
+      <div className="flex items-center gap-2">
+        <p className="mr-auto text-xs text-muted-foreground" aria-live="polite">{loading ? "Loading…" : `Last ${LOG_VIEW_LINES} lines, oldest first.`}</p>
+        <Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading}>{loading ? <Spinner /> : <RefreshCw />}Refresh</Button>
+      </div>
+      <pre ref={view} tabIndex={0} aria-label="Recent log lines" className="max-h-64 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed whitespace-pre text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50">{log || (loading ? "" : "The log is empty.")}</pre>
+    </div>}
+  </Panel></Group>;
 }

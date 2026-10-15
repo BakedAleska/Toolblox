@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, ChevronDown, GripVertical, ListChecks, MapPin, MapPinOff, MoreHorizontal, Play, Plus, Search, Trash2, Users, X } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type PointerEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,16 +19,20 @@ export function Accounts({ state, refresh, notify, confirm, join, askPlace, patc
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [adding, setAdding] = useState(false);
   const [dragged, setDragged] = useState<number>();
+  const [over, setOver] = useState<number>();
   const placeField = useRef<HTMLLabelElement>(null);
-  const sorted = useMemo(() => sortAccounts(state.accounts, settings.sortOrder), [state.accounts, settings.sortOrder]);
+  const [pendingOrder, setPendingOrder] = useState<Account[]>();
+  const saved = useMemo(() => sortAccounts(state.accounts, settings.sortOrder), [state.accounts, settings.sortOrder]);
+  const sorted = pendingOrder ?? saved;
   const visible = sorted.filter((account) => `${account.name} ${account.displayName} ${account.notes}`.toLowerCase().includes(query.trim().toLowerCase()));
   const reorderable = settings.sortOrder === "manual" && !query;
 
   const toggleSelection = (id: number) => setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   const addAccount = async () => { setAdding(true); try { await bridge.beginRobloxLogin(); await refresh(); } catch (error) { notify(`Sign-in didn't complete. Was the sign-in window closed? (${String(error)})`); } finally { setAdding(false); } };
-  const persistOrder = async (next: Account[]) => { await bridge.reorderAccounts(next.map(({ id }) => id)); await refresh(); };
+  const persistOrder = (next: Account[]) => { setPendingOrder(next); return bridge.reorderAccounts(next.map(({ id }) => id)).then(refresh).catch((error) => notify(`The order wasn't saved. Does refreshing help? (${String(error)})`)).finally(() => setPendingOrder(undefined)); };
   const move = (id: number, direction: -1 | 1) => { const index = sorted.findIndex((account) => account.id === id); const target = index + direction; if (index < 0 || target < 0 || target >= sorted.length) return; const next = [...sorted]; [next[index], next[target]] = [next[target], next[index]]; void persistOrder(next); };
-  const drop = (targetId: number) => { if (!dragged || dragged === targetId) return; const next = [...sorted]; const from = next.findIndex(({ id }) => id === dragged); const to = next.findIndex(({ id }) => id === targetId); next.splice(to, 0, next.splice(from, 1)[0]); setDragged(undefined); void persistOrder(next); };
+  const drop = (targetId?: number) => { setDragged(undefined); setOver(undefined); if (dragged === undefined || targetId === undefined || dragged === targetId) return; const next = [...sorted]; const from = next.findIndex(({ id }) => id === dragged); const to = next.findIndex(({ id }) => id === targetId); next.splice(to, 0, next.splice(from, 1)[0]); void persistOrder(next); };
+  const rowAt = (event: PointerEvent<Element>) => { const id = (document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-account-id]") as HTMLElement | null)?.dataset.accountId; return id ? Number(id) : undefined; };
   const setAccountPlace = (account: Account, placeId: string | null) => bridge.setAccountPlace(account.id, placeId).then(refresh).catch((error) => notify(`The place wasn't saved. Does retrying help? (${String(error)})`));
   const savePlace = async (input: HTMLInputElement) => {
     const value = input.value.trim();
@@ -85,10 +89,12 @@ export function Accounts({ state, refresh, notify, confirm, join, askPlace, patc
 
     {state.accounts.length === 0 ? <EmptyState icon={<Users />} title="No accounts" text="Accounts are added through the official Roblox sign-in page. Passwords are never sent to Toolblox." action={<Button onClick={() => void addAccount()} disabled={adding}><Plus />Add account</Button>} />
       : visible.length === 0 ? <EmptyState icon={<Search />} title="No results" text="No account matches this search." />
-      : <div className="flex flex-col gap-2">{visible.map((account, index) => <Panel key={account.id}
-          className={cn("group flex items-center gap-3 px-3 transition-opacity", settings.compactMode ? "py-1.5" : "py-2.5", dragged === account.id && "opacity-50")}
-          draggable={reorderable} onDragStart={() => setDragged(account.id)} onDragEnd={() => setDragged(undefined)} onDragOver={(event) => event.preventDefault()} onDrop={() => drop(account.id)}>
-        {reorderable && <GripVertical className="size-4 shrink-0 cursor-grab text-muted-foreground/50 group-hover:text-muted-foreground" aria-hidden="true" />}
+      : <div className="flex flex-col gap-2">{visible.map((account, index) => <Panel key={account.id} data-account-id={account.id}
+          className={cn("group flex items-center gap-3 px-3 transition-opacity", settings.compactMode ? "py-1.5" : "py-2.5", dragged === account.id && "opacity-50", over === account.id && dragged !== account.id && "ring-2 ring-ring")}>
+        {reorderable && <GripVertical className="size-4 shrink-0 cursor-grab touch-none text-muted-foreground/50 group-hover:text-muted-foreground active:cursor-grabbing" aria-hidden="true"
+          onPointerDown={(event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); setDragged(account.id); }}
+          onPointerMove={(event) => { if (dragged !== undefined) setOver(rowAt(event)); }}
+          onPointerUp={(event) => drop(rowAt(event))} onPointerCancel={() => drop()} />}
         {selectMode && <Checkbox checked={selected.has(account.id)} onCheckedChange={() => toggleSelection(account.id)} aria-label={`Select ${accountName(account)}`} />}
         {settings.showAvatars && <Avatar account={account} className={settings.compactMode ? "size-8" : "size-10"} />}
         <div className="min-w-0 flex-1">

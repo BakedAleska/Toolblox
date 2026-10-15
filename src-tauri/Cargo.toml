@@ -32,6 +32,7 @@ uuid = { version = "1", features = ["v4"] }
 zip = { version = "7.2", default-features = false, features = ["deflate"] }
 zeroize = "1"
 opener = "0.8"
+log = "0.4"
 tokio = { version = "1", features = ["time"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]

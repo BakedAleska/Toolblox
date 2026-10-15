@@ -161,6 +161,7 @@ pub async fn run(app: AppHandle) {
     state.set(StartupView::Checking);
     let result = run_inner(&app).await;
     if let Err(message) = result {
+        log::error!("Startup stopped: {message}");
         state.set(StartupView::Failed { message });
     }
     state.in_progress.store(false, Ordering::SeqCst);
@@ -174,6 +175,7 @@ pub async fn run(app: AppHandle) {
 async fn run_inner(app: &AppHandle) -> Result<(), String> {
     #[cfg(debug_assertions)]
     {
+        log::debug!("Debug build: the update check is skipped");
         prepare_local_data(&app.state::<crate::app_commands::Runtime>())?;
         app.state::<StartupState>().set(StartupView::Ready);
         Ok(())
@@ -250,11 +252,13 @@ async fn run_inner(app: &AppHandle) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
         match decision {
             ReleaseDecision::Current { .. } => {
+                log::info!("Update check passed: {installed} is current");
                 prepare_local_data(&runtime)?;
                 app.state::<StartupState>().set(StartupView::Ready);
                 Ok(())
             }
             ReleaseDecision::UpdateRequired { version, artifact } => {
+                log::info!("Update required: installing {version} over {installed}");
                 app.state::<StartupState>().set(StartupView::Installing {
                     version: version.to_string(),
                 });
@@ -292,6 +296,8 @@ async fn run_inner(app: &AppHandle) -> Result<(), String> {
                     );
                 }
                 update.install(bytes).map_err(|error| error.to_string())?;
+                log::info!("Update {version} installed, restarting");
+                log::logger().flush();
                 app.restart();
             }
             #[cfg(debug_assertions)]
@@ -308,12 +314,25 @@ fn prepare_local_data(runtime: &crate::app_commands::Runtime) -> Result<(), Stri
         && (runtime.legacy_root.join("accounts.json").exists()
             || runtime.legacy_root.join("settings.json").exists())
     {
-        crate::migration::migrate_legacy(
+        let summary = crate::migration::migrate_legacy(
             &runtime.legacy_root,
             &runtime.storage,
             runtime.credentials.as_ref(),
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            log::error!("Legacy data import failed: {error}");
+            error.to_string()
+        })?;
+        log::info!(
+            "Imported legacy data: {} accounts, {} sessions, settings {}",
+            summary.accounts_imported,
+            summary.sessions_imported,
+            if summary.settings_imported {
+                "imported"
+            } else {
+                "not found"
+            }
+        );
         fs::create_dir_all(data_root)
             .map_err(|_| "Toolblox couldn't create its data folder. Is it writable?".to_string())?;
         fs::write(&migration_marker, b"1\n").map_err(|_| {

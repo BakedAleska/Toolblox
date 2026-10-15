@@ -36,6 +36,7 @@ struct Entry {
 pub async fn run(app: AppHandle) {
     let mut entries: HashMap<u64, Entry> = HashMap::new();
     let mut interval = POLL_INTERVAL;
+    let mut presence_failing = false;
     loop {
         tokio::time::sleep(interval).await;
         interval = POLL_INTERVAL;
@@ -66,6 +67,7 @@ pub async fn run(app: AppHandle) {
         }
         let ids: Vec<_> = accounts.iter().map(|account| account.id).collect();
         let mut states = None;
+        let mut failure = None;
         for account in &accounts {
             let Ok(secret) = runtime.credentials.get(account.id) else {
                 continue;
@@ -75,13 +77,31 @@ pub async fn run(app: AppHandle) {
                     states = Some(found);
                     break;
                 }
-                Err(crate::roblox::RobloxError::Rejected(_)) => continue,
-                Err(_) => break,
+                Err(error @ crate::roblox::RobloxError::Rejected(_)) => {
+                    failure = Some(error.to_string());
+                }
+                Err(error) => {
+                    failure = Some(error.to_string());
+                    break;
+                }
             }
         }
         let Some(states) = states else {
+            if !presence_failing && !accounts.is_empty() {
+                log::warn!(
+                    "Presence checks for auto-rejoin are failing: {}",
+                    failure
+                        .as_deref()
+                        .unwrap_or("no account has a readable session")
+                );
+            }
+            presence_failing = true;
             continue;
         };
+        if presence_failing {
+            log::info!("Presence checks for auto-rejoin recovered");
+            presence_failing = false;
+        }
         entries.retain(|id, _| states.contains_key(id));
         for (id, presence) in states {
             let entry = entries.entry(id).or_default();
@@ -108,6 +128,7 @@ pub async fn run(app: AppHandle) {
                             let _ = app.notification().builder().title(title).body(body).show();
                         }
                     };
+                    log::info!("Account {id} left its game");
                     if !settings.auto_rejoin {
                         notify(format!("{name} disconnected"), "Open Toolblox to rejoin.");
                         continue;
@@ -120,6 +141,10 @@ pub async fn run(app: AppHandle) {
                         .is_some_and(|last| last.elapsed() < REJOIN_GRACE)
                     {
                         entry.suspended = true;
+                        log::warn!(
+                            "Auto-rejoin paused for account {id}: it left again within {} seconds",
+                            REJOIN_GRACE.as_secs()
+                        );
                         notify(
                             format!("Auto-rejoin paused for {name}"),
                             "It disconnected again shortly after rejoining. Join manually to resume.",
@@ -127,11 +152,13 @@ pub async fn run(app: AppHandle) {
                         continue;
                     }
                     notify(format!("{name} disconnected"), "Rejoining automatically.");
-                    if crate::app_commands::join_account_ids(&runtime, &[id], false, None)
-                        .await
-                        .is_ok()
+                    match crate::app_commands::join_account_ids(&runtime, &[id], false, None).await
                     {
-                        entry.last_rejoin = Some(Instant::now());
+                        Ok(()) => {
+                            log::info!("Auto-rejoined account {id}");
+                            entry.last_rejoin = Some(Instant::now());
+                        }
+                        Err(error) => log::warn!("Auto-rejoin for account {id} failed: {error}"),
                     }
                 }
                 PresenceState::Offline | PresenceState::Online | PresenceState::Unknown => {}

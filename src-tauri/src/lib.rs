@@ -16,6 +16,7 @@
 //! - [`multi_instance`]: running several Roblox clients on Windows.
 //! - [`migration`]: one-time import from the legacy Flet app.
 //! - [`lifecycle`]: window, tray, and single-instance behavior.
+//! - [`logs`]: the rotating, redacted log file.
 //! - [`widgets`], [`widget_protocol`], [`widget_ipc`], and [`widget_process`]: signed widget
 //!   packages, their assets, permission-checked messages, and sidecar processes.
 //!
@@ -31,6 +32,7 @@ mod auto_rejoin;
 mod credentials;
 mod lifecycle;
 mod login;
+mod logs;
 mod migration;
 mod models;
 mod multi_instance;
@@ -121,7 +123,13 @@ fn start_widgets_on_launch(runtime: &Runtime) {
     {
         let root = runtime.widgets_root.join(&widget.id);
         for declaration in &widget.manifest.processes {
-            let _ = processes.start(&widget.id, &root, declaration, &[]);
+            if let Err(error) = processes.start(&widget.id, &root, declaration, &[]) {
+                log::warn!(
+                    "Widget {} process {} didn't start on launch: {error}",
+                    widget.id,
+                    declaration.id
+                );
+            }
         }
     }
 }
@@ -149,6 +157,19 @@ pub fn run() {
             let data_root = legacy_root.join("v2");
             let widgets_root = data_root.join("widgets");
             let safe_mode = take_safe_mode(&data_root);
+            let _ = logs::init(&data_root.join("logs"));
+            log::info!(
+                "Toolblox {} ({}) starting on {} {}{}",
+                env!("CARGO_PKG_VERSION"),
+                if cfg!(debug_assertions) {
+                    "debug"
+                } else {
+                    "release"
+                },
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+                if safe_mode { " in safe mode" } else { "" }
+            );
             let storage = Arc::new(storage::Storage::new(data_root.clone()));
             let credentials = Arc::new(credentials::OsCredentialStore);
             let client = reqwest::Client::builder()
@@ -289,6 +310,9 @@ pub fn run() {
             app_commands::open_widget,
             app_commands::close_widget_session,
             app_commands::widget_request,
+            app_commands::read_log,
+            app_commands::open_log_folder,
+            app_commands::write_log,
             startup::startup_status,
             startup::retry_startup_update,
             startup::quit_startup,
@@ -303,10 +327,12 @@ pub fn run() {
                     app.state::<Arc<LifecycleState>>().inner().as_ref(),
                 );
             }
-            if matches!(event, tauri::RunEvent::Exit)
-                && let Ok(mut processes) = app.state::<Runtime>().processes.lock()
-            {
-                processes.stop_all();
+            if matches!(event, tauri::RunEvent::Exit) {
+                if let Ok(mut processes) = app.state::<Runtime>().processes.lock() {
+                    processes.stop_all();
+                }
+                log::info!("Toolblox exited");
+                log::logger().flush();
             }
         });
 }

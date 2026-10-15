@@ -585,7 +585,7 @@ fn verify_signature(
 }
 
 /// Accepts IDs of 1 to 64 lowercase letters, digits, and underscores.
-fn validate_widget_id(value: &str) -> Result<(), String> {
+pub(crate) fn validate_widget_id(value: &str) -> Result<(), String> {
     if value.is_empty()
         || value.len() > 64
         || !value

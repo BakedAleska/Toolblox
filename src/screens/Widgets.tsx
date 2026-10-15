@@ -46,7 +46,7 @@ export function Widgets({ state, refresh, navigate, notify, confirm }: ScreenPro
       </Panel>
         : state.catalogue.length ? <div className={grid}>{state.catalogue.map((entry) => <WidgetCard key={entry.id} name={entry.name} logoUrl={entry.logoUrl} meta={`v${entry.version}`} description={entry.description} permissions={entry.permissions}
           footer={<Button variant="outline" size="sm" className="ml-auto" disabled={working.has(entry.id)} onClick={() => install(entry)}>{working.has(entry.id) ? <Spinner /> : <Plus />}Install</Button>} />)}</div>
-        : <p className="text-sm text-muted-foreground">All catalogue widgets are installed.</p>}
+        : <p className="text-sm text-muted-foreground">{state.installedWidgets.length ? "All catalogue widgets are installed." : "No widgets are published yet."}</p>}
     </section>
 
     {state.channel === "canary" && <Panel className="space-y-2 px-4 py-3">

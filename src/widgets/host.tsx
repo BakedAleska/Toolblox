@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Component, useSyncExternalStore, type ComponentType, type ReactNode } from "react";
+import { Component, useSyncExternalStore, type ComponentType, type ErrorInfo, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -9,10 +9,12 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { bridge } from "@/bridge";
+import { bridge, describeError } from "@/bridge";
 import { cn } from "@/lib/utils";
 import { Avatar, ChoiceRow, EmptyState, IconButton, Panel, SectionTitle, Spinner, StatTile, SwitchRow } from "@/shared";
-import type { Account, AppRoute, AppState, WidgetSummary } from "@/types";
+import type { Account, AppRoute, AppState, LogLevel, WidgetSummary } from "@/types";
+
+const logLevels: LogLevel[] = ["debug", "info", "warn", "error"];
 
 /** Core screens a widget can replace. Toolblox Settings can't be replaced. */
 export type CoreScreen = "dashboard" | "accounts" | "widgets";
@@ -110,6 +112,8 @@ function createApi(widget: WidgetSummary, sessionId?: string) {
       document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
       return track(id, () => { document.adoptedStyleSheets = document.adoptedStyleSheets.filter((item) => item !== sheet); });
     },
+    /** Writes to the Toolblox log under this widget's ID. Secrets are redacted and lines over 8 KB are cut. */
+    log: Object.fromEntries(logLevels.map((level) => [level, (message: string) => bridge.writeLog(level, message, id)])) as Record<LogLevel, (message: string) => Promise<void>>,
     storage: {
       get: () => bridge.getWidgetStore(id),
       set: (value: unknown) => bridge.setWidgetStore(id, value),
@@ -128,7 +132,7 @@ export type ToolbloxApi = ReturnType<typeof createApi>;
 
 function unload(widgetId: string) {
   const entry = loaded.get(widgetId);
-  try { entry?.deactivate?.(); } catch { /* A failing deactivate still unloads the widget. */ }
+  try { entry?.deactivate?.(); } catch (error) { void bridge.writeLog("error", `Deactivate failed: ${describeError(error)}`, widgetId); }
   (disposers.get(widgetId) ?? []).forEach((dispose) => dispose());
   disposers.delete(widgetId);
   if (entry?.sessionId) void bridge.closeWidgetSession(entry.sessionId);
@@ -151,6 +155,7 @@ export async function syncWidgetModules(widgets: WidgetSummary[], safeMode: bool
       loaded.set(widget.id, { sessionId: session?.sessionId, deactivate: module.deactivate });
       await module.activate?.(createApi(widget, session?.sessionId));
     } catch (error) {
+      void bridge.writeLog("error", `Module failed to load: ${describeError(error)}`, widget.id);
       errors.set(widget.id, String(error));
       emit();
     }
@@ -161,6 +166,7 @@ export async function syncWidgetModules(widgets: WidgetSummary[], safeMode: bool
 export class WidgetBoundary extends Component<{ widgetId: string; children: ReactNode }, { error?: string }> {
   state: { error?: string } = {};
   static getDerivedStateFromError(error: unknown) { return { error: String(error) }; }
+  componentDidCatch(error: unknown, info: ErrorInfo) { void bridge.writeLog("error", `Render failed: ${describeError(error)}${info.componentStack ?? ""}`, this.props.widgetId); }
   render() {
     if (!this.state.error) return this.props.children;
     const name = appState?.installedWidgets.find(({ id }) => id === this.props.widgetId)?.name ?? this.props.widgetId;

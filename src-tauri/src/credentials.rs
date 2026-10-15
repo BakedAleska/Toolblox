@@ -183,8 +183,8 @@ mod tests {
     ];
 
     /// Returns a source file's non-test code with comment lines removed.
-    fn production_source(path: &Path) -> String {
-        let source = std::fs::read_to_string(path).unwrap();
+    fn production_source(source: &str) -> String {
+        let source = source.replace("\r\n", "\n");
         let end = ["#[cfg(test)]\nmod ", "#[cfg(test)]\npub(crate) mod "]
             .iter()
             .filter_map(|marker| source.find(marker))
@@ -195,6 +195,18 @@ mod tests {
             .filter(|line| !line.trim_start().starts_with("//"))
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    #[test]
+    fn production_source_excludes_tests_with_either_line_ending() {
+        for visibility in ["", "pub(crate) "] {
+            let source = format!(
+                "// Comment\nfn production() {{}}\n#[cfg(test)]\n{visibility}mod tests {{}}\n"
+            );
+            let expected = "fn production() {}";
+            assert_eq!(production_source(&source), expected);
+            assert_eq!(production_source(&source.replace('\n', "\r\n")), expected);
+        }
     }
 
     #[test]
@@ -211,7 +223,8 @@ mod tests {
         for (pattern, allowed) in SECRET_ACCESS {
             for path in &files {
                 let name = path.file_name().unwrap().to_str().unwrap();
-                let found = production_source(path).matches(pattern).count();
+                let source = std::fs::read_to_string(path).unwrap();
+                let found = production_source(&source).matches(pattern).count();
                 let expected = allowed
                     .iter()
                     .find(|(file, _)| *file == name)

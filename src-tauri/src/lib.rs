@@ -331,7 +331,6 @@ pub fn run() {
             app_commands::update_widget,
             app_commands::uninstall_widget,
             app_commands::retry_catalogue,
-            app_commands::check_for_updates,
             app_commands::open_widget,
             app_commands::close_widget_session,
             app_commands::widget_request,

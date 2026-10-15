@@ -242,7 +242,6 @@ export const bridge = {
     }),
 
   retryCatalogue: () => call<void>("retry_catalogue", {}, () => undefined),
-  checkForUpdates: () => call<{ available: boolean; version?: string }>("check_for_updates", {}, () => ({ available: false })),
   openExternal: (url: string) => isTauri() ? openUrl(url) : Promise.resolve(window.open(url, "_blank", "noopener,noreferrer")).then(() => undefined),
   openWidget: (widgetId: string, surface: "main" | "settings" | "dashboard" | "module" = "main") => call<{ sessionId: string; url: string }>("open_widget", { widgetId, surface }, () => ({ sessionId: crypto.randomUUID(), url: "about:blank" })),
   getWidgetStore: (widgetId: string) => call<unknown>("get_widget_store", { widgetId }, () => demoStores.get(widgetId) ?? null),

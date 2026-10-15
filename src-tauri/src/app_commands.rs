@@ -160,13 +160,6 @@ pub struct AppStateDto {
     safe_mode: bool,
 }
 
-/// Result of a manual update check.
-#[derive(Debug, Serialize)]
-pub struct UpdateAvailability {
-    available: bool,
-    version: Option<String>,
-}
-
 /// Converts an error to the message returned to the interface.
 fn command_error(error: impl std::fmt::Display) -> String {
     error.to_string()
@@ -1017,19 +1010,6 @@ pub fn set_widget_start_on_launch(
 #[tauri::command]
 pub async fn retry_catalogue(runtime: State<'_, Runtime>) -> Result<(), String> {
     refresh_catalogue_data(&runtime).await
-}
-
-/// Runs the startup update check again. A required update installs and restarts the app.
-#[tauri::command]
-pub async fn check_for_updates(app: AppHandle) -> Result<UpdateAvailability, String> {
-    crate::startup::run(app.clone()).await;
-    match app.state::<crate::startup::StartupState>().view() {
-        crate::startup::StartupView::Failed { message } => Err(message),
-        _ => Ok(UpdateAvailability {
-            available: false,
-            version: None,
-        }),
-    }
 }
 
 /// Base URL for installed widget assets. Windows WebView2 serves custom schemes over HTTP.

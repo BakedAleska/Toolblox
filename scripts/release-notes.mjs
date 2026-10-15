@@ -1,14 +1,14 @@
 /**
- * Prints release notes: `node scripts/release-notes.mjs <version> <sha256>`.
+ * Prints release notes: `node scripts/release-notes.mjs <version> <windows sha256> <macos sha256>`.
  *
  * Lists `feat`, `fix`, and `perf` commit subjects since the previous tag under a fixed download
  * section, so every release explains which file to download.
  */
 import { execFileSync } from "node:child_process";
 
-const [version, sha256] = process.argv.slice(2);
-if (!version || !/^[0-9a-f]{64}$/.test(sha256 || "")) {
-  console.error("Usage: node scripts/release-notes.mjs <version> <sha256>");
+const [version, windowsSha256, macosSha256] = process.argv.slice(2);
+if (!version || ![windowsSha256, macosSha256].every((sha256) => /^[0-9a-f]{64}$/.test(sha256 || ""))) {
+  console.error("Usage: node scripts/release-notes.mjs <version> <windows sha256> <macos sha256>");
   process.exit(1);
 }
 
@@ -27,19 +27,21 @@ const sections = [["feat", "Features"], ["fix", "Fixes"], ["perf", "Performance"
 
 console.log(`## Download
 
-### ⬇️ [Download Toolblox-Setup.exe](https://github.com/BakedAleska/Toolblox/releases/download/v${version}/Toolblox-Setup.exe) (Windows 10 and 11)
+### ⬇️ [Download Toolblox from toolblox.dev](https://toolblox.dev/#download)
 
-Open the installer and follow the steps. If Windows shows "Windows protected your PC", select **More info**, then **Run anyway**. Toolblox isn't code-signed yet.
+For Windows 10 and 11, and macOS on Apple silicon and Intel. Installed copies update themselves the next time they open.
 
-Installed copies update themselves the next time they open.
+- **Windows**: if Windows shows "Windows protected your PC", select **More info**, then **Run anyway**. Toolblox isn't code-signed yet.
+- **macOS**: the first time Toolblox opens, macOS says it can't verify the developer. Select **Done**, then open **System Settings → Privacy & Security** and select **Open Anyway**. Toolblox isn't notarized yet.
 
 > [!IMPORTANT]
-> **Toolblox-Setup.exe is the only file you need.** "Source code (zip)" and "Source code (tar.gz)" are added by GitHub automatically and don't contain the app. \`Toolblox-Update.exe\` and \`Toolblox-Setup.exe.sig\` are used by the updater.
+> The files below are used by the installer and updater, so download Toolblox from [toolblox.dev](https://toolblox.dev/#download) instead. "Source code (zip)" and "Source code (tar.gz)" are added by GitHub automatically and don't contain the app.
 
 ## Changes
 
 ${sections.join("\n\n") || "Maintenance and internal changes."}
 
-## Checksum
+## Checksums
 
-SHA-256 of \`Toolblox-Setup.exe\`: \`${sha256}\``);
+- SHA-256 of \`Toolblox-Setup.exe\`: \`${windowsSha256}\`
+- SHA-256 of \`Toolblox.dmg\`: \`${macosSha256}\``);

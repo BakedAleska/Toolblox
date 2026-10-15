@@ -1,7 +1,7 @@
 /**
  * Builds the signed update manifest and widget catalogue for GitHub Pages.
  *
- * Reads the latest GitHub release, hashes its Windows installer, and writes `_site/` from the
+ * Reads the latest GitHub release, hashes its Windows installer and macOS app archive, and writes `_site/` from the
  * built site in `site/dist/` plus `updates/stable.json` and `catalogue/v1.json`, each with a detached Ed25519 `.sig`.
  * Private keys are base64 32-byte seeds in `MANIFEST_PRIVATE_KEY` and `CATALOGUE_PRIVATE_KEY`.
  */
@@ -11,6 +11,8 @@ import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 const INSTALLER = "Toolblox-Setup.exe";
 /** The same installer under a second name, so updates and manifest builds stay out of the download count of `INSTALLER`. Older releases don't have it. */
 const UPDATER_INSTALLER = "Toolblox-Update.exe";
+/** The universal macOS app archive, used for both Mac architectures. Older releases don't have it. */
+const MACOS_ARCHIVE = "Toolblox.app.tar.gz";
 const MANIFEST_LIFETIME = 7 * 24 * 60 * 60;
 const CLOCK_ALLOWANCE = 60 * 60;
 
@@ -50,8 +52,19 @@ const installer = release.assets.find((entry) => entry.name === UPDATER_INSTALLE
 const version = release.tag_name.replace(/^v/, "");
 if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`Release tag ${release.tag_name} isn't a semantic version.`);
 
-const sha256 = createHash("sha256").update(await download(installer.url)).digest("hex");
-const signature = (await download(asset(`${INSTALLER}.sig`).url)).toString("utf8").trim();
+/** Returns the manifest entry for a release asset and its updater signature. */
+const artifact = async (file, signatureFile) => ({
+  url: file.browser_download_url,
+  sha256: createHash("sha256").update(await download(file.url)).digest("hex"),
+  signature: (await download(asset(signatureFile).url)).toString("utf8").trim(),
+});
+const platforms = { "windows-x86_64": await artifact(installer, `${INSTALLER}.sig`) };
+const archive = release.assets.find((entry) => entry.name === MACOS_ARCHIVE);
+if (archive) {
+  const macos = await artifact(archive, `${MACOS_ARCHIVE}.sig`);
+  platforms["darwin-aarch64"] = macos;
+  platforms["darwin-x86_64"] = macos;
+}
 const now = Math.floor(Date.now() / 1000);
 const publishedAt = now - CLOCK_ALLOWANCE;
 
@@ -67,8 +80,8 @@ writeSigned("_site/updates/stable.json", {
   version,
   publishedAt,
   expiresAt: publishedAt + MANIFEST_LIFETIME,
-  platforms: { "windows-x86_64": { url: installer.browser_download_url, sha256, signature } },
+  platforms,
 }, manifestKey);
 writeSigned("_site/catalogue/v1.json", { schemaVersion: 1, generatedAt: now, entries: [] }, catalogueKey);
 
-console.log(`Published manifest for ${version} (${sha256}).`);
+console.log(`Published manifest for ${version} (${Object.keys(platforms).join(", ")}).`);

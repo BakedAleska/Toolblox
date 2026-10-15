@@ -1,7 +1,8 @@
 name: Release
 
-# Sets the version, tests, builds and signs the Windows installer, commits and tags the version,
-# publishes the GitHub release, and deploys the update manifest that moves installed apps to it.
+# Sets the version, tests, builds and signs the Windows installer and the universal macOS app,
+# commits and tags the version, publishes the GitHub release, and deploys the update manifest that
+# moves installed apps to it.
 on:
   workflow_dispatch:
     inputs:
@@ -25,29 +26,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: bash
-    env:
-      VERSION: ${{ inputs.version }}
-      GH_TOKEN: ${{ github.token }}
+  check:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Check the version
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           if [ "$GITHUB_REF" != "refs/heads/main" ]; then echo "::error::Run releases from main."; exit 1; fi
           if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then echo "::error::v$VERSION already exists."; exit 1; fi
           node scripts/set-version.mjs --check "$VERSION"
-          echo "TOOLBLOX_UPDATER_PUBLIC_KEY=$(node -p 'require("./src-tauri/tauri.conf.json").plugins.updater.pubkey')" >> "$GITHUB_ENV"
+
+  build:
+    needs: check
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the updater key
+        run: echo "TOOLBLOX_UPDATER_PUBLIC_KEY=$(node -p 'require("./src-tauri/tauri.conf.json").plugins.updater.pubkey')" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -57,8 +75,13 @@ jobs:
       - run: npm test
       - run: cargo test
         working-directory: src-tauri
-      - name: Build the installer
-        run: npm run tauri build -- --bundles nsis
+      - name: Build
+        run: |
+          if [ "${{ matrix.platform }}" = macos ]; then
+            npm run tauri build -- --target universal-apple-darwin --bundles app,dmg
+          else
+            npm run tauri build -- --bundles nsis
+          fi
         env:
           TOOLBLOX_UPDATE_MANIFEST_URL: https://toolblox.dev/updates/stable.json
           TOOLBLOX_MANIFEST_PUBLIC_KEY: EuDCNgMRTr2hMG4/aNBJH2gFK/i6VAkQRlc1YFSlh1U=
@@ -69,27 +92,56 @@ jobs:
       - name: Prepare assets
         run: |
           mkdir release
-          cp "src-tauri/target/release/bundle/nsis/Toolblox_${VERSION}_x64-setup.exe" release/Toolblox-Setup.exe
-          cp "src-tauri/target/release/bundle/nsis/Toolblox_${VERSION}_x64-setup.exe.sig" release/Toolblox-Setup.exe.sig
-          cp release/Toolblox-Setup.exe release/Toolblox-Update.exe
-          node scripts/third-party-notices.mjs release/THIRD-PARTY-NOTICES.txt
-          sha256sum release/Toolblox-Setup.exe
+          if [ "${{ matrix.platform }}" = macos ]; then
+            bundle=src-tauri/target/universal-apple-darwin/release/bundle
+            cp "$bundle/dmg/Toolblox_${VERSION}_universal.dmg" release/Toolblox.dmg
+            cp "$bundle/macos/Toolblox.app.tar.gz" release/Toolblox.app.tar.gz
+            cp "$bundle/macos/Toolblox.app.tar.gz.sig" release/Toolblox.app.tar.gz.sig
+            shasum -a 256 release/Toolblox.dmg
+          else
+            cp "src-tauri/target/release/bundle/nsis/Toolblox_${VERSION}_x64-setup.exe" release/Toolblox-Setup.exe
+            cp "src-tauri/target/release/bundle/nsis/Toolblox_${VERSION}_x64-setup.exe.sig" release/Toolblox-Setup.exe.sig
+            cp release/Toolblox-Setup.exe release/Toolblox-Update.exe
+            node scripts/third-party-notices.mjs release/THIRD-PARTY-NOTICES.txt
+            sha256sum release/Toolblox-Setup.exe
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: Toolblox-Setup-${{ inputs.version }}
+          name: Toolblox-${{ matrix.platform }}-${{ inputs.version }}
           path: release
+
+  release:
+    needs: build
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Toolblox-*-${{ inputs.version }}
+          path: release
+          merge-multiple: true
       - name: Commit, tag, and publish
-        if: ${{ !inputs.dry_run }}
         run: |
+          node scripts/set-version.mjs "$VERSION"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json src/bridge.ts
           git commit -m "chore(release): $VERSION"
           git tag "v$VERSION"
           git push origin HEAD:main "v$VERSION"
-          sha=$(sha256sum release/Toolblox-Setup.exe | cut -d' ' -f1)
-          node scripts/release-notes.mjs "$VERSION" "$sha" > notes.md
-          gh release create "v$VERSION" --title "Toolblox ${VERSION/-/ }" --notes-file notes.md --latest release/Toolblox-Setup.exe release/Toolblox-Setup.exe.sig release/Toolblox-Update.exe release/THIRD-PARTY-NOTICES.txt
+          windows=$(sha256sum release/Toolblox-Setup.exe | cut -d' ' -f1)
+          macos=$(sha256sum release/Toolblox.dmg | cut -d' ' -f1)
+          node scripts/release-notes.mjs "$VERSION" "$windows" "$macos" > notes.md
+          gh release create "v$VERSION" --title "Toolblox ${VERSION/-/ }" --notes-file notes.md --latest \
+            release/Toolblox-Setup.exe release/Toolblox-Setup.exe.sig release/Toolblox-Update.exe \
+            release/Toolblox.dmg release/Toolblox.app.tar.gz release/Toolblox.app.tar.gz.sig \
+            release/THIRD-PARTY-NOTICES.txt
 
   pages:
     needs: release

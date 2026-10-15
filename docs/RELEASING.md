@@ -8,9 +8,10 @@
 3. Run it. Tick **Build only** first to test a build without publishing anything.
 
 The workflow sets the version in every file, runs the checks, builds and signs the Windows
-installer, commits `chore(release): <version>`, tags `v<version>`, and publishes a GitHub release
-with `Toolblox-Setup.exe`, its updater signature, notes generated from `feat`, `fix`, and `perf`
-commits, and the SHA-256. It then deploys the update manifest, so installed apps update the next
+installer on Windows and the universal macOS app on macOS in parallel, commits
+`chore(release): <version>`, tags `v<version>`, and publishes a GitHub release with
+`Toolblox-Setup.exe`, `Toolblox.dmg`, their updater files, notes generated from `feat`, `fix`,
+and `perf` commits, and both SHA-256 digests. It then deploys the update manifest, so installed apps update the next
 time they open.
 
 Use Conventional Commits so the notes stay accurate. `scripts/set-version.mjs` and
@@ -78,22 +79,26 @@ build with a new public key, which existing installs can't update to automatical
 
 ## Assets
 
-Every release has exactly one download, `Toolblox-Setup.exe`, plus `Toolblox-Update.exe` (the
-same bytes, which the update manifest points to), `Toolblox-Setup.exe.sig` for the updater, and
+Every release has one download per platform, `Toolblox-Setup.exe` for Windows and
+`Toolblox.dmg` for macOS. The updater uses `Toolblox-Update.exe` (the same bytes as the Windows
+installer), `Toolblox.app.tar.gz` (the universal macOS app, listed as `darwin-aarch64` and
+`darwin-x86_64` in the manifest), and their `.sig` files. Releases also include
 `THIRD-PARTY-NOTICES.txt`, which `scripts/third-party-notices.mjs` generates from
 the Rust crates and npm packages in the build. Settings links to the notices of the installed
 version. The README and download page link to
-`releases/latest/download/Toolblox-Setup.exe`, so the name must not change. Don't attach ZIP
+`releases/latest/download/Toolblox-Setup.exe` and `releases/latest/download/Toolblox.dmg`, so
+the names must not change. Don't attach ZIP
 files; people extract them and try to run the app without installing it.
 
-macOS builds need `npm run tauri build -- --bundles app,dmg` on macOS and a `darwin-*` entry in
-the manifest. They aren't published yet.
+macOS builds are ad-hoc signed (`tauri.macos.conf.json`) and not notarized. The manifest lists
+the macOS archive only when the latest release has one. Release builds refuse to open without an
+entry for their platform, so every release must include both platforms.
 
 ## Usage
 
-Toolblox has no telemetry. Updates and manifest builds download `Toolblox-Update.exe`, so the
-`Toolblox-Setup.exe` count is manual downloads only and the `Toolblox-Update.exe` count
-approximates updates. Releases without `Toolblox-Update.exe` mix both, plus one download per
+Toolblox has no telemetry. Updates and manifest builds download `Toolblox-Update.exe` and
+`Toolblox.app.tar.gz`, so the `Toolblox-Setup.exe` and `Toolblox.dmg` counts are manual downloads
+only and the `Toolblox-Update.exe` count approximates updates. Releases without `Toolblox-Update.exe` mix both, plus one download per
 Pages deploy, and the download page leaves them out:
 
 ```sh

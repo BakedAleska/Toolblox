@@ -28,7 +28,7 @@ the numeric account ID, which is an opaque handle for asking Rust to act on that
 | [`src-tauri/src/credentials.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/credentials.rs) | The OS credential store for sessions, the `Secret` wrapper, and legacy session readers. |
 | [`src-tauri/src/login.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/login.rs) | The isolated Roblox sign-in webview and the cookie handoff. |
 | [`src-tauri/src/roblox.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/roblox.rs) | Every Roblox HTTP call and the strict `roblox-player:` URI builder. |
-| [`src-tauri/src/multi_instance.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/multi_instance.rs) | Windows-only cleanup that lets several Roblox clients run at once. |
+| [`src-tauri/src/multi_instance.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/multi_instance.rs) | Lets several Roblox clients run at once on Windows and macOS. |
 | [`src-tauri/src/app_commands.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/app_commands.rs) | The commands that tie the above together: sign-in, join, notes, places, reorder, remove. |
 | [`src/screens/Accounts.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Accounts.tsx) | The Accounts screen. |
 | [`src/logic.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/logic.ts) | Sorting, display names, relative times, and the client-side place ID parser. |
@@ -94,7 +94,7 @@ file has camelCase keys while still accepting the legacy snake_case aliases on r
 | `placeId` | `String` | `""` | Default place to join. Empty when none is set. |
 | `disabledWidgets` | `Vec<String>` | `[]` | Installed widgets that are turned off. |
 | `widgetSettings` | `BTreeMap<String, Value>` | `{}` | Each widget's own JSON store, keyed by widget ID. |
-| `multiInstance` | `bool` | `false` | Allow several Roblox clients at once (Windows only). |
+| `multiInstance` | `bool` | `false` | Allow several Roblox clients at once. |
 | `autoRejoin` | `bool` | `false` | Rejoin accounts that leave a game. |
 | `openOnLaunch` | `bool` | `false` | Launch Toolblox at login. |
 | `runInBackground` | `bool` | `true` | Closing the window hides to the tray. |
@@ -527,7 +527,8 @@ that URI to the operating system, which starts the installed Roblox client.
                                                        └─ join_uri(place, ticket)
                                          retry up to 3× on non-place errors, backing off 1→2→4→5 s
                                        if multiInstance: clear_new_roblox_instances (Windows)
-                                       opener::open("roblox-player:1+...")  ─► OS ─► Roblox client
+                                       if multiInstance on macOS: open_new_roblox_instance(uri)
+                                       else: opener::open("roblox-player:1+...")  ─► OS ─► Roblox client
                                        if record_play: record_play(now, place)
                                        sleep(delay) before the next account
         ▼
@@ -617,8 +618,10 @@ Roblox normally allows one client per machine by holding a singleton handle. Wit
 </Steps>
 
 Because the cleanup runs before each launch, the client opened by the previous launch in a batch
-has its handle closed before the next one starts. On macOS the function does nothing and returns
-`Ok(())`; the setting is documented as Windows only.
+has its handle closed before the next one starts. On macOS the function does nothing. Instead,
+`multi_instance::open_new_roblox_instance` removes the `/RobloxPlayerUniq` semaphore name and
+starts `RobloxPlayer -protocolString <uri>` directly, replacing `opener::open`. See
+[Background services](/docs/app/background-services/#macos).
 
 ## The Accounts screen
 

@@ -207,7 +207,7 @@ Tauri merges platform and override files on top of
 | --- | --- |
 | `tauri.conf.json` | The base configuration. Identifier `com.bakedaleska.toolblox`. Runs `npm run dev` against `http://localhost:1420` in development and `npm run build` into `../dist` for builds. Declares one hidden `main` window, 900×500 with a 720×480 minimum. Sets the main window CSP and the `default` capability. Bundles the multi-instance helper resources, sets NSIS to `currentUser` install mode with `windows/installer-hooks.nsh`, and configures the updater public key with `requireSignedVersion` and passive Windows install mode. Updater `endpoints` are empty because `startup.rs` supplies the endpoint at runtime. |
 | `tauri.windows.conf.json` | Bundles only the NSIS installer on Windows. |
-| `tauri.macos.conf.json` | Bundles the `app` and `dmg` targets on macOS. |
+| `tauri.macos.conf.json` | Bundles the `app` and `dmg` targets on macOS, ad-hoc signs the app, and leaves out the Windows multi-instance helper. |
 | `tauri.demo.conf.json` | Used by `npm run demo`. Changes `beforeDevCommand` to `npm run dev -- --mode demo` so the interface runs on sample data. |
 | `tauri.preview.conf.json` | Used by `npm run preview:installer`. Turns off `createUpdaterArtifacts` so a debug NSIS installer builds without signing keys. |
 
@@ -352,9 +352,11 @@ installed apps would stop opening within a week.
 
 ### `release.yml`
 
-Started manually from `main` with a version and an optional **dry run**. On Windows it checks the
-version is new and untagged, sets it everywhere with `set-version.mjs`, runs `npm run check`,
-`npm test`, and `cargo test`, and builds the NSIS installer with `npm run tauri build -- --bundles nsis`.
+Started manually from `main` with a version and an optional **dry run**. A `check` job confirms
+the version is new and untagged. Then a `build` job runs on Windows and macOS in parallel: each
+sets the version with `set-version.mjs`, runs `npm run check`, `npm test`, and `cargo test`, and
+builds with `npm run tauri build -- --bundles nsis` on Windows or
+`npm run tauri build -- --target universal-apple-darwin --bundles app,dmg` on macOS.
 The build receives the endpoints and public keys as compile-time environment variables, which
 `startup.rs` and `app_commands.rs` read with `option_env!`:
 
@@ -366,7 +368,8 @@ The build receives the endpoints and public keys as compile-time environment var
 | `TOOLBLOX_CATALOGUE_URL` | `refresh_catalogue_data` |
 | `TOOLBLOX_CATALOGUE_PUBLIC_KEY` | `refresh_catalogue_data` |
 
-It then prepares `Toolblox-Setup.exe`, its `.sig`, the identical `Toolblox-Update.exe`, and
-`THIRD-PARTY-NOTICES.txt`, uploads them as a workflow artifact, and, unless it's a dry run,
-commits `chore(release): <version>`, tags `v<version>`, publishes the GitHub release, and calls
-`pages.yml` so installed apps move to the new version on their next launch.
+Windows prepares `Toolblox-Setup.exe`, its `.sig`, the identical `Toolblox-Update.exe`, and
+`THIRD-PARTY-NOTICES.txt`; macOS prepares `Toolblox.dmg`, `Toolblox.app.tar.gz`, and its `.sig`.
+Each uploads them as a workflow artifact. Unless it's a dry run, a `release` job then commits
+`chore(release): <version>`, tags `v<version>`, publishes the GitHub release with both platforms'
+files, and calls `pages.yml` so installed apps move to the new version on their next launch.

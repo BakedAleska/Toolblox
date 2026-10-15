@@ -169,7 +169,8 @@ for one account, end to end.
                                                      │ credentials.get(id)        → Secret
                                                      │ roblox::build_join_uri     → HTTPS to Roblox
                                                      │ multi_instance helper (Windows, if on)
-                                                     │ opener::open(roblox-player: URI)
+                                                     │ opener::open(roblox-player: URI), or a
+                                                     │   separate RobloxPlayer (macOS, if on)
                                                      │ storage.update_accounts(record_play)
                                                      ▼
                                                    minimize window if minimize_on_join
@@ -323,9 +324,10 @@ game, rejoins it if enabled, and pauses auto-rejoin for an account that drops ag
 seconds of a rejoin.
 
 **[`multi_instance.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/multi_instance.rs)**
-lets several Roblox clients run on Windows. Before each launch it lists `RobloxPlayerBeta.exe`
-processes with `tasklist.exe` and passes new process IDs to the bundled helper, which closes
-their singleton handles. It does nothing on other platforms.
+lets several Roblox clients run at once. On Windows, before each launch it lists
+`RobloxPlayerBeta.exe` processes with `tasklist.exe` and passes new process IDs to the bundled
+helper, which closes their singleton handles. On macOS, it removes the `/RobloxPlayerUniq`
+semaphore name and starts `RobloxPlayer` directly with the join URI.
 
 **[`migration.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/migration.rs)**
 imports the legacy Flet app's `accounts.json` and `settings.json` once, moving sessions into the

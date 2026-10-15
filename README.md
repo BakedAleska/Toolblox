@@ -4,11 +4,12 @@
 
 <p align="center">A local-first desktop app for managing and launching Roblox accounts.</p>
 
-<p align="center"><a href="https://github.com/BakedAleska/Toolblox/releases/latest/download/Toolblox-Setup.exe"><b>Download for Windows</b></a> · <a href="https://toolblox.dev/">Website</a> · <a href="https://github.com/BakedAleska/Toolblox/releases">Releases</a></p>
+<p align="center"><a href="https://github.com/BakedAleska/Toolblox/releases/latest/download/Toolblox-Setup.exe"><b>Download for Windows</b></a> · <a href="https://github.com/BakedAleska/Toolblox/releases/latest/download/Toolblox.dmg"><b>Download for macOS</b></a> · <a href="https://toolblox.dev/">Website</a> · <a href="https://github.com/BakedAleska/Toolblox/releases">Releases</a></p>
 
 > [!IMPORTANT]
-> Toolblox is installed with **Toolblox-Setup.exe**. The "Source code (zip)" files on the
-> releases page contain the source code, not the app, and can't be run.
+> Toolblox is installed with **Toolblox-Setup.exe** on Windows and **Toolblox.dmg** on macOS.
+> The "Source code (zip)" files on the releases page contain the source code, not the app, and
+> can't be run.
 
 ## Install
 
@@ -21,7 +22,17 @@
 
 Toolblox checks for updates each time it opens and installs them automatically.
 
-**macOS**: a build isn't available yet.
+**macOS (Apple silicon and Intel)**
+
+The first macOS build is published with the next release.
+
+1. Download [Toolblox.dmg](https://github.com/BakedAleska/Toolblox/releases/latest/download/Toolblox.dmg).
+2. Open it and drag Toolblox to Applications.
+3. Open Toolblox. If macOS says it can't verify the developer, select **Done**, then open
+   **System Settings → Privacy & Security** and select **Open Anyway**. Toolblox isn't
+   notarized yet, so macOS doesn't recognize the developer.
+
+Roblox must be installed in Applications.
 
 **Upgrading from 0.1.x**: the older Python version doesn't update itself to this one. Install
 Toolblox-Setup.exe once. Accounts, notes, and settings from the older version are imported on
@@ -34,7 +45,7 @@ first launch.
 - Set a default place, override it per account, and rejoin recent places from the dashboard.
 - See which accounts are in game, get notified when one disconnects, and optionally rejoin
   automatically.
-- Run several Roblox clients at the same time on Windows.
+- Run several Roblox clients at the same time on Windows and macOS.
 - Install reviewed widgets from a signed catalogue. No widgets are published yet.
 
 ## Privacy and security
@@ -96,3 +107,13 @@ widget contract.
 
 Toolblox is available under the [MIT License](LICENSE). Each release includes
 `THIRD-PARTY-NOTICES.txt` with the licenses of the software it's built from.
+
+## Acknowledgements
+
+macOS multiple instances build on research by two community projects. No code from either is
+included.
+
+- [multi-roblox-macos](https://github.com/Insadem/multi-roblox-macos) by Insadem identified
+  the `/RobloxPlayerUniq` semaphore that Roblox uses as its single-instance lock on macOS.
+- [rororo-mac](https://github.com/estevanhernandez-stack-ed/rororo-mac) (MIT License)
+  confirmed the technique on current Roblox versions.

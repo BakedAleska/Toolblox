@@ -83,7 +83,7 @@ export function SettingsScreen({ state, notify, patchSettings }: ScreenProps) {
         </Panel></Group>
         <Group title="Joining"><Panel className="divide-y">
           <SwitchRow title="Minimize on join" description="Minimize Toolblox after a manual join." checked={settings.minimizeOnJoin} change={(value) => void patchSettings("minimizeOnJoin", value)} />
-          {state.platform === "windows" && <SwitchRow title="Multiple instances" description="Allow several Roblox clients to run at the same time." checked={settings.multiInstance} change={(value) => void patchSettings("multiInstance", value)} />}
+          <SwitchRow title="Multiple instances" description="Allow several Roblox clients to run at the same time." checked={settings.multiInstance} change={(value) => void patchSettings("multiInstance", value)} />
         </Panel></Group>
         <Group title="Disconnects"><Panel className="divide-y">
           <SwitchRow title="Auto-rejoin" description="Rejoin accounts that leave a game. Pauses after repeated failures until the account is joined manually." checked={settings.autoRejoin} change={(value) => void patchSettings("autoRejoin", value)} />

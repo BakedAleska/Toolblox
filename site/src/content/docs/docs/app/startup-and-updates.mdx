@@ -109,14 +109,24 @@ A real manifest looks like this (written by `scripts/publish-updates.mjs`):
 {
   "schemaVersion": 1,
   "channel": "stable",
-  "version": "0.2.0-beta",
+  "version": "0.3.0-beta",
   "publishedAt": 1791990000,
   "expiresAt": 1792594800,
   "platforms": {
     "windows-x86_64": {
-      "url": "https://github.com/BakedAleska/Toolblox/releases/download/v0.2.0-beta/Toolblox-Update.exe",
+      "url": "https://github.com/BakedAleska/Toolblox/releases/download/v0.3.0-beta/Toolblox-Update.exe",
       "sha256": "<64 lowercase hex characters>",
       "signature": "<contents of Toolblox-Setup.exe.sig>"
+    },
+    "darwin-aarch64": {
+      "url": "https://github.com/BakedAleska/Toolblox/releases/download/v0.3.0-beta/Toolblox.app.tar.gz",
+      "sha256": "<64 lowercase hex characters>",
+      "signature": "<contents of Toolblox.app.tar.gz.sig>"
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/BakedAleska/Toolblox/releases/download/v0.3.0-beta/Toolblox.app.tar.gz",
+      "sha256": "<the same digest>",
+      "signature": "<the same signature>"
     }
   }
 }
@@ -136,7 +146,7 @@ invalid.
 | `version` | semver string | The release every install on this channel must run. Parsed with the `semver` crate, so pre-release tags such as `-beta` order correctly. |
 | `publishedAt` | Unix seconds | When the manifest was signed. |
 | `expiresAt` | Unix seconds | After this moment the manifest is refused. |
-| `platforms` | object | Installers keyed by Tauri updater target, such as `windows-x86_64`. |
+| `platforms` | object | Installers keyed by Tauri updater target: `windows-x86_64`, `darwin-aarch64`, and `darwin-x86_64`. |
 | `platforms.*.url` | string | Download URL. Must start with `https://`. |
 | `platforms.*.sha256` | string | SHA-256 of the installer, exactly 64 hex characters. |
 | `platforms.*.signature` | string | The Tauri updater (minisign) signature of the installer. Must not be blank. |
@@ -345,16 +355,19 @@ unofficial release build can't silently run without update enforcement.
 
 1. **Release workflow** ([`release.yml`](https://github.com/BakedAleska/Toolblox/blob/main/.github/workflows/release.yml)).
    Run manually on `main` with a version. It sets the version everywhere, runs `npm run check`,
-   `npm test`, and `cargo test`, then builds the NSIS installer with the endpoint and keys above.
-   It publishes `Toolblox-Setup.exe`, `Toolblox-Setup.exe.sig` (the updater signature),
-   `Toolblox-Update.exe` (identical bytes, used by updates so the download count of the setup file
-   counts manual downloads only), and `THIRD-PARTY-NOTICES.txt`, then calls the Pages workflow.
+   `npm test`, and `cargo test`, then builds the NSIS installer on Windows and the universal macOS
+   app on macOS with the endpoint and keys above. It publishes `Toolblox-Setup.exe`,
+   `Toolblox-Setup.exe.sig` (the updater signature), `Toolblox-Update.exe` (identical bytes, used
+   by updates so the download count of the setup file counts manual downloads only),
+   `Toolblox.dmg`, `Toolblox.app.tar.gz` and its `.sig`, and `THIRD-PARTY-NOTICES.txt`, then calls
+   the Pages workflow.
 
 2. **Publish script** ([`publish-updates.mjs`](https://github.com/BakedAleska/Toolblox/blob/main/scripts/publish-updates.mjs)).
    Reads the latest GitHub release, requires a semver tag, downloads `Toolblox-Update.exe`
    (falling back to `Toolblox-Setup.exe` for older releases) to compute its SHA-256, reads the
    updater signature from `Toolblox-Setup.exe.sig`, and writes `_site/updates/stable.json` with
-   a `windows-x86_64` entry. It signs the exact bytes with `MANIFEST_PRIVATE_KEY` (a base64
+   a `windows-x86_64` entry. When the release has `Toolblox.app.tar.gz`, it adds the same archive
+   as `darwin-aarch64` and `darwin-x86_64`, with the signature from `Toolblox.app.tar.gz.sig`. It signs the exact bytes with `MANIFEST_PRIVATE_KEY` (a base64
    32-byte Ed25519 seed) and writes the base64 signature to `stable.json.sig`. The widget
    catalogue (`catalogue/v1.json`) is signed the same way with `CATALOGUE_PRIVATE_KEY`.
 
@@ -373,9 +386,9 @@ without repository activity. If the manifest ever does expire, running **Actions
 workflow** restores it, and installs open again at their next launch.
 
 <Aside type="note" title="macOS">
-The manifest currently contains only a `windows-x86_64` entry. A macOS release build would compute
-a `darwin-*` target and stop with "No update is available for …". `docs/RELEASING.md` notes that
-macOS builds aren't published yet and would need a `darwin-*` manifest entry.
+A release build stops with "No update is available for …" when the manifest has no entry for its
+target, so every release must include the macOS archive. macOS updates replace the app bundle in
+place with the universal `Toolblox.app.tar.gz`.
 </Aside>
 
 ## What the interface shows

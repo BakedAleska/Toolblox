@@ -10,11 +10,12 @@ import { ArrowRight, ChevronDown, CircleHelp, Download, Eye, Hammer, Laptop, Loc
 
 const repo = "https://github.com/BakedAleska/Toolblox";
 const installer = `${repo}/releases/latest/download/Toolblox-Setup.exe`;
+const macInstaller = `${repo}/releases/latest/download/Toolblox.dmg`;
 
 /** One card each for open source, security, and features. */
 const highlights = [
   { icon: Eye, title: "Open source", text: "The complete source code is public on GitHub, and every release is built from it in the open. Free under the MIT License." },
-  { icon: Lock, title: "Private by default", text: "Accounts are added through Roblox's own sign-in page and kept in Windows' secure storage. Toolblox never sees your password and collects no data." },
+  { icon: Lock, title: "Private by default", text: "Accounts are added through Roblox's own sign-in page and kept in Windows Credential Manager or the macOS Keychain. Toolblox never sees your password and collects no data." },
   { icon: Users, title: "Built for multiple accounts", text: "Join games with several accounts at once, each in its own Roblox window, with alerts and optional auto-rejoin on disconnect." },
 ];
 
@@ -24,7 +25,8 @@ const questions = [
   { question: "Could using Toolblox affect my account?", answer: "Toolblox doesn't modify Roblox or provide any in-game advantage, and it launches Roblox the same way the Roblox website does. However, Roblox determines how its Terms of Use apply to third-party applications, so no outside app can guarantee an account's standing." },
   { question: "Why does Windows show a warning?", answer: "Windows shows this warning for applications from publishers it doesn't recognize yet, and Toolblox doesn't currently have a paid code-signing certificate. Select More info, then Run anyway, but only for a file downloaded from this site or the official GitHub page." },
   { question: "Is Toolblox made by Roblox?", answer: "No. Toolblox is an independent project and isn't affiliated with or endorsed by Roblox Corporation." },
-  { question: "Is a macOS version available?", answer: "Not yet. A macOS version is planned." },
+  { question: "Why does macOS say it can't verify Toolblox?", answer: "macOS shows this for apps that aren't notarized by Apple, and Toolblox doesn't currently have a paid Apple Developer ID. Select Done, then open System Settings, Privacy & Security, and select Open Anyway, but only for a file downloaded from this site or the official GitHub page." },
+  { question: "Is a macOS version available?", answer: "Yes. Toolblox runs on Apple silicon and Intel Macs with the same features as on Windows, including multiple Roblox instances. The first macOS download is published with the next release." },
 ];
 ---
 
@@ -68,11 +70,11 @@ const questions = [
           Manage and launch all of your Roblox accounts from one desktop app. Every line of code is public, so anyone can verify how Toolblox handles account data.
         </p>
         <div class="flex flex-wrap justify-center gap-3">
-          <a href={installer} class={buttonVariants({ size: "lg", className: "h-10 px-4" })}><Download />Download for Windows</a>
+          <a href={installer} data-hero-download class={buttonVariants({ size: "lg", className: "h-10 px-4" })}><Download /><span data-hero-download-label>Download for Windows</span></a>
           <a href={repo} class={buttonVariants({ size: "lg", variant: "outline", className: "h-10 px-4" })}><GitHubIcon />View source code</a>
         </div>
         <p class="text-sm text-muted-foreground">
-          Free for Windows 10 and 11<span data-release-version hidden></span>
+          Free for Windows and macOS<span data-release-version hidden></span>
         </p>
         <div data-downloads hidden class="flex flex-col items-center">
           <span data-downloads-count class="text-4xl font-semibold tracking-tight tabular-nums"></span>
@@ -117,7 +119,8 @@ const questions = [
               </div>
               <div class="flex flex-col gap-2">
                 <p class="text-sm font-medium">Verify a download</p>
-                <pre class="overflow-x-auto rounded-lg bg-muted p-3 font-mono text-sm leading-6"><code><span class="text-muted-foreground select-none">PS&gt; </span>Get-FileHash .\Toolblox-Setup.exe</code></pre>
+                <pre class="overflow-x-auto rounded-lg bg-muted p-3 font-mono text-sm leading-6"><code><span class="text-muted-foreground select-none">PS&gt; </span>Get-FileHash .\Toolblox-Setup.exe
+<span class="text-muted-foreground select-none">$ </span>shasum -a 256 Toolblox.dmg</code></pre>
                 <p class="text-xs text-muted-foreground">Compare the result with the SHA-256 on the <a href={`${repo}/releases`} class="underline underline-offset-4">release page</a>.</p>
                 <div class="mt-auto flex flex-wrap gap-x-4 gap-y-1 text-xs">
                   <a href={`${repo}/blob/main/src-tauri/src/credentials.rs`} class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Login storage code<ArrowRight className="size-3" /></a>
@@ -196,13 +199,17 @@ const questions = [
               <CardHeader>
                 <Laptop className="mb-2 size-6" />
                 <CardTitle>macOS</CardTitle>
-                <CardDescription>Not available yet</CardDescription>
+                <CardDescription>For Apple silicon and Intel Macs<span data-mac-release-version hidden></span></CardDescription>
               </CardHeader>
               <CardContent>
-                <p class="text-sm text-muted-foreground">A macOS version is planned and will be listed here once released.</p>
+                <ol class="flex list-decimal flex-col gap-1 pl-5 text-sm text-muted-foreground">
+                  <li>Open <strong class="font-medium text-foreground">Toolblox.dmg</strong> and drag Toolblox to Applications.</li>
+                  <li>If macOS says it can't verify the developer, select <strong class="font-medium text-foreground">Done</strong>, then <strong class="font-medium text-foreground">Open Anyway</strong> in System Settings → Privacy &amp; Security.</li>
+                  <li>Toolblox updates automatically from then on.</li>
+                </ol>
               </CardContent>
               <CardFooter className="mt-auto">
-                <a href={`${repo}/releases`} class={buttonVariants({ variant: "outline", className: "w-full" })}>View all releases</a>
+                <a href={`${repo}/releases`} data-mac-download data-href={macInstaller} data-ready-class={buttonVariants({ className: "w-full" })} class={buttonVariants({ variant: "outline", className: "w-full" })}><span data-mac-download-label>Coming in the next release</span></a>
               </CardFooter>
             </Card>
           </div>
@@ -246,15 +253,38 @@ const questions = [
         .then((releases: { tag_name: string; draft: boolean; assets: { name: string; download_count: number }[] }[]) => {
           const latest = releases.find((release) => !release.draft);
           if (latest) {
+            const version = ` · Version ${latest.tag_name.replace(/^v/, "").replace("-", " ")}`;
             for (const element of document.querySelectorAll<HTMLElement>("[data-release-version]")) {
-              element.textContent = ` · Version ${latest.tag_name.replace(/^v/, "").replace("-", " ")}`;
+              element.textContent = version;
               element.hidden = false;
+            }
+            if (latest.assets.some((asset) => asset.name === "Toolblox.dmg")) {
+              const link = document.querySelector<HTMLAnchorElement>("[data-mac-download]");
+              const label = document.querySelector<HTMLElement>("[data-mac-download-label]");
+              const macVersion = document.querySelector<HTMLElement>("[data-mac-release-version]");
+              if (link?.dataset.href && label) {
+                link.href = link.dataset.href;
+                link.className = link.dataset.readyClass ?? link.className;
+                label.textContent = "Download for macOS";
+                label.insertAdjacentHTML("beforebegin", document.querySelector("[data-hero-download] svg")?.outerHTML ?? "");
+              }
+              if (macVersion) {
+                macVersion.textContent = version;
+                macVersion.hidden = false;
+              }
+              const hero = document.querySelector<HTMLAnchorElement>("[data-hero-download]");
+              const heroLabel = document.querySelector<HTMLElement>("[data-hero-download-label]");
+              if (hero && heroLabel && link?.dataset.href && /Macintosh/.test(navigator.userAgent)) {
+                hero.href = link.dataset.href;
+                heroLabel.textContent = "Download for macOS";
+              }
             }
           }
           const total = releases
-            .filter((release) => release.assets.some((asset) => asset.name === "Toolblox-Update.exe"))
-            .flatMap((release) => release.assets)
-            .filter((asset) => asset.name === "Toolblox-Setup.exe")
+            .flatMap((release) => {
+              const counted = release.assets.some((asset) => asset.name === "Toolblox-Update.exe") ? ["Toolblox-Setup.exe", "Toolblox.dmg"] : ["Toolblox.dmg"];
+              return release.assets.filter((asset) => counted.includes(asset.name));
+            })
             .reduce((sum, asset) => sum + asset.download_count, 0);
           if (!total) return;
           for (const element of document.querySelectorAll<HTMLElement>("[data-downloads-count]")) element.textContent = total.toLocaleString("en-US");

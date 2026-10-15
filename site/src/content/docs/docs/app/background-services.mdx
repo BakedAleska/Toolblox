@@ -23,7 +23,7 @@ lines end up.
   - lib.rs builder, plugins, setup, the post-startup services task, exit handling
   - lifecycle.rs window, tray, single instance, close-to-tray decision
   - auto_rejoin.rs presence monitor, drop notifications, auto-rejoin
-  - multi_instance.rs Windows Roblox singleton cleanup
+  - multi_instance.rs Roblox singleton cleanup on Windows, separate clients on macOS
   - logs.rs rotating, redacted log file
   - widget_process.rs widget sidecar processes
 - src-tauri/resources/multi-instance/
@@ -47,7 +47,7 @@ lines end up.
 | Profile backfill | After startup is ready | One shot | Both |
 | Widgets that start on launch | After startup is ready | One shot (processes keep running) | Both |
 | Presence monitor (auto-rejoin, drop notifications) | After the above | Process exit | Both |
-| Multi-instance cleanup | Before each Roblox launch, when enabled | Per launch | Windows only |
+| Multi-instance cleanup | Before each Roblox launch, when enabled | Per launch | Both |
 
 ## Setup order
 
@@ -315,9 +315,9 @@ Joins from the Accounts screen and from a widget's `roblox.join` IPC method both
 
 ## Multiple Roblox instances
 
-On Windows, the Roblox client allows only one running copy. Toolblox's **Multiple instances**
-setting (Settings → Accounts → Joining, shown only when the platform is Windows) works around
-this with a small bundled native helper.
+The Roblox client allows only one running copy. Toolblox's **Multiple instances** setting
+(Settings → Accounts → Joining) works around this with a small bundled native helper on Windows
+and a direct player launch on macOS.
 
 ### How Roblox enforces one instance
 
@@ -388,9 +388,45 @@ The helper's README and source comments still refer to the legacy Python caller
 
 ### macOS
 
-On every platform other than Windows, `clear_new_roblox_instances` returns `Ok(())` without doing
-anything, and Settings hides the **Multiple instances** toggle when the platform isn't Windows.
-The `multiInstance` setting itself can still be stored, but has no effect.
+On macOS, Roblox blocks a second client in two places:
+
+- `Roblox.app` sets `LSMultipleInstancesProhibited`, so Launch Services hands every
+  `roblox-player:` link to the running client instead of starting a new one.
+- `RobloxPlayer` uses a POSIX named semaphore, `/RobloxPlayerUniq`, as its single-instance check.
+
+With `multiInstance` on, `join_account_ids` calls `multi_instance::open_new_roblox_instance`
+instead of `opener::open`. `clear_new_roblox_instances` does nothing on macOS.
+
+<Steps>
+
+1. **Find the player.** The first `Roblox.app/Contents/MacOS/RobloxPlayer` under `/Applications`
+   or `~/Applications`. If neither exists, the join fails with "Roblox wasn't found in the
+   Applications folder. Is Roblox installed?"
+
+2. **Remove the semaphore name** with `sem_unlink("/RobloxPlayerUniq")`. A missing semaphore isn't
+   an error. Running clients keep their open handle; only the name is removed, so the next client
+   can create its own.
+
+3. **Start the player** as `RobloxPlayer -protocolString <roblox-player: URI>`, the same arguments
+   Roblox's own launcher uses. It runs in its own process group with no inherited input or output,
+   and a thread waits on it so it doesn't linger as a zombie. Launch Services isn't involved, so
+   `LSMultipleInstancesProhibited` doesn't apply.
+
+4. **Remove the semaphore name again,** in case the new client created it during startup.
+
+</Steps>
+
+Nothing in `Roblox.app` is copied or changed, so its code signature stays intact. Earlier
+community tools ([multi-roblox-macos](https://github.com/Insadem/multi-roblox-macos),
+[rororo-mac](https://github.com/estevanhernandez-stack-ed/rororo-mac)) used the same semaphore but
+launched a per-launch copy of `Roblox.app` with an edited `Info.plist`. On current macOS, the edit
+invalidates the copy's signature and launchd refuses to start it.
+
+<Aside type="caution" title="Known limits">
+The join URI, which contains a one-time ticket, is visible in the player's arguments to processes
+of the same user, as it is when Roblox's own launcher starts the player. When Roblox updates, its
+installer closes every running client.
+</Aside>
 
 ## Logs
 

@@ -119,13 +119,15 @@ must distinguish what Toolblox can substantiate from what it can't guarantee.
 - Its source code and MIT license are public.
 - Release VirusTotal results are planned once packaged releases are shipping. No results should
   be presented until they exist for the exact published artifacts.
-- The project doesn't currently have a paid code-signing certificate. Future copy must not imply
-  that releases are commercially signed unless this changes.
+- The project doesn't currently have a paid code-signing certificate or an Apple Developer ID.
+  macOS builds are ad-hoc signed and not notarized. Future copy must not imply that releases are
+  commercially signed or notarized unless this changes.
 - No testimonials, independent security audit, or formal security certification are currently
   established and must not be fabricated.
 - The only adoption metric is GitHub's public download count for `Toolblox-Setup.exe` on
-  releases that also have `Toolblox-Update.exe`. It excludes automatic updates but can include
-  repeat downloads, so copy must call it downloads, never users or installs.
+  releases that also have `Toolblox-Update.exe`, plus `Toolblox.dmg`. It excludes automatic
+  updates but can include repeat downloads, so copy must call it downloads, never users or
+  installs.
 
 ## Product Principles
 

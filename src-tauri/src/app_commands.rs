@@ -1554,10 +1554,16 @@ pub(crate) async fn join_account_ids(
             )
             .inspect_err(|error| log::warn!("Multiple instances couldn't be enabled: {error}"))?;
         }
-        opener::open(uri).map_err(|error| {
-            log::error!("Roblox couldn't be opened: {error}");
-            "Roblox couldn't be opened. Is Roblox installed?".to_string()
-        })?;
+        if settings.multi_instance && cfg!(target_os = "macos") {
+            crate::multi_instance::open_new_roblox_instance(&uri).inspect_err(|error| {
+                log::warn!("A separate Roblox client couldn't be started: {error}")
+            })?;
+        } else {
+            opener::open(uri).map_err(|error| {
+                log::error!("Roblox couldn't be opened: {error}");
+                "Roblox couldn't be opened. Is Roblox installed?".to_string()
+            })?;
+        }
         if record_play {
             runtime
                 .storage

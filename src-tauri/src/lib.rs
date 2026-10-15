@@ -13,7 +13,7 @@
 //! - [`login`]: the isolated Roblox sign-in window.
 //! - [`roblox`]: Roblox web APIs for profiles, presence, games, and join tickets.
 //! - [`auto_rejoin`]: presence monitoring for drop notifications and auto-rejoin.
-//! - [`multi_instance`]: running several Roblox clients on Windows.
+//! - [`multi_instance`]: running several Roblox clients on Windows and macOS.
 //! - [`migration`]: one-time import from the legacy Flet app.
 //! - [`lifecycle`]: window, tray, and single-instance behavior.
 //! - [`logs`]: the rotating, redacted log file.

@@ -12,7 +12,7 @@ const demoEntry = (id: string, name: string, description: string, version: strin
 
 /** Sample data for the browser build and `npm run demo`. It never touches real accounts or files. */
 const demoState: AppState = {
-  version: "0.2.0-beta",
+  version: "0.3.0-beta",
   channel: "canary",
   platform: "windows",
   widgetsPath: "C:\\Users\\you\\AppData\\Roaming\\Toolblox\\widgets",

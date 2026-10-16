@@ -1,11 +1,11 @@
 import { ChevronDown, Download, ExternalLink, RotateCcw, ShieldAlert, Upload } from "lucide-react";
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { bridge } from "@/bridge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { colorGroups, currentDensity, currentFont, defaultColors, densities, fonts, readBlock, setBlock, textScaleValue, textSizePoints, textSizeRange, validTextSize, toHex, useDarkMode, type ThemeStore } from "@/lib/theme";
+import { collapseEmbedded, colorGroups, currentDensity, currentFont, defaultColors, densities, expandEmbedded, fonts, readBlock, setBlock, shrinkEmbedded, textScaleValue, textSizePoints, textSizeRange, validTextSize, toHex, useDarkMode, type ThemeStore } from "@/lib/theme";
 import { ChoiceRow, Group, IconButton, Panel, SettingRow, Spinner, type ScreenProps } from "@/shared";
 
 /** Matches the theme size limit in `theme.rs`. */
@@ -142,8 +142,9 @@ function ColorField({ label, value, changed, change }: { label: string; value: s
 
 function CustomCss({ css, draft, setDraft, save }: { css: string; draft?: string; setDraft: (draft?: string) => void; save: ThemeStore["save"] }) {
   const id = useId();
-  const text = draft ?? css;
-  const dirty = draft !== undefined && draft !== css;
+  const shown = useMemo(() => collapseEmbedded(css), [css]);
+  const text = draft ?? shown.text;
+  const dirty = draft !== undefined && draft !== shown.text;
   const field = useRef<HTMLTextAreaElement>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -152,11 +153,11 @@ function CustomCss({ css, draft, setDraft, save }: { css: string; draft?: string
     if (!element) return;
     element.style.height = "auto";
     element.style.height = `${element.scrollHeight + element.offsetHeight - element.clientHeight}px`;
-  }, [text, css]);
+  }, [text]);
   const apply = async () => {
     if (draft === undefined) return;
     setBusy(true);
-    try { await save(await bridge.embedThemeFiles(draft.trimEnd())); setDraft(undefined); setError(""); }
+    try { await save(await shrinkEmbedded(await bridge.embedThemeFiles(expandEmbedded(draft.trimEnd(), shown.urls)), shown.urls)); setDraft(undefined); setError(""); }
     catch (reason) { setError(String(reason)); }
     finally { setBusy(false); }
   };
@@ -169,7 +170,7 @@ function CustomCss({ css, draft, setDraft, save }: { css: string; draft?: string
     </p>
     <Textarea ref={field} rows={1} value={text} onChange={(event) => { setDraft(event.target.value); setError(""); }} spellCheck={false} placeholder=":root { --radius: 12px; }"
       className="max-h-96 min-h-8 resize-none py-1.5 font-mono text-xs" aria-label="Custom CSS" aria-describedby={error ? `${id}-e` : `${id}-d`} aria-invalid={!!error}
-      onBlur={() => { if (draft !== undefined) setDraft(draft.trimEnd() === css ? undefined : draft.trimEnd()); }}
+      onBlur={() => { if (draft !== undefined) setDraft(draft.trimEnd() === shown.text ? undefined : draft.trimEnd()); }}
       onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void apply(); } }} />
     {error && <p id={`${id}-e`} className="text-xs text-destructive" role="alert">{error}</p>}
   </Panel></Group>;

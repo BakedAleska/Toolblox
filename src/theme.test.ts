@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { colorGroups, currentDensity, currentFont, defaultColors, fonts, pageOf, readBlock, setBlock, textScaleValue, textSizePoints, validTextSize } from "./lib/theme";
+import { collapseEmbedded, colorGroups, currentDensity, currentFont, defaultColors, expandEmbedded, fonts, shrinkEmbedded, pageOf, readBlock, setBlock, textScaleValue, textSizePoints, validTextSize } from "./lib/theme";
 
 const editable = colorGroups.flatMap(({ tokens }) => tokens.map(([token]) => token)).sort();
 
@@ -92,5 +92,35 @@ describe("color blocks", () => {
     const css = setBlock(setBlock("", "light", { "--card": "#ffffff" }), "dark", { "--card": "#000000" });
     expect(readBlock(css, "light")).toEqual({ "--card": "#ffffff" });
     expect(readBlock(css, "dark")).toEqual({ "--card": "#000000" });
+  });
+});
+
+describe("embedded files", () => {
+  const image = `data:image/png;base64,${"A".repeat(4096)}`;
+  const pixel = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+
+  it("shows long data URLs as placeholders and restores them", () => {
+    const css = `main { background: url("${image}") } a { background: url(${pixel}) } b { background: url(${image}) }`;
+    const { text, urls } = collapseEmbedded(css);
+    expect(text).toBe(`main { background: url("<embedded image/png, 3 KB #1>") } a { background: url(${pixel}) } b { background: url(<embedded image/png, 3 KB #2>) }`);
+    expect(expandEmbedded(text, urls)).toBe(css);
+  });
+
+  it("names placeholders after the embedded file", () => {
+    const named = `data:image/png;name=my+corner%231.png;base64,${"A".repeat(4096)}`;
+    const { text, urls } = collapseEmbedded(`a { background: url(${named}) }`);
+    expect(text).toBe("a { background: url(<embedded my corner1.png, 3 KB #1>) }");
+    expect(expandEmbedded(text, urls)).toBe(`a { background: url(${named}) }`);
+  });
+
+  it("leaves unknown placeholders as typed", () => {
+    expect(expandEmbedded("url(<embedded image/png, 3 KB #9>)", [image])).toBe("url(<embedded image/png, 3 KB #9>)");
+  });
+
+  it("shrinks only new PNG, JPEG, and BMP images", async () => {
+    const saved = "data:image/png;base64,SAVED";
+    const css = `a { background: url(${saved}) } b { background: url("data:image/jpeg;name=a.jpg;base64,NEW") } c { background: url(data:image/svg+xml;base64,SVG) } d { background: url(data:image/jpeg;name=a.jpg;base64,NEW) }`;
+    const shrink = async (url: string) => url.replace(/^data:image\/\w+/, "data:image/webp").replace("NEW", "SMALL");
+    expect(await shrinkEmbedded(css, [saved], shrink)).toBe(`a { background: url(${saved}) } b { background: url("data:image/webp;name=a.jpg;base64,SMALL") } c { background: url(data:image/svg+xml;base64,SVG) } d { background: url(data:image/webp;name=a.jpg;base64,SMALL) }`);
   });
 });

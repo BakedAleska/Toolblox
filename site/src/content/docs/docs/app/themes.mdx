@@ -1,17 +1,52 @@
 ---
 title: Themes
-description: Writing custom CSS for the Themes tab in Settings.
+description: How the custom theme is written, applied, stored, and restricted, and how the Themes tab in Settings edits it.
 sidebar:
   order: 6
 ---
 
-A Toolblox theme is plain CSS, entered under **Settings → Themes → Custom CSS** or imported from a
-`.css` file. It's applied after the app's own styles, so it can change anything.
+import { Aside } from '@astrojs/starlight/components';
+
+A Toolblox theme is a single block of plain CSS. It's edited under **Settings → Themes**, either
+through the color and style controls or directly in the **Custom CSS** field, and it can be
+imported from or exported to a `.css` file so it can be shared. The same CSS is used everywhere:
+the text in the Custom CSS field, the saved file in the data folder, and an exported theme file
+are identical apart from the display of embedded files described in
+[Embedded files in the editor](#embedded-files-in-the-editor).
+
+Because the theme is applied after every other stylesheet, it can override any style in the
+interface. Most themes only need to change the design tokens described below, which every
+component reads.
+
+## Where the code lives
+
+| File | Responsibility |
+| --- | --- |
+| [`src-tauri/src/theme.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/theme.rs) | Embeds local files into theme CSS and validates that a theme loads nothing from outside the device. |
+| [`src-tauri/src/storage.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/storage.rs) | Loads and atomically saves `theme.css` in the data folder, validating it in both directions. |
+| [`src/lib/theme.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/lib/theme.ts) | Applies the theme, reads and writes the token blocks the Settings controls edit, and shortens embedded files for display. |
+| [`src/screens/Themes.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Themes.tsx) | The Themes tab: mode, import and export, colors, style, and the Custom CSS field. |
+| [`src/theme.css`](https://github.com/BakedAleska/Toolblox/blob/main/src/theme.css) | The default values of every token in light and dark mode. |
+
+## How a theme is applied
+
+The app's Content Security Policy blocks `<style>` elements, so the theme is applied through a
+constructed stylesheet: `applyThemeCss` creates one `CSSStyleSheet`, replaces its contents with
+the theme CSS, and adds it to `document.adoptedStyleSheets`. Adopted stylesheets cascade after
+every stylesheet in the document, so a theme rule wins over an app rule of equal specificity
+without needing `!important`.
+
+The theme is loaded once startup completes and is applied again whenever it's saved. In
+[safe mode](/docs/widgets/reference/logs-and-failures/#safe-mode), the theme is still loaded so
+the Themes tab can edit it, but an empty stylesheet is applied instead. This means a theme that
+hides or breaks the interface can always be repaired: restart Toolblox in safe mode, correct the
+CSS in the Themes tab, and restart normally.
 
 ## Tokens
 
-Every color and radius in the app comes from a CSS variable. Setting one changes it everywhere,
-and the color pickers in the Themes tab show the new value.
+Every color, radius, font, text size, and spacing value in the interface comes from a CSS custom
+property defined in `src/theme.css`. Setting a token in the theme changes it everywhere it's used,
+and the color pickers in the Themes tab show the resulting value.
 
 ```css
 :root {
@@ -24,63 +59,180 @@ and the color pickers in the Themes tab show the new value.
 }
 ```
 
-`:root` applies to both modes, `:root.dark` to dark mode, and `:root:not(.dark)` to light mode.
-The color pickers write to the last two.
+The `dark` class on the root `<html>` element selects dark mode. The selector determines which
+mode a declaration applies to:
+
+| Selector | Applies to |
+| --- | --- |
+| `:root` | Both modes |
+| `:root:not(.dark)` | Light mode only |
+| `:root.dark` | Dark mode only |
+
+### Color tokens
+
+Colors are written in any CSS color syntax. The color pickers convert the current value to a
+six-digit hexadecimal color for display, so transparency set in CSS isn't shown in the picker,
+although it's preserved in the theme until the picker changes that token.
 
 | Tokens | Used for |
 | --- | --- |
-| `--background`, `--foreground` | Page background and text |
-| `--card`, `--card-foreground` | Panels |
-| `--popover`, `--popover-foreground` | Menus and dialogs |
-| `--primary`, `--primary-foreground` | Default buttons and checked controls |
-| `--secondary`, `--secondary-foreground` | Secondary buttons and badges |
-| `--accent`, `--accent-foreground` | Hovered and focused menu items |
-| `--muted`, `--muted-foreground` | Subtle surfaces and descriptions |
-| `--border`, `--input`, `--ring` | Borders, field borders, and focus rings |
-| `--overlay`, `--shadow` | Dialog backdrop and shadow color |
-| `--sidebar`, `--sidebar-*` | The sidebar |
-| `--success`, `--warning`, `--destructive` | Status colors |
-| `--radius` | Corner radius. Every other radius is a multiple of it |
-| `--font` | The interface font |
-| `--text-scale` | Multiplies every text size. `1` is the default. Settings shows it as the body text size in points, 10.5 pt by default |
-| `--spacing` | The spacing unit, `0.25rem` by default. Every gap, padding, and control height is a multiple of it |
+| `--background`, `--foreground` | The page background and the default text color. |
+| `--card`, `--card-foreground` | Panels and the text inside them. |
+| `--popover`, `--popover-foreground` | Menus, dialogs, and the text inside them. |
+| `--primary`, `--primary-foreground` | Default buttons and checked controls. |
+| `--secondary`, `--secondary-foreground` | Secondary buttons and badges. |
+| `--accent`, `--accent-foreground` | Hovered and focused menu items. |
+| `--muted`, `--muted-foreground` | Subtle surfaces and secondary text, such as descriptions. |
+| `--border`, `--input`, `--ring` | Borders, field borders, and keyboard focus rings. |
+| `--overlay`, `--shadow` | The backdrop behind dialogs and the color of floating-layer shadows. |
+| `--sidebar`, `--sidebar-*` | The sidebar and its items. |
+| `--success`, `--warning`, `--destructive` | Status colors. The interface never conveys status by color alone, so these can be changed freely. |
 
-The **Style** controls in the Themes tab set `--font`, `--text-scale`, and `--spacing` in a
-`:root` block.
+### Style tokens
 
-## Pages
+| Token | Default | Effect |
+| --- | --- | --- |
+| `--radius` | `8px` | The corner radius of controls. Every other radius is a multiple of it: panels use 1.5 times this value and the dashboard hero uses twice it. |
+| `--font` | Geist | The interface font. Geist is bundled with the app; the other choices in the Themes tab are fonts installed on both Windows and macOS, each with a fallback. |
+| `--text-scale` | `1` | Multiplies every text size. The Themes tab shows it as the body text size in points, where `1` corresponds to 10.5 pt. |
+| `--spacing` | `0.25rem` | The base spacing unit. Every gap, padding, and control height is a multiple of it. |
 
-Each page's `<main>` element has a `data-page` attribute: `dashboard`, `accounts`, `widgets`
-(including widget pages), or `settings`.
+## How the Themes tab edits the CSS
+
+The controls in the Themes tab don't keep separate settings. They read and write declarations in
+three blocks inside the theme CSS itself, so the CSS remains the only source of truth:
+
+- The **Colors** pickers write to the `:root:not(.dark)` block in light mode and the
+  `:root.dark` block in dark mode, depending on which mode is currently shown.
+- The **Style** controls write `--font`, `--text-scale`, and `--spacing` to a `:root` block.
+- Choosing a default value removes that declaration, and a block with no declarations left is
+  removed entirely.
+
+When a block doesn't exist yet, it's appended to the end of the CSS. All other CSS, including
+comments and custom rules, is left exactly as written. Color changes apply immediately and are
+saved once they pause for 400 milliseconds.
+
+The **Custom CSS** field holds edits until **Apply** is selected or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
+(<kbd>Cmd</kbd>+<kbd>Enter</kbd> on macOS) is pressed. **Revert** discards unapplied edits. If a
+color or style control changes the theme while the field has unapplied edits, the same change is
+made to those edits so neither is lost.
+
+## Styling individual pages
+
+The `<main>` element of each page carries a `data-page` attribute, which allows a rule to target a
+single page:
+
+| Value | Page |
+| --- | --- |
+| `dashboard` | Dashboard |
+| `accounts` | Accounts |
+| `widgets` | Widgets, including every page a widget adds |
+| `settings` | Settings |
 
 ```css
 main[data-page="dashboard"] {
-  background: url(data:image/png;base64,...) center / cover;
+  background: url("C:/Users/me/Pictures/wallpaper.png") center / cover;
 }
 ```
 
-## Local files and limits
+A rule on `main` without an attribute selector applies to every page.
 
-A theme can't load anything from outside this device, but the Custom CSS field can use files on
-it. Name a file by absolute path or `file:` URL, and **Apply** embeds it, so the saved theme
-doesn't depend on the file afterward:
+## Local files
 
-- `url()` can name an image, SVG, cursor, or font file. It's embedded as a `data:` URL.
-- `@import` can name a CSS file, which is inlined. Inside that file, relative paths resolve
-  against its folder. Imports with media or layer conditions aren't supported.
+A theme can never load anything from outside the device, but the Custom CSS field accepts
+references to files on it. When **Apply** is selected, the host's `embed_theme_files` command
+reads each referenced file and writes its contents into the theme, so the saved theme doesn't
+depend on the original file afterward and can be shared as a single `.css` file.
+
+A file can be named by absolute path, such as `C:/Users/me/Pictures/corner.png` or
+`/Users/me/Pictures/corner.png`, or by `file:` URL. Two kinds of reference are embedded:
+
+- **`url()`** can name an image, SVG, cursor, or font file. The file is encoded as a base64
+  `data:` URL, typed by its extension, with the file name kept in a `name` parameter, as in
+  `data:image/png;name=corner.png;base64,…`. Browsers ignore the parameter. Only the file name
+  is kept, not the folder, so a shared theme doesn't reveal folder or user names on the device. Supported extensions are `png`, `jpg`, `jpeg`, `gif`,
+  `webp`, `avif`, `svg`, `bmp`, `ico`, `cur`, `woff`, `woff2`, `ttf`, and `otf`.
+- **`@import`** can name a CSS file, which is replaced by that file's contents. Inside an
+  imported file, relative paths resolve against that file's folder, and imports can be nested up
+  to eight levels deep. A file that imports itself is rejected. Imports with media, supports, or
+  layer conditions aren't supported.
 
 ```css
-@import "/Users/me/Toolblox/theme.css";
+@import "C:/Users/me/Toolblox/theme.css";
 
 main {
-  background: url("/Users/me/Pictures/corner.png") right 16px bottom 16px / 160px no-repeat;
+  background: url("C:/Users/me/Pictures/corner.png") right 16px bottom 16px / 160px no-repeat;
 }
 ```
 
-Imported theme files must already be self-contained. Web links and network paths are rejected. A
-theme can be up to 16 MB.
+### Embedded files in the editor
 
-## Recovery
+A base64 data URL is roughly a third larger than the file it encodes, and a single image can add
+hundreds of thousands of characters to the theme. To keep the Custom CSS field readable, any data
+URL of 256 characters or more is displayed as a short numbered placeholder showing the embedded
+file's name and approximate size:
 
-Safe mode starts Toolblox without the custom theme, so CSS that hides or breaks the interface can
-always be fixed from the Themes tab.
+```css
+main {
+  background: url("<embedded corner.png, 24 KB #1>") right 16px bottom 16px / 160px no-repeat;
+}
+```
+
+Files embedded before Toolblox 0.3.1 have no stored name, so their placeholders show the media
+type instead, such as `<embedded image/png, 24 KB #1>`. Embedding the file again adds the name.
+
+The placeholder stands in for the full data URL only in the editor. When the CSS is applied, each
+placeholder is replaced with the data URL it represents, and exported theme files always contain
+the full data URLs. Placeholders can be moved, copied, or deleted like any other text. A
+placeholder whose number doesn't match an embedded file is left unchanged and fails validation,
+because it isn't a valid URL.
+
+### Image compression
+
+After the host embeds the files, the Themes tab compresses each newly embedded PNG, JPEG, or BMP
+image before saving. It decodes the image in the webview, scales it down so its longest side is at
+most 1920 pixels, and re-encodes it as WebP at 85% quality, keeping the `name` parameter. The
+compressed version is kept only when it's smaller than the original. On macOS, where the webview
+can't encode WebP, an image is only scaled down: JPEG images stay JPEG, and PNG and BMP images
+become PNG.
+
+Images already in the saved theme are never compressed again, so applying the CSS repeatedly
+doesn't reduce their quality. SVG, GIF, WebP, AVIF, and icon files are embedded unchanged, because
+re-encoding would remove vector detail, animation, or cursor hotspots, or wouldn't reduce their
+size.
+
+The app can't tell what size an image is displayed at, so compression can't replace resizing.
+For the smallest theme, resize an image to the size it's displayed at, or twice that size for
+high-density displays, before embedding it. A 1200-pixel PNG displayed at 160 pixels, for
+example, is about a tenth of its original size once resized to 320 pixels.
+
+## Validation and limits
+
+The host validates the theme every time it's saved and every time it's loaded, so a theme file
+edited outside the app is checked too. A theme is rejected when:
+
+- It's larger than 16 MB, including embedded files. Each embedded file is also limited to 16 MB.
+- It contains `@import`, `image-set()`, or `src()` after local files are embedded.
+- Any `url()` names something other than a `data:` URL or a same-document fragment such as
+  `url(#shape)`.
+
+Before checking, the validator decodes CSS escapes and removes comments the same way the CSS
+tokenizer does, so a reference such as `u\72l(` or `ur/**/l(` can't bypass it. Web URLs,
+protocol-relative URLs such as `//example.com/a.png`, network paths such as `\\server\share`, and
+relative paths outside an imported file are never embedded and are rejected by validation.
+
+<Aside>
+The restriction exists for privacy. A theme that loaded a remote image would send a request to
+that server each time Toolblox opened, revealing the user's IP address and when the app is in
+use. Requiring embedded files means a shared theme can't contact any server.
+</Aside>
+
+## Importing and exporting
+
+**Export** writes the saved theme to a new file named `Toolblox theme.css` in the Downloads
+folder, adding a number when that name is taken, and shows it in File Explorer or Finder. Any
+pending color change is saved first.
+
+**Import** reads a `.css` file and replaces the current theme after confirmation. Imported files
+are validated but not embedded, so they must already be self-contained: every image and font must
+be a data URL. Files exported from Toolblox always meet this requirement.

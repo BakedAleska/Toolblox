@@ -94,6 +94,72 @@ export const densities: StyleOption[] = [{ label: "Compact", value: "0.21875rem"
 export const currentDensity = (value: string) =>
   densities.find((density) => Math.abs(parseFloat(density.value ?? "0.25") - parseFloat(value)) < 1e-6);
 
+const dataUrl = /data:([\w.+-]+\/[\w.+-]+)?[;,][^)'"\s]*/g;
+const placeholder = /<embedded [^<>#]* #(\d+)>/g;
+
+/** The file name an embedded data URL keeps in its `name` parameter. */
+const embeddedName = (url: string) => {
+  const name = /;name=([^;,]*)/.exec(url.slice(0, url.indexOf(",")))?.[1];
+  if (!name) return undefined;
+  try { return decodeURIComponent(name.replace(/\+/g, " ")).replace(/[<>#]/g, ""); } catch { return undefined; }
+};
+
+/** Theme CSS for editing, with each long data URL shown as a short numbered placeholder such as
+ * `<embedded corner.png, 24 KB #1>`, or its media type when it has no file name.
+ * `expandEmbedded` restores them. */
+export function collapseEmbedded(css: string) {
+  const urls: string[] = [];
+  const text = css.replace(dataUrl, (url, mime: string | undefined) => {
+    if (url.length < 256) return url;
+    urls.push(url);
+    return `<embedded ${embeddedName(url) || mime || "data"}, ${Math.max(1, Math.round(url.length * 0.75 / 1024))} KB #${urls.length}>`;
+  });
+  return { text, urls };
+}
+
+/** Restores the data URLs `collapseEmbedded` replaced. Unknown placeholders are left as typed. */
+export const expandEmbedded = (text: string, urls: string[]) =>
+  text.replace(placeholder, (match, index: string) => urls[Number(index) - 1] ?? match);
+
+/** The longest side, in pixels, an embedded image is scaled down to. Large enough for a
+ * full-window background on a 1080p display. */
+export const MAX_IMAGE_SIDE = 1920;
+const WEBP_QUALITY = 0.85;
+
+/** Re-encodes a PNG, JPEG, or BMP data URL as WebP, scaled down to `MAX_IMAGE_SIDE`. A webview
+ * that can't encode WebP only scales the image, keeping JPEG as JPEG and the rest as PNG.
+ * Resolves to the original when the result isn't smaller. */
+export async function shrinkImage(url: string): Promise<string> {
+  const image = new Image();
+  image.src = url;
+  await image.decode();
+  const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(image.naturalWidth, image.naturalHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(image.naturalWidth * scale);
+  canvas.height = Math.round(image.naturalHeight * scale);
+  const context = canvas.getContext("2d");
+  if (!context) return url;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  let encoded = canvas.toDataURL("image/webp", WEBP_QUALITY);
+  if (!encoded.startsWith("data:image/webp")) {
+    if (scale === 1) return url;
+    encoded = canvas.toDataURL(url.startsWith("data:image/jpeg") ? "image/jpeg" : "image/png", WEBP_QUALITY);
+  }
+  const name = /;name=[^;,]*/.exec(url.slice(0, url.indexOf(",")))?.[0] ?? "";
+  const shrunk = encoded.replace(/^(data:[^;,]+)/, `$1${name}`);
+  return shrunk.length < url.length ? shrunk : url;
+}
+
+/** Shrinks each PNG, JPEG, or BMP data URL in the CSS that isn't in `keep`, so images already in
+ * the saved theme aren't re-encoded and lose quality again on every apply. */
+export async function shrinkEmbedded(css: string, keep: string[], shrink = shrinkImage) {
+  const kept = new Set(keep);
+  const urls = [...new Set(css.match(dataUrl) ?? [])].filter((url) => !kept.has(url) && /^data:image\/(png|jpeg|bmp)[;,]/.test(url));
+  const shrunk = new Map(await Promise.all(urls.map(async (url) => [url, await shrink(url).catch(() => url)] as const)));
+  return css.replace(dataUrl, (url) => shrunk.get(url) ?? url);
+}
+
 let sheet: CSSStyleSheet | undefined;
 
 /** Applies theme CSS through a constructed stylesheet. The CSP blocks `<style>` tags but not

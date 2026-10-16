@@ -168,7 +168,8 @@ fn read_file(path: &Path) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|_| format!("{name} couldn't be read. Is it readable?"))
 }
 
-/// Reads an image or font file as a data URL, typed by its extension.
+/// Reads an image or font file as a data URL, typed by its extension. The file name is kept as a
+/// form-encoded `name` parameter, which browsers ignore, so the CSS editor can show it.
 fn data_url(path: &Path) -> Result<String, String> {
     let extension = path
         .extension()
@@ -196,7 +197,11 @@ fn data_url(path: &Path) -> Result<String, String> {
         }
     };
     let data = base64::engine::general_purpose::STANDARD.encode(read_file(path)?);
-    Ok(format!("data:{mime};base64,{data}"))
+    let name: String = path
+        .file_name()
+        .map(|name| url::form_urlencoded::byte_serialize(name.as_encoded_bytes()).collect())
+        .unwrap_or_default();
+    Ok(format!("data:{mime};name={name};base64,{data}"))
 }
 
 /// Checks that theme CSS is within the size limit and loads nothing from outside this device.
@@ -348,20 +353,20 @@ mod tests {
         folder
     }
 
-    fn data(mime: &str, bytes: &[u8]) -> String {
+    fn data(mime: &str, name: &str, bytes: &[u8]) -> String {
         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-        format!("data:{mime};base64,{encoded}")
+        format!("data:{mime};name={name};base64,{encoded}")
     }
 
     #[test]
     fn local_files_are_embedded() {
         let folder = temp_folder();
-        let image = folder.join("bg.png");
+        let image = folder.join("bg%&1.png");
         std::fs::write(&image, b"png").unwrap();
         let font = folder.join("Face.WOFF2");
         std::fs::write(&font, b"font").unwrap();
-        let png = data("image/png", b"png");
-        let woff2 = data("font/woff2", b"font");
+        let png = data("image/png", "bg%25%261.png", b"png");
+        let woff2 = data("font/woff2", "Face.WOFF2", b"font");
         let file_url = url::Url::from_file_path(&image).unwrap();
         let (image, font) = (image.display(), font.display());
         let css = format!(
@@ -392,7 +397,7 @@ mod tests {
             "@import \"parts/colors.css\";\na { mask: url('#shape') }",
         )
         .unwrap();
-        let svg = data("image/svg+xml", b"<svg/>");
+        let svg = data("image/svg+xml", "bg.svg", b"<svg/>");
         let theme = folder.join("theme.css");
         for css in [
             format!("@import \"{}\";", theme.display()),

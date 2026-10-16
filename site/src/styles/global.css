@@ -23,7 +23,33 @@
   }
 }
 
+/* Hero entrance. Each element rises in turn, ordered by its `--i`. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+    filter: blur(4px);
+  }
+}
+.rise {
+  animation: rise 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 100ms);
+}
+
+/* Section content fades up as it scrolls into view, where scroll-driven animations are supported. */
+@supports (animation-timeline: view()) {
+  main > section + section > div {
+    animation: rise linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 40%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .rise,
+  main > section + section > div {
+    animation: none !important;
+  }
   html {
     scroll-behavior: auto;
   }
@@ -36,19 +62,13 @@
 /* Long-form policy text. */
 @layer components {
   .policy {
-    @apply text-[15px] leading-7 text-pretty text-foreground/85;
-  }
-  .policy > :first-child {
-    @apply mt-0;
-  }
-  .policy section {
-    @apply scroll-mt-20 rounded-xl bg-card px-6 pb-6 ring-1 ring-border sm:px-8 sm:pb-8;
+    @apply mx-auto max-w-3xl px-4 py-20 text-[15px] leading-7 text-pretty text-foreground/85 sm:py-24;
   }
   .policy-header {
-    @apply -mx-6 mb-6 flex flex-col gap-1 rounded-t-xl border-b bg-muted/50 px-6 py-6 sm:-mx-8 sm:px-8;
+    @apply mb-10 flex flex-col gap-1;
   }
   .policy .policy-header h2 {
-    @apply m-0 text-2xl font-semibold tracking-tight text-foreground;
+    @apply m-0 mb-2 text-3xl font-semibold tracking-tight text-balance text-foreground sm:text-4xl;
   }
   .policy .policy-header p {
     @apply m-0 text-sm text-muted-foreground;

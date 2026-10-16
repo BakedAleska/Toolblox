@@ -59,5 +59,5 @@ Toolblox doesn't collect personal information from anyone, including children un
 ### Changes and contact
 
 Changes to this policy are published here, and its full history is public in the
-[source code](https://github.com/BakedAleska/Toolblox/commits/main/site/src/policies/privacy.md). Ask
+[source code](https://github.com/BakedAleska/Toolblox/commits/main/site/src/legal/privacy.md). Ask
 questions in a [GitHub issue](https://github.com/BakedAleska/Toolblox/issues).

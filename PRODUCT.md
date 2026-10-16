@@ -50,7 +50,7 @@ keep each description to what the linked evidence shows.
 3. **Data stays on this device.** Accounts, notes, and settings are stored on this device and
    sessions in the operating system's credential store. There's no Toolblox server, account
    service, or telemetry. Toolblox connects only to Roblox and to GitHub for updates and widgets.
-   Evidence: the [privacy policy](https://toolblox.dev/policies/#privacy), which lists every connection, and the source code. Installed widgets
+   Evidence: the [privacy policy](https://toolblox.dev/legal/#privacy), which lists every connection, and the source code. Installed widgets
    can connect to services their authors choose, so copy that covers widgets must say so.
 
 Don't claim that Toolblox is compliant with or approved under the Roblox Terms of Use. Roblox

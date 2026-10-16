@@ -40,7 +40,7 @@ cargo test
 | --- | --- |
 | `src` | The React interface |
 | `src-tauri` | The Rust app: persistence, credentials, Roblox, updates, and widgets |
-| `site` | [toolblox.dev](https://toolblox.dev): the download page, policies, and developer docs |
+| `site` | [toolblox.dev](https://toolblox.dev): the download page, legal page, and developer docs |
 | `scripts` | Release, update manifest, and license notice scripts |
 | `docs` | Release process and the widget contract |
 
@@ -53,10 +53,10 @@ cargo test
   the widget contract
 - [PRODUCT.md](PRODUCT.md) for the product's commitments and scope
 
-## Policies
+## Legal
 
-The [privacy policy, security policy, and legal notices](https://toolblox.dev/policies/) are
-published on the website, from `site/src/policies` and `site/src/pages/policies.astro`. Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
+The [privacy policy, security policy, license, and third-party notices](https://toolblox.dev/legal/) are
+published on the website, from `site/src/legal` and `site/src/pages/legal.astro`. Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
 
 Toolblox isn't affiliated with or endorsed by Roblox Corporation. It's available under the
 [MIT License](LICENSE), and each release includes `THIRD-PARTY-NOTICES.txt` with the licenses of

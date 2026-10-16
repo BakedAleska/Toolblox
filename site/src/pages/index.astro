@@ -15,7 +15,7 @@ const macInstaller = `${repo}/releases/latest/download/Toolblox.dmg`;
 const commitments = [
   { icon: Eye, title: "Free and open source", text: "No ads or paid features. Every line of source code is public under the MIT License, and every release is built from it in the open.", link: { label: "Source code", href: repo } },
   { icon: ShieldCheck, title: "No injection", text: "Toolblox never injects code into Roblox or reads or changes its memory or files. It signs in through Roblox's own page and launches Roblox the same way the Roblox website does.", link: { label: "Launch code", href: `${repo}/blob/main/src-tauri/src/roblox.rs` } },
-  { icon: HardDrive, title: "Data stays on your device", text: "Accounts and settings are stored on your computer and logins in its secure storage: {storage}. There's no Toolblox server or telemetry, and Toolblox connects only to Roblox and GitHub.", link: { label: "Every connection", href: "/policies/#network-connections" } },
+  { icon: HardDrive, title: "Data stays on your device", text: "Accounts and settings are stored on your computer and logins in its secure storage: {storage}. There's no Toolblox server or telemetry, and Toolblox connects only to Roblox and GitHub.", link: { label: "Every connection", href: "/legal/#network-connections" } },
 ];
 
 const questions = [
@@ -35,28 +35,24 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
 
 <Site>
       <section class="mx-auto flex max-w-5xl flex-col items-center gap-6 px-4 pt-16 pb-12 text-center sm:pt-24">
-        <h1 class="max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl">The open-source Roblox account manager.</h1>
-        <p class="max-w-2xl text-lg text-pretty text-muted-foreground">
-          Manage and launch all of your Roblox accounts from one desktop app. Every line of code is public, so anyone can verify how Toolblox handles account data.
+        <h1 class="rise max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl">The open-source Roblox account manager.</h1>
+        <p class="rise max-w-2xl text-lg text-pretty text-muted-foreground" style="--i: 1">
+          Sign in to each Roblox account once, then launch any of them from one desktop app. The source code is public, so anyone can check how Toolblox handles your logins.
         </p>
-        <ul class="flex flex-wrap justify-center gap-2" aria-label="Commitments">
+        <ul class="rise flex flex-wrap justify-center gap-2" style="--i: 2" aria-label="Commitments">
           {commitments.map(({ icon: Icon, title }) => (
             <li><a href="#commitments"><Badge variant="secondary"><Icon />{title}</Badge></a></li>
           ))}
         </ul>
-        <div class="flex flex-wrap justify-center gap-3">
+        <div class="rise flex flex-wrap justify-center gap-3" style="--i: 3">
           <span class="contents mac:hidden"><a href={installer} class={buttonVariants({ size: "lg", className: "h-10 px-4" })}><Download />Download for Windows</a></span>
           <span class="hidden mac:contents"><a href={macInstaller} data-mac-hero class={buttonVariants({ size: "lg", className: "h-10 px-4" })}><Download />Download for macOS</a></span>
           <a href={repo} class={buttonVariants({ size: "lg", variant: "outline", className: "h-10 px-4" })}><GitHubIcon />View source code</a>
         </div>
-        <p class="text-sm text-muted-foreground">
+        <p class="rise text-sm text-muted-foreground" style="--i: 3">
           Free for Windows and macOS<span data-release-version hidden></span>
         </p>
-        <div data-downloads hidden class="flex flex-col items-center">
-          <span data-downloads-count class="text-4xl font-semibold tracking-tight tabular-nums"></span>
-          <span class="text-sm text-muted-foreground">downloads, not counting updates</span>
-        </div>
-        <div class="mt-6 w-full">
+        <div class="rise mt-6 w-full" style="--i: 4">
           <Screenshot name="dashboard" alt="The Toolblox home screen showing the last account played, account counts, and recently played accounts." eager />
         </div>
       </section>
@@ -65,9 +61,9 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
         <div class="mx-auto flex max-w-5xl flex-col gap-12 px-4 py-24">
           <div class="mx-auto flex max-w-2xl flex-col gap-4 text-center">
             <p class="flex items-center justify-center gap-2 text-sm font-medium text-muted-foreground"><GitHubIcon />Commitments</p>
-            <h2 class="text-3xl font-semibold tracking-tight text-balance sm:text-5xl">Verifiable by design.</h2>
+            <h2 class="text-3xl font-semibold tracking-tight text-balance sm:text-5xl">Transparent by design.</h2>
             <p class="text-lg text-pretty text-muted-foreground">
-              An account manager handles Roblox logins, so its promises should be checkable. Each one below links to the code or policy that shows it.
+              An account manager holds your Roblox logins, so its promises should be easy to check. Each one below links to the code or policy behind it.
             </p>
           </div>
           <ul class="grid gap-4 md:grid-cols-3">
@@ -91,8 +87,9 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
           </ul>
           <details class="group rounded-xl bg-card ring-1 ring-border">
             <summary class="flex cursor-pointer list-none items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
-              <Hammer className="size-4" />For developers: build from source or verify a download
-              <ChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" />
+              <Hammer className="size-4" />Build Toolblox yourself or verify a download
+              <span class="ml-auto text-xs font-normal text-muted-foreground">For developers</span>
+              <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
             </summary>
             <div class="grid gap-4 border-t p-4 md:grid-cols-2">
               <div class="flex flex-col gap-2">
@@ -117,7 +114,7 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
             </div>
           </details>
           <div class="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm">
-            <a href="/policies/" class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Privacy and security policies<ArrowRight className="size-3.5" /></a>
+            <a href="/legal/" class="inline-flex items-center gap-1 underline-offset-4 hover:underline">Privacy policy, security policy, and license<ArrowRight className="size-3.5" /></a>
           </div>
         </div>
       </section>
@@ -127,7 +124,7 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
           <p class="flex items-center gap-2 text-sm font-medium text-muted-foreground"><Puzzle className="size-4" />Widgets</p>
           <h2 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Extensible with widgets.</h2>
           <p class="text-pretty text-muted-foreground">
-            Widgets will add tools for specific games through a reviewed, signed catalogue. None are published yet, and the developer documentation explains how to build one.
+            Widgets will add tools for individual games. Each one is reviewed and signed before it's listed in the app. None are available yet, and developers can start with the widget documentation.
           </p>
           <a href="/docs/" class={buttonVariants({ variant: "outline" })}>Widget documentation<ArrowRight /></a>
         </div>
@@ -157,10 +154,9 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
         <div class="mx-auto flex max-w-5xl flex-col gap-12 px-4 py-24">
           <div class="mx-auto flex max-w-2xl flex-col gap-4 text-center">
             <h2 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Download Toolblox</h2>
-            <div data-downloads hidden class="flex flex-col items-center">
-              <span data-downloads-count class="text-5xl font-semibold tracking-tight tabular-nums"></span>
-              <span class="text-sm text-muted-foreground">downloads, not counting updates</span>
-            </div>
+            <p data-downloads hidden class="flex items-center justify-center gap-3 text-5xl font-semibold tracking-tight tabular-nums">
+              <Download className="size-10" aria-hidden="true" /><span data-downloads-count></span><span data-downloads-label class="sr-only"></span>
+            </p>
           </div>
           <div class="grid gap-4 md:grid-cols-2">
             <Card>
@@ -200,7 +196,7 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
           </div>
           <p class="text-center text-sm text-pretty text-muted-foreground">
             Download Toolblox only from this site or its official GitHub page.{" "}
-            <a href="/policies/#verify-a-download" class="underline underline-offset-4">How to verify a download</a>
+            <a href="/legal/#verify-a-download" class="underline underline-offset-4">How to verify a download</a>
           </p>
         </div>
       </section>
@@ -232,15 +228,21 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
               if (macHero && link?.dataset.href) macHero.href = link.dataset.href;
             }
           }
+          const os = document.documentElement.dataset.os;
+          if (os !== "windows" && os !== "mac") return;
           const total = releases
             .flatMap((release) => {
-              const counted = release.assets.some((asset) => asset.name === "Toolblox-Update.exe") ? ["Toolblox-Setup.exe", "Toolblox.dmg"] : ["Toolblox.dmg"];
-              return release.assets.filter((asset) => counted.includes(asset.name));
+              const counted = os === "mac" ? "Toolblox.dmg" : release.assets.some((asset) => asset.name === "Toolblox-Update.exe") ? "Toolblox-Setup.exe" : "";
+              return release.assets.filter((asset) => asset.name === counted);
             })
             .reduce((sum, asset) => sum + asset.download_count, 0);
-          if (!total) return;
-          for (const element of document.querySelectorAll<HTMLElement>("[data-downloads-count]")) element.textContent = total.toLocaleString("en-US");
-          for (const element of document.querySelectorAll<HTMLElement>("[data-downloads]")) element.hidden = false;
+          const element = document.querySelector<HTMLElement>("[data-downloads]");
+          const count = document.querySelector<HTMLElement>("[data-downloads-count]");
+          const label = document.querySelector<HTMLElement>("[data-downloads-label]");
+          if (!total || !element || !count || !label) return;
+          count.textContent = total.toLocaleString("en-US");
+          label.textContent = ` ${total === 1 ? "download" : "downloads"} on ${os === "mac" ? "macOS" : "Windows"}`;
+          element.hidden = false;
         })
         .catch(() => {});
   </script>

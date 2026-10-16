@@ -99,12 +99,16 @@ from the top.
 | [`vite.config.ts`](https://github.com/BakedAleska/Toolblox/blob/main/vite.config.ts) | Vite with the React and Tailwind CSS plugins, the `@` alias for `/src`, a fixed dev port of 1420 (`strictPort`), and `src-tauri` excluded from file watching. |
 | [`tsconfig.json`](https://github.com/BakedAleska/Toolblox/blob/main/tsconfig.json) | Strict TypeScript for `src`, with `noUnusedLocals`, `noUnusedParameters`, and the `@/*` path alias. `tsconfig.node.json` covers `vite.config.ts`. |
 | [`components.json`](https://github.com/BakedAleska/Toolblox/blob/main/components.json) | The shadcn/ui configuration used by `npx shadcn@latest add <name>`. |
-| `LICENSE` | The MIT license. The website's policies page reads it at build time. |
+| `LICENSE` | The MIT license. The website's Legal page reads it at build time. |
 
-The privacy policy, security policy, and legal notices share one page of the website,
-`site/src/pages/policies.astro`, which renders `site/src/policies/privacy.md` and `security.md`
-followed by the legal notices. `/privacy/`, `/security/`, and `/legal/` redirect to it. The app's
-Settings links to them on toolblox.dev.
+The privacy policy, security policy, license, and third-party notices share the website's Legal
+page, `site/src/pages/legal.astro`. It renders `site/src/legal/privacy.md` and `security.md`,
+then the disclaimer and `LICENSE`, then a table of every package in the latest release's
+`THIRD-PARTY-NOTICES.txt`, which it downloads at build time. When that download fails, the table
+is left out and the page links to the file instead. `/privacy/` and `/security/` redirect to their
+sections, and `/policies/`, the page's former address, redirects to `/legal/` while keeping the
+section in the URL fragment so links from older app versions still resolve. The app's Settings
+links to the Legal page on toolblox.dev.
 
 `.gitignore` excludes `node_modules`, `dist`, logs, `_site` (the assembled Pages output),
 `THIRD-PARTY-NOTICES.txt`, and `.astro`. `.vscode/extensions.json` recommends the Tauri and

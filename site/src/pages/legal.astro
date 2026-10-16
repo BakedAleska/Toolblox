@@ -1,0 +1,84 @@
+---
+import Site from "../layouts/Site.astro";
+import * as privacy from "../legal/privacy.md";
+import * as security from "../legal/security.md";
+import license from "../../../LICENSE?raw";
+
+const repo = "https://github.com/BakedAleska/Toolblox";
+const noticesUrl = `${repo}/releases/latest/download/THIRD-PARTY-NOTICES.txt`;
+const updated = "October 15, 2026";
+
+/** The packages listed in the latest release's notices, read at build time. Each section of the
+ * file starts with `name version (license)`. Empty when the release can't be reached. */
+const packages = await fetch(noticesUrl)
+  .then((response) => (response.ok ? response.text() : ""))
+  .catch(() => "")
+  .then((text) =>
+    text
+      .split(`\n${"=".repeat(80)}\n`)
+      .map((section) => section.trim().split("\n").find((line) => /^\S+ \S+ \(.+\)$/.test(line))?.match(/^(\S+) (\S+) \((.+)\)$/))
+      .filter((match) => !!match)
+      .map(([, name, version, license]) => ({ name, version, license })),
+  );
+---
+
+<Site title="Legal" description="The Toolblox privacy policy, security policy, license, and third-party notices.">
+  <section class="mx-auto flex max-w-3xl flex-col gap-4 px-4 pt-16 pb-12 text-center sm:pt-24">
+    <h1 class="rise text-4xl font-semibold tracking-tight text-balance sm:text-5xl">Legal</h1>
+    <p class="rise text-lg text-pretty text-muted-foreground" style="--i: 1">How Toolblox handles your data, how to report a security issue, and the terms it's provided under.</p>
+    <nav class="rise flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm" style="--i: 2" aria-label="Legal">
+      <a href="#privacy" class="underline-offset-4 hover:underline">Privacy</a>
+      <a href="#security" class="underline-offset-4 hover:underline">Security</a>
+      <a href="#license" class="underline-offset-4 hover:underline">License</a>
+      <a href="#third-party-notices" class="underline-offset-4 hover:underline">Third-party notices</a>
+    </nav>
+  </section>
+  <section id="privacy" class="scroll-mt-14 border-t bg-muted/40">
+    <div class="policy">
+      <header class="policy-header"><h2>{privacy.frontmatter.title}</h2><p>{privacy.frontmatter.description}</p><p>Last updated {privacy.frontmatter.updated}</p></header>
+      <privacy.Content />
+    </div>
+  </section>
+  <section id="security" class="scroll-mt-14 border-t">
+    <div class="policy">
+      <header class="policy-header"><h2>{security.frontmatter.title}</h2><p>{security.frontmatter.description}</p><p>Last updated {security.frontmatter.updated}</p></header>
+      <security.Content />
+    </div>
+  </section>
+  <section id="license" class="scroll-mt-14 border-t bg-muted/40">
+    <div class="policy">
+      <header class="policy-header"><h2>License</h2><p>Toolblox's relationship to Roblox and the terms its source code is available under.</p><p>Last updated {updated}</p></header>
+      <h3 id="disclaimer">Disclaimer</h3>
+      <p>
+        Toolblox is an independent project. It isn't affiliated with, endorsed by, or sponsored by Roblox Corporation. Roblox
+        is a trademark of Roblox Corporation.
+      </p>
+      <p>
+        Using Toolblox is subject to the <a href="https://www.roblox.com/info/terms">Roblox Terms of Use</a>. Roblox decides
+        how its terms apply to third-party tools and may restrict accounts that use them, so no outside app can guarantee an
+        account's standing.
+      </p>
+      <p>Toolblox is provided as is, without warranty of any kind, under the MIT License below.</p>
+      <h3 id="mit-license">MIT License</h3>
+      <pre><code>{license.trim()}</code></pre>
+    </div>
+  </section>
+  <section id="third-party-notices" class="scroll-mt-14 border-t">
+    <div class="policy">
+      <header class="policy-header"><h2>Third-party notices</h2><p>The open-source software Toolblox is built from, and the license of each package.</p><p>Matches the latest release</p></header>
+      <p>
+        Each release includes the Rust crates and npm packages it ships, with the full text of every license.
+        {packages.length > 0 && ` The latest release includes ${packages.length} packages.`}
+      </p>
+      {packages.length > 0 && (
+        <table>
+          <thead><tr><th scope="col">Package</th><th scope="col">Version</th><th scope="col">License</th></tr></thead>
+          <tbody>
+            {packages.map(({ name, version, license }) => <tr><td class="font-mono text-[13px] break-all">{name}</td><td class="tabular-nums">{version}</td><td>{license}</td></tr>)}
+          </tbody>
+        </table>
+      )}
+      <p><a href={noticesUrl}>Download the full license texts for the latest release</a></p>
+    </div>
+  </section>
+</Site>

@@ -1,7 +1,7 @@
 # Security
 
 The security policy, including how to verify a download, is published at
-[toolblox.dev/policies](https://toolblox.dev/policies/#security).
+[toolblox.dev/legal](https://toolblox.dev/legal/#security).
 
 ## Report a vulnerability
 

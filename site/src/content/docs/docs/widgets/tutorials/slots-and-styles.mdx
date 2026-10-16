@@ -337,7 +337,7 @@ Three facts decide which rules win:
 Consequences for widget CSS:
 
 - Prefix every selector with a class only your widget uses. Unprefixed element selectors restyle
-  the whole app, not just your widget.
+  the whole app, not only the widget that registers it.
 - For low-priority defaults that Tailwind classes should be able to override, put them in the app's
   base layer: `@layer base { … }`. Layer names are shared by every stylesheet in the document, so
   your rules join that layer and lose to utilities.

@@ -228,7 +228,7 @@ successful decision stores the manifest's version if it's newer than what was st
 | 12 | Storing the newer version fails | `Persistence` | The verified version couldn't be saved (The update security state couldn't be saved.). Try again? |
 
 Only an **exact** version match admits the app. A build that is *newer* than the manifest (for
-example a locally built release with a bumped version) is refused as a rollback, just like an old
+example a locally built release with a bumped version) is refused as a rollback in the same way as an old
 manifest.
 
 Before `decide_and_record` runs, `run_inner` in `startup.rs` can fail for reasons outside the

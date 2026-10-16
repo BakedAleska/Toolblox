@@ -161,7 +161,7 @@ Closing the main window doesn't always quit. The `CloseRequested` handler in `li
 
 To hide, the handler prevents the close, removes the taskbar button (`set_skip_taskbar(true)`),
 and hides the window. If either call fails, it restores the taskbar button and shows the window
-again rather than leaving an invisible app with no way back; the window simply stays open. To
+again rather than leaving an invisible app with no way back; the window stays open. To
 exit, it calls `app.exit(0)`.
 
 `runInBackground` defaults to on. Because the decision requires the `ready` phase, closing the

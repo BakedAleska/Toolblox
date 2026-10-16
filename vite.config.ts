@@ -1,5 +1,6 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from "vite";
+import { configDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 // @ts-expect-error type error without @types/node package
@@ -10,8 +11,8 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": "/src" } },
-  // Tests read the theme tokens from `theme.css`.
-  test: { css: { include: /theme\.css/ } },
+  // Tests read the theme tokens from `theme.css`. The bot runs its own tests.
+  test: { css: { include: /theme\.css/ }, exclude: [...configDefaults.exclude, "bot/**"] },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

@@ -1,0 +1,15 @@
+name = "toolblox-bot"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+# Checks GitHub for new downloads every five minutes.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Create with `npx wrangler kv namespace create STATE`, then paste the printed id here.
+[[kv_namespaces]]
+binding = "STATE"
+id = "a6a8f6bdcff44eb7a32c16077247feb7"
+
+[vars]
+DISCORD_PUBLIC_KEY = "103846c94138b19d6baa4eb36d5d59122238dd4f3ab27306efa5b77a275ef6a8"

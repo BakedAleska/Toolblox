@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { bridge, describeError, isDemo, previewUpdater } from "@/bridge";
 import type { ThemeStore } from "@/lib/theme";
 import { ThemesTab } from "@/screens/Themes";
-import { ChoiceRow, Commitments, Group, Panel, Screen, Spinner, SwitchRow, type ScreenProps } from "@/shared";
+import { ChoiceRow, Group, Panel, Screen, Spinner, SwitchRow, type ScreenProps } from "@/shared";
 
 type Tab = "general" | "accounts" | "themes";
 
@@ -38,21 +38,13 @@ export function SettingsScreen({ themes, ...props }: ScreenProps & { themes: The
             <Button variant="ghost" size="sm" onClick={() => previewUpdater("update")}>Update</Button>
             <Button variant="ghost" size="sm" onClick={() => previewUpdater("failure")}>Failure</Button>
           </div>}
-          <Commitments platform={state.platform} className="px-2.5 py-2" />
-          <div className="space-y-1 px-4 py-3">
-            <p className="text-sm font-medium">Verify</p>
-            <p className="text-xs text-muted-foreground">Each commitment can be checked in the source code and privacy policy.</p>
-            <div className="flex flex-wrap gap-x-4">
-              <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge.openExternal("https://github.com/BakedAleska/Toolblox")}>Source code<ExternalLink /></Button>
-              <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge.openExternal("https://toolblox.dev/policies/#privacy")}>Privacy policy<ExternalLink /></Button>
-              <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge.openExternal("https://toolblox.dev/policies/#security")}>Security policy<ExternalLink /></Button>
-            </div>
-          </div>
           <div className="space-y-1 px-4 py-3">
             <p className="text-sm font-medium">Legal</p>
             <p className="text-xs text-muted-foreground">Toolblox isn't affiliated with or endorsed by Roblox Corporation. It's provided as is, without warranty, under the MIT License.</p>
             <div className="flex flex-wrap gap-x-4">
-              <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge.openExternal("https://toolblox.dev/policies/#license")}>License<ExternalLink /></Button>
+              <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge.openExternal("https://toolblox.dev/legal/#license")}>License<ExternalLink /></Button>
+              <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge.openExternal("https://toolblox.dev/legal/#privacy")}>Privacy policy<ExternalLink /></Button>
+              <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge.openExternal("https://toolblox.dev/legal/#security")}>Security policy<ExternalLink /></Button>
               <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge.openExternal(`https://github.com/BakedAleska/Toolblox/releases/download/v${state.version}/THIRD-PARTY-NOTICES.txt`)}>Third-party notices<ExternalLink /></Button>
             </div>
           </div>

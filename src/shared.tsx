@@ -9,7 +9,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Account, AppRoute, AppState, Settings, WidgetSummary } from "@/types";
 
-/** The core commitments from `PRODUCT.md`, shown on the dashboard and in Settings. */
+/** The core commitments from `PRODUCT.md`, shown on the dashboard. */
 export const commitments = (platform: AppState["platform"]) => [
   { icon: <Eye />, title: "Free and open source", text: "No ads or paid features. Every line of source code is public under the MIT License." },
   { icon: <ShieldCheck />, title: "No injection", text: "Never injects code into Roblox or reads or changes its memory or files. Roblox opens through its own sign-in page and launcher." },
@@ -70,13 +70,13 @@ export const permissionSummary = (permissions: string[]) => permissions.map((per
  * under the title, the same distance from it as content on pages without one. */
 export function Screen({ title, actions, toolbar, children, className }: { title: string; actions?: ReactNode; toolbar?: ReactNode; children: ReactNode; className?: string }) {
   return <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
-    <div className={cn("mx-auto flex min-h-full max-w-5xl flex-col gap-4 px-6 pb-6", className)}>
+    <div className={cn("mx-auto flex min-h-full max-w-5xl flex-col gap-2 px-6 pb-6", className)}>
       <header data-slot="screen-header" className="sticky top-0 z-10 -mx-6 shrink-0 bg-background/90 px-6 backdrop-blur-sm">
         <div className="flex h-14 items-center gap-2">
           <h1 className="mr-auto shrink-0 pr-2 text-lg font-semibold tracking-tight">{title}</h1>
           {actions}
         </div>
-        {toolbar && <div className="mt-4 flex items-center gap-2">{toolbar}</div>}
+        {toolbar && <div className="mt-2 flex items-center gap-2">{toolbar}</div>}
       </header>
       {children}
     </div>
@@ -114,8 +114,8 @@ export function Avatar({ account, className }: { account: Account; className?: s
   </span>;
 }
 
-/** An account's name that fades into its Roblox user ID while the name is hovered. The two
- * crossfade after a short pause, and visibility follows the fade so only the text on screen can be
+/** An account's name that fades into its Roblox user ID while the name is hovered. After a short
+ * pause one narrows out as the other widens in, so text beside the name keeps the same gap, and visibility follows the fade so only the text on screen can be
  * clicked or selected. The shown text stays put while the pointer is pressed on it or part of it is
  * selected. Pointer events only prompt a check: the swap follows `:hover`, because a pointer leave
  * during a text selection isn't always reported. Selecting the ID never includes its label. */
@@ -146,12 +146,12 @@ export function AccountName({ account, className }: { account: Account; classNam
     }, 250);
     return () => window.clearTimeout(timeout);
   }, [hovered, pressed, selected]);
-  const fade = "col-start-1 row-start-1 truncate transition-[opacity,visibility] duration-300 ease-in-out motion-reduce:transition-none";
-  return <span ref={root} data-slot="account-name" className={cn("inline-grid max-w-full min-w-0", className)}
+  const fade = (shown: boolean) => cn("grid min-w-0 transition-[grid-template-columns,opacity,visibility] duration-300 ease-in-out motion-reduce:transition-none", shown ? "grid-cols-[1fr]" : "invisible grid-cols-[0fr] opacity-0");
+  return <span ref={root} data-slot="account-name" className={cn("inline-flex max-w-full min-w-0", className)}
     onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)} onPointerDown={() => setPressed(true)}>
-    <span className={cn(fade, showId && "invisible opacity-0")}>{accountName(account)}</span>
-    <span className={cn(fade, "tabular-nums", !showId && "invisible opacity-0")} aria-hidden="true">
-      <span className="font-normal text-muted-foreground select-none">UserId</span> <span className="select-text">{account.id}</span>
+    <span className={fade(!showId)}><span className="truncate">{accountName(account)}</span></span>
+    <span className={fade(showId)} aria-hidden="true">
+      <span className="truncate tabular-nums"><span className="font-normal text-muted-foreground select-none">UserId</span> <span className="select-text">{account.id}</span></span>
     </span>
   </span>;
 }

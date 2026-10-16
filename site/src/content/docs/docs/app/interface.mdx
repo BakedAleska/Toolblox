@@ -328,7 +328,7 @@ the app already ships:
 toolblox.replaceScreen("dashboard", function Home() {
   const state = toolblox.useAppState();
   return h("div", { className: "h-full overflow-y-auto [scrollbar-gutter:stable]" },
-    h("div", { className: "mx-auto flex min-h-full max-w-5xl flex-col gap-4 px-6 pb-6" },
+    h("div", { className: "mx-auto flex min-h-full max-w-5xl flex-col gap-2 px-6 pb-6" },
       h("header", { className: "sticky top-0 z-10 -mx-6 flex h-14 shrink-0 items-center gap-2 bg-background/90 px-6 backdrop-blur-sm" },
         h("h1", { className: "mr-auto shrink-0 pr-2 text-lg font-semibold tracking-tight" }, "Home")),
       h(ui.Panel, { className: "p-4" }, `${state.accounts.length} accounts`)));
@@ -528,7 +528,7 @@ slots and can't be replaced.
 | General | Appearance | Sidebar position (`left`/`right`) as a `ChoiceRow` |
 | General | Window | Launch at startup (`openOnLaunch`), Run in background (`runInBackground`, wording says menu bar on macOS and system tray on Windows), Always on top (`alwaysOnTop`) |
 | General | Diagnostics | Log: **Show**/**Hide** (reads the last 300 lines with `bridge.readLog`), **Copy** (up to 2,000 lines to the clipboard), **Open folder** (`bridge.openLogFolder`, disabled when `logsPath` is empty) |
-| General | About | An icon per core commitment that reveals its title beside it when pressed, as on the dashboard, with the description as a hover hint (the data commitment names the credential store per platform), a **Verify** row linking the source code, privacy policy, and security policy, and links to the license and third-party notices through `bridge.openExternal` |
+| General | About | A **Legal** row with the Roblox disclaimer and the MIT License notice, linking the license, privacy policy, security policy, and third-party notices through `bridge.openExternal` |
 | Accounts | List | Sort order, Show avatars, Compact list, Game details (`showGameNames`) |
 | Accounts | Joining | Minimize on join; Multiple instances (`multiInstance`) |
 | Accounts | Disconnects | Auto-rejoin, Disconnect notifications (`notifyOnDrop`) |
@@ -702,7 +702,7 @@ accent. Status is never conveyed by colour alone:
 - The default place field turns destructive when empty, and its placeholder, `title`, and `sr-only`
   hint all say "No default place set".
 - The safe mode banner's warning icon sits next to the sentence that explains it.
-- Widget load failures show the words "Failed to load" or "`name` failed to render", not just red.
+- Widget load failures show the words "Failed to load" or "`name` failed to render", so the failure is not conveyed by color alone.
 
 ### Reduced motion
 
@@ -782,7 +782,7 @@ widget:
 
 Every widget contribution the shell renders, whether a replaced screen, page, settings component,
 or slot item, is wrapped in `WidgetBoundary`. If it throws while rendering, the boundary logs
-"Render failed" with the component stack under the widget's ID and replaces just that contribution
+"Render failed" with the component stack under the widget's ID and replaces only that contribution
 with a `role="alert"` line: "`name` failed to render. (`error`)". The rest of the screen keeps
 working. Module import or `activate` failures are caught by `syncWidgetModules`, logged, and shown
 as "Failed to load" on the widget's card. See

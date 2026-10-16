@@ -1,11 +1,13 @@
 ---
 title: Privacy policy
 description: What Toolblox stores, where it's stored, and every service it connects to.
-updated: October 15, 2026
+updated: October 16, 2026
 ---
 
 Toolblox is a desktop app that runs on your device. It has no accounts, servers, analytics, or
-telemetry, and the project doesn't collect, receive, sell, or share personal information.
+telemetry, and the project doesn't collect, sell, or share personal information. The only data
+the project receives is what Discord sends when someone uses the
+[Toolblox Discord bot](#discord-bot).
 
 ### Data stored on this device
 
@@ -51,6 +53,19 @@ Widgets are made by third parties. An installed widget can read the data Toolblo
 account names and user IDs, and can connect to services its author chooses. No widget can read
 Roblox sessions. Catalogue review checks what each widget sends and where, but each widget's author
 is responsible for how it handles data. Only install widgets you trust.
+
+### Discord bot
+
+The Toolblox Discord bot runs on Cloudflare Workers. When someone uses one of its commands,
+Discord sends the bot the command name and the details Discord includes with every command, such
+as the user's ID and username and the server and channel it was used in. The bot uses them only
+to reply, and doesn't store or share them. To answer `/version`, the bot asks the GitHub API for
+public release details.
+
+The bot stores one thing: total release download counts from GitHub's public statistics, which
+contain no personal information. Cloudflare receives each request under the
+[Cloudflare privacy policy](https://www.cloudflare.com/privacypolicy/), and Discord's
+[privacy policy](https://discord.com/privacy) applies to everything sent through Discord.
 
 ### Children
 

@@ -3,6 +3,7 @@ import "../styles/global.css";
 import GitHubIcon from "../components/GitHubIcon.astro";
 import { buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Star } from "lucide-react";
 
 /** The page shell shared by the home page and the policy pages: header, footer, and theme. */
 interface Props {
@@ -45,7 +46,7 @@ const repo = "https://github.com/BakedAleska/Toolblox";
         <a href="/#commitments" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">Commitments</a>
         <a href="/#widgets" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">Widgets</a>
         <a href="/#faq" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">FAQ</a>
-        <a href={repo} class={buttonVariants({ size: "sm", variant: "ghost" })} aria-label="Toolblox on GitHub"><GitHubIcon /><span data-stars hidden></span></a>
+        <a href={repo} class={buttonVariants({ size: "sm", variant: "ghost" })} aria-label="Toolblox on GitHub"><GitHubIcon /><span data-stars hidden class="inline-flex items-center gap-1"><Star className="size-3.5" aria-hidden="true" /><span data-stars-count></span></span></a>
         <a href="/#download" class={buttonVariants({ size: "sm" })}>Download</a>
       </nav>
     </header>
@@ -72,10 +73,11 @@ const repo = "https://github.com/BakedAleska/Toolblox";
         .then((response) => (response.ok ? response.json() : Promise.reject()))
         .then(({ stargazers_count: stars }: { stargazers_count: number }) => {
           const element = document.querySelector<HTMLElement>("[data-stars]");
-          if (!stars || !element) return;
-          element.textContent = stars.toLocaleString("en-US");
+          const count = document.querySelector<HTMLElement>("[data-stars-count]");
+          if (!stars || !element || !count) return;
+          count.textContent = stars.toLocaleString("en-US");
           element.hidden = false;
-          element.parentElement?.setAttribute("aria-label", `Toolblox on GitHub, ${element.textContent} stars`);
+          element.parentElement?.setAttribute("aria-label", `Toolblox on GitHub, ${count.textContent} ${stars === 1 ? "star" : "stars"}`);
         })
         .catch(() => {});
     </script>

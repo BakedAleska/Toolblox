@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["LAUNCH_POLL_INTERVAL","LAUNCH_WINDOW","POLL_INTERVAL","REJOIN_GRACE"],"fn":["launched_recently","run"],"struct":["Entry"]};

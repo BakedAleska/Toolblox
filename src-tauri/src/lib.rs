@@ -14,6 +14,8 @@
 //! - [`roblox`]: Roblox web APIs for profiles, presence, games, and join tickets.
 //! - [`auto_rejoin`]: presence monitoring for drop notifications and auto-rejoin.
 //! - [`multi_instance`]: running several Roblox clients on Windows and macOS.
+//! - [`roblox_process`]: client priority, CPU cores, and window tiling.
+//! - [`roblox_files`]: the advanced settings that write Roblox's files, and the only code that does.
 //! - [`lifecycle`]: window, tray, and single-instance behavior.
 //! - [`logs`]: the rotating, redacted log file.
 //! - [`widgets`], [`widget_protocol`], [`widget_ipc`], and [`widget_process`]: signed widget
@@ -35,6 +37,8 @@ mod logs;
 mod models;
 mod multi_instance;
 mod roblox;
+mod roblox_files;
+mod roblox_process;
 mod startup;
 mod storage;
 mod theme;
@@ -221,6 +225,8 @@ pub fn run() {
                         .join("resources/multi-instance/multi_instance_helper.exe"),
                 ),
                 cleared_roblox_pids: Mutex::new(Default::default()),
+                client_tuner: Default::default(),
+                expired_sessions: Mutex::new(Default::default()),
                 safe_mode,
             };
             app.manage(runtime);
@@ -308,6 +314,7 @@ pub fn run() {
                     let _ = window.set_always_on_top(true);
                 }
                 app_commands::backfill_profiles(&services_app.state::<Runtime>()).await;
+                app_commands::check_sessions(&services_app.state::<Runtime>()).await;
                 start_widgets_on_launch(&services_app.state::<Runtime>());
                 auto_rejoin::run(services_app).await;
             });
@@ -318,6 +325,9 @@ pub fn run() {
             app_commands::begin_roblox_login,
             app_commands::update_account_notes,
             app_commands::set_account_place,
+            app_commands::set_account_priority,
+            app_commands::set_account_launch_settings,
+            app_commands::tile_roblox_windows,
             app_commands::place_exists,
             app_commands::forget_recent_place,
             app_commands::get_widget_store,

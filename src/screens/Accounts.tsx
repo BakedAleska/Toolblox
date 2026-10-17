@@ -1,20 +1,21 @@
-import { ArrowDown, ArrowUp, ChevronDown, GripVertical, ListChecks, MapPin, MapPinOff, MoreHorizontal, Play, Plus, Search, Trash2, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, Gauge, KeyRound, SlidersHorizontal, GripVertical, LayoutGrid, ListChecks, MapPin, MapPinOff, MoreHorizontal, Play, Plus, Search, Trash2, Users, X } from "lucide-react";
 import { useMemo, useRef, useState, type PointerEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { bridge } from "@/bridge";
 import { cn } from "@/lib/utils";
 import { accountName, parsePlaceId, sortAccounts } from "@/logic";
-import { AccountCard, EmptyState, IconButton, Panel, Screen, Spinner, placeLabel, presenceLabel, type ScreenProps } from "@/shared";
-import type { Account } from "@/types";
+import { AccountCard, EmptyState, IconButton, Panel, Screen, Spinner, placeLabel, presenceLabel, priorityLabels, type ScreenProps } from "@/shared";
+import type { Account, ClientPriority } from "@/types";
 import { WidgetSlot } from "@/widgets/host";
 import { activeFilters, emptySearch, matchAccount, type SearchState } from "@/search";
 import { AccountSearch } from "@/screens/AccountSearch";
+import { LaunchSettingsDialog } from "@/screens/LaunchSettings";
 
-export function Accounts({ state, refresh, notify, confirm, join, askPlace, patchSettings }: ScreenProps) {
+export function Accounts({ state, refresh, notify, confirm, join, signIn, askPlace, patchSettings }: ScreenProps) {
   const { settings } = state;
   const [search, setSearch] = useState<SearchState>(emptySearch);
   const [selectMode, setSelectMode] = useState(false);
@@ -24,6 +25,9 @@ export function Accounts({ state, refresh, notify, confirm, join, askPlace, patc
   const [over, setOver] = useState<number>();
   const placeField = useRef<HTMLLabelElement>(null);
   const [pendingOrder, setPendingOrder] = useState<Account[]>();
+  const [launchSettings, setLaunchSettings] = useState<Account>();
+  const [launchSettingsOpen, setLaunchSettingsOpen] = useState(false);
+  const advanced = settings.fastFlagsEnabled || settings.clientSettingsEnabled;
   const saved = useMemo(() => sortAccounts(state.accounts, settings.sortOrder), [state.accounts, settings.sortOrder]);
   const filters = activeFilters(search);
   const sorted = pendingOrder ?? saved;
@@ -37,6 +41,8 @@ export function Accounts({ state, refresh, notify, confirm, join, askPlace, patc
   const drop = (targetId?: number) => { setDragged(undefined); setOver(undefined); if (dragged === undefined || targetId === undefined || dragged === targetId) return; const next = [...sorted]; const from = next.findIndex(({ id }) => id === dragged); const to = next.findIndex(({ id }) => id === targetId); next.splice(to, 0, next.splice(from, 1)[0]); void persistOrder(next); };
   const rowAt = (event: PointerEvent<Element>) => { const id = (document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-account-id]") as HTMLElement | null)?.dataset.accountId; return id ? Number(id) : undefined; };
   const forgetPlace = (placeId: string) => bridge.forgetRecentPlace(placeId).then(refresh).catch((error) => notify(`The place wasn't removed. Does retrying help? (${String(error)})`));
+  const setAccountPriority = (account: Account, priority: ClientPriority | null) => bridge.setAccountPriority(account.id, priority).then(refresh).catch((error) => notify(`The priority wasn't saved. Does retrying help? (${String(error)})`));
+  const tile = () => bridge.tileRobloxWindows().then((count) => { if (!count) notify("No Roblox windows are open. Is a client running?"); }).catch((error) => notify(`The windows weren't tiled. Does retrying help? (${String(error)})`));
   const setAccountPlace = (account: Account, placeId: string | null) => bridge.setAccountPlace(account.id, placeId).then(refresh).catch((error) => notify(`The place wasn't saved. Does retrying help? (${String(error)})`));
   const savePlace = async (input: HTMLInputElement) => {
     const value = input.value.trim();
@@ -80,6 +86,7 @@ export function Accounts({ state, refresh, notify, confirm, join, askPlace, patc
       </DropdownMenu>}
     </label>
     <AccountSearch app={state} value={search} onChange={setSearch} />
+    {state.platform === "windows" && <IconButton label="Tile Roblox windows" onClick={() => void tile()}><LayoutGrid /></IconButton>}
     <IconButton label={selectMode ? "Exit selection" : "Select accounts"} variant={selectMode ? "secondary" : "ghost"} onClick={() => { setSelectMode((value) => !value); setSelected(new Set()); }}>{selectMode ? <X /> : <ListChecks />}</IconButton>
     <Button onClick={() => void addAccount()} disabled={adding}>{adding ? <Spinner /> : <Plus />}Add</Button>
   </>}>
@@ -105,10 +112,13 @@ export function Accounts({ state, refresh, notify, confirm, join, askPlace, patc
           inline={<>
             {account.displayName && account.displayName !== account.name && <span className="truncate text-xs text-muted-foreground">@{account.name}</span>}
             {account.placeId && <Badge variant="outline" title={`Place override: ${placeLabel(state, account.placeId)} (${account.placeId})`} className="min-w-0 shrink text-muted-foreground"><MapPin /><span className="truncate">{placeLabel(state, account.placeId)}</span></Badge>}
+            {account.priority && <Badge variant="outline" title={`Client priority: ${priorityLabels[account.priority]}`} className="min-w-0 shrink text-muted-foreground"><Gauge /><span className="truncate">{priorityLabels[account.priority]}</span></Badge>}
             {presenceLabel(account) && <Badge variant="secondary" title={presenceLabel(account)} className={cn("min-w-0 shrink", account.presence === "playing" ? "text-success" : "text-destructive")}><span className="truncate">{presenceLabel(account)}</span></Badge>}
           </>}
           actions={<>
-            <Button variant="outline" size="sm" onClick={() => join([account.id])} aria-label={`Join as ${accountName(account)}`}><Play />Join</Button>
+            {account.sessionExpired
+              ? <Button variant="outline" size="sm" onClick={() => void signIn(account.id)} aria-label={`Sign in again as ${accountName(account)}`}><KeyRound />Sign in again</Button>
+              : <Button variant="outline" size="sm" onClick={() => join([account.id])} aria-label={`Join as ${accountName(account)}`}><Play />Join</Button>}
             <DropdownMenu>
               <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`More actions for ${accountName(account)}`} />}><MoreHorizontal /></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-40">
@@ -122,6 +132,16 @@ export function Accounts({ state, refresh, notify, confirm, join, askPlace, patc
                   run: (placeId) => setAccountPlace(account, placeId)
                 })}><MapPin />{account.placeId ? "Change place…" : "Set place…"}</DropdownMenuItem>
                 {account.placeId && <DropdownMenuItem onClick={() => void setAccountPlace(account, null)}><MapPinOff />Use default place</DropdownMenuItem>}
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger><Gauge />Priority</DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    <DropdownMenuRadioGroup value={account.priority ?? "default"} onValueChange={(value) => void setAccountPriority(account, value === "default" ? null : value as ClientPriority)}>
+                      <DropdownMenuRadioItem value="default">Default ({priorityLabels[settings.clientPriority]})</DropdownMenuRadioItem>
+                      {(Object.keys(priorityLabels) as ClientPriority[]).map((priority) => <DropdownMenuRadioItem key={priority} value={priority}>{priorityLabels[priority]}</DropdownMenuRadioItem>)}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                {advanced && <DropdownMenuItem onClick={() => { setLaunchSettings(account); setLaunchSettingsOpen(true); }}><SlidersHorizontal />Launch settings…</DropdownMenuItem>}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onClick={() => confirm({ title: `Remove ${accountName(account)}?`, message: "Removes the account and its saved session from this device.", action: "Remove", danger: true, run: async () => { await bridge.removeAccount(account.id); await refresh(); } })}><Trash2 />Remove</DropdownMenuItem>
               </DropdownMenuContent>
@@ -132,6 +152,7 @@ export function Accounts({ state, refresh, notify, confirm, join, askPlace, patc
             className="-mx-1 mt-0.5 block max-h-16 w-full resize-none rounded-md bg-transparent px-1 text-xs text-muted-foreground outline-none [field-sizing:content] placeholder:text-muted-foreground/60 hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring/50"
             onBlur={(event) => { if (event.target.value !== account.notes) void bridge.updateAccountNotes(account.id, event.target.value).then(refresh).catch((error) => notify(`The note wasn't saved. Does retrying help? (${String(error)})`)); }} />}
         </AccountCard>)}</div>}
+    {launchSettings && <LaunchSettingsDialog account={launchSettings} state={state} open={launchSettingsOpen} close={() => setLaunchSettingsOpen(false)} saved={refresh} />}
     <span className="sr-only" aria-live="polite">{adding ? "Roblox sign-in window open." : ""}</span>
   </Screen>;
 }

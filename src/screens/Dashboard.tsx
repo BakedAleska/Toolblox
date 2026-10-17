@@ -1,14 +1,15 @@
-import { Gamepad2, Play, Plus, Puzzle, Users } from "lucide-react";
+import { Gamepad2, KeyRound, Play, Plus, Puzzle, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { accountName, relativeTime, sortAccounts } from "@/logic";
 import { AccountCard, Commitments, Panel, SectionTitle, Screen, StatTile, WidgetFrame, placeLabel, presenceLabel, type ScreenProps } from "@/shared";
 import { WidgetSlot } from "@/widgets/host";
 import { WIDGETS_AVAILABLE } from "@/screens/Widgets";
 
-export function Dashboard({ state, navigate, join }: ScreenProps) {
+export function Dashboard({ state, navigate, join, signIn }: ScreenProps) {
   const { accounts, settings, installedWidgets } = state;
   const hero = sortAccounts(accounts, "last_played")[0];
   const inGame = accounts.filter(({ presence }) => presence === "playing").length;
+  const expired = accounts.filter(({ sessionExpired }) => sessionExpired).length;
   const enabledWidgets = installedWidgets.filter(({ enabled }) => enabled);
   const place = hero?.placeId || settings.placeId;
   const recent = sortAccounts(accounts.filter(({ lastPlaceId }) => lastPlaceId), "last_played");
@@ -16,7 +17,9 @@ export function Dashboard({ state, navigate, join }: ScreenProps) {
   return <Screen title="Dashboard">
     {hero ? <AccountCard account={hero} showAvatar={settings.showAvatars} avatarClassName="size-14" nameClassName="text-lg font-semibold tracking-tight"
       className="flex-wrap gap-4 rounded-2xl p-5" eyebrow={<p className="text-xs text-muted-foreground">Continue as</p>}
-      actions={<Button size="lg" className="px-4" onClick={() => join([hero.id])}><Play />Join</Button>}>
+      actions={hero.sessionExpired
+        ? <Button size="lg" className="px-4" onClick={() => void signIn(hero.id)}><KeyRound />Sign in again</Button>
+        : <Button size="lg" className="px-4" onClick={() => join([hero.id])}><Play />Join</Button>}>
       <p className="truncate text-xs text-muted-foreground">
         {presenceLabel(hero) || relativeTime(hero.lastPlayedAt)}{place && ` · ${placeLabel(state, place)}`}
       </p>
@@ -31,6 +34,7 @@ export function Dashboard({ state, navigate, join }: ScreenProps) {
     <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
       <StatTile icon={<Users />} label="Accounts" value={accounts.length} onClick={() => navigate("/accounts")} />
       <StatTile icon={<Gamepad2 />} label="In game" value={inGame} onClick={() => navigate("/accounts")} />
+      {expired > 0 && <StatTile icon={<KeyRound />} label="Need to sign in again" value={expired} onClick={() => navigate("/accounts")} />}
       <StatTile icon={<Puzzle />} label="Widgets enabled" value={`${enabledWidgets.length}/${installedWidgets.length}`} onClick={WIDGETS_AVAILABLE ? () => navigate("/widgets") : undefined} />
       <WidgetSlot name="dashboard.stats" props={{}} />
     </div>
@@ -41,7 +45,9 @@ export function Dashboard({ state, navigate, join }: ScreenProps) {
         {recent.map((account) => {
           const lastPlace = placeLabel(state, account.lastPlaceId!);
           return <AccountCard key={account.id} account={account} showAvatar={settings.showAvatars} avatarClassName="size-8" className="px-4 py-3"
-            actions={<Button variant="outline" size="sm" aria-label={`Join ${lastPlace} as ${accountName(account)}`} onClick={() => join([account.id], account.lastPlaceId)}><Play />Join</Button>}>
+            actions={account.sessionExpired
+              ? <Button variant="outline" size="sm" aria-label={`Sign in again as ${accountName(account)}`} onClick={() => void signIn(account.id)}><KeyRound />Sign in again</Button>
+              : <Button variant="outline" size="sm" aria-label={`Join ${lastPlace} as ${accountName(account)}`} onClick={() => join([account.id], account.lastPlaceId)}><Play />Join</Button>}>
             <p className="truncate text-xs text-muted-foreground" title={`Place ID ${account.lastPlaceId}`}>{lastPlace} · {relativeTime(account.lastPlayedAt)}</p>
           </AccountCard>;
         })}

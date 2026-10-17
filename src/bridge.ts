@@ -1,10 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Account, AppState, CatalogueEntry, LogLevel, Settings, StartupStatus, WidgetSummary } from "./types";
+import type { Account, AppState, CatalogueEntry, ClientPriority, ClientSettings, FastFlags, LogLevel, Settings, StartupStatus, WidgetSummary } from "./types";
 
 const minutesAgo = (minutes: number) => Date.now() - minutes * 60_000;
 const demoAccount = (id: number, name: string, displayName: string, extra: Partial<Account> = {}): Account =>
-  ({ id, name, displayName, notes: "", addedAt: minutesAgo(60 * 24 * 30), presence: "offline", ...extra });
+  ({ id, name, displayName, notes: "", addedAt: minutesAgo(60 * 24 * 30), presence: "offline", clientSettings: {}, fastFlags: {}, ...extra });
 const demoWidget = (id: string, name: string, description: string, extra: Partial<WidgetSummary> = {}): WidgetSummary =>
   ({ id, name, description, enabled: true, version: "1.0.0", permissions: [], hasSettings: false, hasDashboardTile: false, hasPageFrame: true, canStartOnLaunch: false, startOnLaunch: false, hostUrl: "about:blank", ...extra });
 const demoEntry = (id: string, name: string, description: string, version: string, permissions: string[] = []): CatalogueEntry =>
@@ -20,7 +20,7 @@ const demoState: AppState = {
   accounts: [
     demoAccount(101, "builderman_alt", "Builder", { presence: "playing", gameName: "Pet Simulator 99", gamePlaceId: 8737899170, lastPlayedAt: minutesAgo(4), lastPlaceId: "8737899170", notes: "Main farming account" }),
     demoAccount(102, "crossroads_fan", "Crossroads Fan", { presence: "playing", gamePlaceId: 1818, lastPlayedAt: minutesAgo(38), lastPlaceId: "1818" }),
-    demoAccount(103, "tradebot_03", "tradebot_03", { presence: "warning", lastPlayedAt: minutesAgo(60 * 5), notes: "Session may need a fresh sign-in" }),
+    demoAccount(103, "tradebot_03", "tradebot_03", { presence: "warning", sessionExpired: true, lastPlayedAt: minutesAgo(60 * 5), notes: "Trading alt" }),
     demoAccount(104, "weekend_player", "Weekend Player", { lastPlayedAt: minutesAgo(60 * 24 * 3), placeId: "606849621", lastPlaceId: "606849621" }),
     demoAccount(105, "new_account_2026", "Fresh Start"),
   ],
@@ -55,6 +55,13 @@ const demoState: AppState = {
     showGameNames: true,
     notifyOnDrop: false,
     alwaysOnTop: false,
+    clientPriority: "normal",
+    cpuCores: 0,
+    tileSize: "fit",
+    fastFlagsEnabled: false,
+    fastFlags: {},
+    clientSettingsEnabled: false,
+    clientSettings: {},
   },
   safeMode: false,
   recentPlaces: [
@@ -164,8 +171,11 @@ export const bridge = {
   quitStartup: () => call<void>("quit_startup", {}, () => { sessionStorage.removeItem(scenarioKey); window.location.reload(); }),
   getAppState: () => call<AppState>("get_app_state", {}, () => demoState),
 
-  beginRobloxLogin: () =>
-    call<Account>("begin_roblox_login", {}, () => {
+  /** Opens the Roblox sign-in. With `expectedAccountId`, only that account is accepted. */
+  beginRobloxLogin: (expectedAccountId?: number) =>
+    call<Account>("begin_roblox_login", { expectedAccountId: expectedAccountId ?? null }, () => {
+      const existing = demoState.accounts.find(({ id }) => id === expectedAccountId);
+      if (existing) { existing.sessionExpired = false; return existing; }
       const account: Account = {
         id: Date.now(),
         name: `demo_user_${demoState.accounts.length + 1}`,
@@ -173,6 +183,8 @@ export const bridge = {
         notes: "",
         addedAt: Date.now(),
         presence: "offline",
+        clientSettings: {},
+        fastFlags: {},
       };
       demoState.accounts.push(account);
       return account;
@@ -223,6 +235,23 @@ export const bridge = {
       if (account) account.placeId = placeId || undefined;
       if (placeId) rememberDemoPlace(placeId);
     }),
+
+  /** Sets an account's client priority. `null` uses the default priority. */
+  setAccountPriority: (accountId: number, priority: ClientPriority | null) =>
+    call<void>("set_account_priority", { accountId, priority }, () => {
+      const account = demoState.accounts.find(({ id }) => id === accountId);
+      if (account) account.priority = priority;
+    }),
+
+  /** Sets an account's client settings and FastFlags, applied over the defaults. */
+  setAccountLaunchSettings: (accountId: number, clientSettings: ClientSettings, fastFlags: FastFlags) =>
+    call<void>("set_account_launch_settings", { accountId, clientSettings, fastFlags }, () => {
+      const account = demoState.accounts.find(({ id }) => id === accountId);
+      if (account) Object.assign(account, { clientSettings, fastFlags });
+    }),
+
+  /** Tiles the open Roblox windows and returns how many moved. Windows only. */
+  tileRobloxWindows: () => call<number>("tile_roblox_windows", {}, () => 0),
 
   installWidget: (entry: CatalogueEntry) =>
     call<void>("install_widget", { widgetId: entry.id }, () => {

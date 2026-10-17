@@ -5,6 +5,9 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+pub use crate::roblox_files::ClientSettings;
+pub use crate::roblox_process::{ClientPriority, MAX_CPU_CORES, TileSize};
+
 /// Which side of the window the sidebar is on.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -64,6 +67,19 @@ pub struct Settings {
     pub always_on_top: bool,
     /// Recently used places, newest first.
     pub recent_places: Vec<RecentPlace>,
+    /// Priority of launched clients, unless an account sets its own.
+    pub client_priority: ClientPriority,
+    /// Logical cores each launched client may use. `0` allows every core (Windows only).
+    pub cpu_cores: u32,
+    /// Window size used when tiling clients.
+    pub tile_size: TileSize,
+    /// Write `fast_flags` to Roblox's folder before each launch. An advanced setting.
+    pub fast_flags_enabled: bool,
+    pub fast_flags: Map<String, Value>,
+    /// Apply `client_settings` before each launch. An advanced setting.
+    pub client_settings_enabled: bool,
+    /// Default frame rate cap, graphics quality, and window size.
+    pub client_settings: ClientSettings,
     /// Unknown fields, kept when saving.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -106,14 +122,27 @@ impl Default for Settings {
             notify_on_drop: false,
             always_on_top: false,
             recent_places: Vec::new(),
+            client_priority: ClientPriority::Normal,
+            cpu_cores: 0,
+            tile_size: TileSize::Fit,
+            fast_flags_enabled: false,
+            fast_flags: Map::new(),
+            client_settings_enabled: false,
+            client_settings: ClientSettings::default(),
             extra: Map::new(),
         }
     }
 }
 
 impl Settings {
-    /// Checks the place IDs, recent places, and widget IDs. Returns a user-facing message on failure.
+    /// Checks the place IDs, recent places, widget IDs, core limit, and FastFlags. Returns a
+    /// user-facing message on failure.
     pub fn validate(&self) -> Result<(), String> {
+        if self.cpu_cores > MAX_CPU_CORES {
+            return Err("The core limit isn't valid. Can you choose it again?".into());
+        }
+        crate::roblox_files::validate_flags(&self.fast_flags)?;
+        self.client_settings.validate()?;
         if !self.place_id.is_empty() && !is_place_id(&self.place_id) {
             return Err("The saved place ID isn't valid. Can you enter it again?".into());
         }
@@ -155,6 +184,11 @@ impl Settings {
         self.recent_places.insert(0, place);
         self.recent_places.truncate(RECENT_PLACES_LIMIT);
     }
+}
+
+/// Whether a value equals its type's default, for omitting it when saving.
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 
 /// Whether `value` is a Roblox place ID: 1 to 20 ASCII digits.
@@ -200,6 +234,15 @@ pub struct StoredAccount {
     /// Place of the last manual join.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_place_id: Option<String>,
+    /// Client priority instead of the default priority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<ClientPriority>,
+    /// Client settings instead of the default ones, for each value that's set.
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub client_settings: ClientSettings,
+    /// FastFlags added to the default ones for this account's launches.
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub fast_flags: Map<String, Value>,
     /// Unknown fields, kept when saving.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -236,6 +279,8 @@ impl StoredAccount {
         {
             return Err("A saved account has an invalid last place. Can you join again?".into());
         }
+        self.client_settings.validate()?;
+        crate::roblox_files::validate_flags(&self.fast_flags)?;
         if self.extra.keys().any(|key| {
             let key = key.to_ascii_lowercase();
             key.contains("cookie") || key.contains("secret") || key.contains("ticket")
@@ -273,6 +318,9 @@ pub struct AccountDto {
     pub play_count: u64,
     pub place_id: Option<String>,
     pub last_place_id: Option<String>,
+    pub priority: Option<ClientPriority>,
+    pub client_settings: ClientSettings,
+    pub fast_flags: Map<String, Value>,
 }
 
 impl From<&StoredAccount> for AccountDto {
@@ -288,6 +336,9 @@ impl From<&StoredAccount> for AccountDto {
             play_count: account.play_count,
             place_id: account.place_id.clone(),
             last_place_id: account.last_place_id.clone(),
+            priority: account.priority,
+            client_settings: account.client_settings,
+            fast_flags: account.fast_flags.clone(),
         }
     }
 }
@@ -391,6 +442,9 @@ mod tests {
             widget_data: BTreeMap::new(),
             place_id: None,
             last_place_id: None,
+            priority: None,
+            client_settings: ClientSettings::default(),
+            fast_flags: Map::new(),
             extra: Map::new(),
         };
         let json = serde_json::to_string(&AccountDto::from(&account)).unwrap();

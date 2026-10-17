@@ -36,8 +36,57 @@ pub struct Runtime {
     pub multi_instance_helper: Option<PathBuf>,
     /// Roblox processes the helper already handled.
     pub cleared_roblox_pids: Mutex<std::collections::HashSet<u32>>,
+    /// Sets the priority and cores of launched clients.
+    pub client_tuner: Arc<crate::roblox_process::ClientTuner>,
+    /// Accounts whose session Roblox no longer accepts, or that have no stored session.
+    pub expired_sessions: Mutex<std::collections::HashSet<u64>>,
     /// Widget modules and frames stay unloaded for this session.
     pub safe_mode: bool,
+}
+
+impl Runtime {
+    /// Whether the account needs to sign in again.
+    pub(crate) fn session_expired(&self, account_id: u64) -> bool {
+        self.expired_sessions
+            .lock()
+            .is_ok_and(|expired| expired.contains(&account_id))
+    }
+
+    /// Marks an account's session as expired or valid.
+    pub(crate) fn set_session_expired(&self, account_id: u64, expired: bool) {
+        let Ok(mut sessions) = self.expired_sessions.lock() else {
+            return;
+        };
+        if expired && sessions.insert(account_id) {
+            log::info!("Session for account {account_id} has expired");
+        } else if !expired {
+            sessions.remove(&account_id);
+        }
+    }
+
+    /// Records what a Roblox request made with an account's session says about it. Success marks
+    /// it valid and a 401 marks it expired. Other failures say nothing about the session.
+    pub(crate) fn note_session<T>(
+        &self,
+        account_id: u64,
+        result: &Result<T, crate::roblox::RobloxError>,
+    ) {
+        if let Some(expired) = session_verdict(result) {
+            self.set_session_expired(account_id, expired);
+        }
+    }
+
+    /// Reads an account's session. A missing session marks the account expired.
+    pub(crate) fn session(
+        &self,
+        account_id: u64,
+    ) -> Result<Secret, crate::credentials::CredentialError> {
+        self.credentials.get(account_id).inspect_err(|error| {
+            if matches!(error, crate::credentials::CredentialError::Missing) {
+                self.set_session_expired(account_id, true);
+            }
+        })
+    }
 }
 
 /// The settings the interface reads and edits.
@@ -58,6 +107,13 @@ pub struct SettingsDto {
     show_game_names: bool,
     notify_on_drop: bool,
     always_on_top: bool,
+    client_priority: crate::models::ClientPriority,
+    cpu_cores: u32,
+    tile_size: crate::models::TileSize,
+    fast_flags_enabled: bool,
+    fast_flags: serde_json::Map<String, Value>,
+    client_settings_enabled: bool,
+    client_settings: crate::models::ClientSettings,
 }
 
 impl From<&Settings> for SettingsDto {
@@ -77,6 +133,13 @@ impl From<&Settings> for SettingsDto {
             show_game_names: settings.show_game_names,
             notify_on_drop: settings.notify_on_drop,
             always_on_top: settings.always_on_top,
+            client_priority: settings.client_priority,
+            cpu_cores: settings.cpu_cores,
+            tile_size: settings.tile_size,
+            fast_flags_enabled: settings.fast_flags_enabled,
+            fast_flags: settings.fast_flags.clone(),
+            client_settings_enabled: settings.client_settings_enabled,
+            client_settings: settings.client_settings,
         }
     }
 }
@@ -93,6 +156,8 @@ pub struct AccountView {
     game_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     game_place_id: Option<u64>,
+    /// The account needs to sign in again.
+    session_expired: bool,
 }
 
 /// Presence as the interface shows it.
@@ -160,6 +225,16 @@ pub struct AppStateDto {
     safe_mode: bool,
 }
 
+/// Whether a Roblox response shows the session expired (`Some(true)`), valid (`Some(false)`), or
+/// says nothing about it (`None`). Only a 401 means Roblox no longer accepts the session.
+fn session_verdict<T>(result: &Result<T, crate::roblox::RobloxError>) -> Option<bool> {
+    match result {
+        Ok(_) => Some(false),
+        Err(crate::roblox::RobloxError::Rejected(401)) => Some(true),
+        Err(_) => None,
+    }
+}
+
 /// Converts an error to the message returned to the interface.
 fn command_error(error: impl std::fmt::Display) -> String {
     error.to_string()
@@ -199,6 +274,21 @@ fn now_seconds() -> f64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs_f64()
+}
+
+/// Checks every saved session with Roblox once, so expired ones show before they're used.
+/// Network failures leave the state unchanged.
+pub(crate) async fn check_sessions(runtime: &Runtime) {
+    let Ok(accounts) = runtime.storage.load_accounts() else {
+        return;
+    };
+    for account in accounts {
+        let Ok(secret) = runtime.session(account.id) else {
+            continue;
+        };
+        let result = crate::roblox::authenticated_profile(&runtime.client, &secret).await;
+        runtime.note_session(account.id, &result);
+    }
 }
 
 /// Fills in names and avatars for accounts saved without an avatar.
@@ -305,10 +395,12 @@ async fn account_views(
     let ids: Vec<_> = accounts.iter().map(|account| account.id).collect();
     let mut states = None;
     for account in accounts {
-        let Ok(secret) = runtime.credentials.get(account.id) else {
+        let Ok(secret) = runtime.session(account.id) else {
             continue;
         };
-        match crate::roblox::fetch_presence_details(&runtime.client, &secret, &ids).await {
+        let result = crate::roblox::fetch_presence_details(&runtime.client, &secret, &ids).await;
+        runtime.note_session(account.id, &result);
+        match result {
             Ok(found) => {
                 states = Some(found);
                 break;
@@ -326,12 +418,13 @@ async fn account_views(
             if !hidden {
                 continue;
             }
-            let Ok(secret) = runtime.credentials.get(account.id) else {
+            let Ok(secret) = runtime.session(account.id) else {
                 continue;
             };
             let own =
                 crate::roblox::fetch_presence_details(&runtime.client, &secret, &[account.id])
                     .await;
+            runtime.note_session(account.id, &own);
             if let Some(detail) = own.ok().and_then(|own| own.into_values().next()) {
                 states.insert(account.id, detail);
             }
@@ -366,6 +459,7 @@ async fn account_views(
                     })
                 }),
                 game_place_id: detail.and_then(|detail| detail.place_id),
+                session_expired: runtime.session_expired(account.id),
             }
         })
         .collect()
@@ -500,6 +594,9 @@ pub async fn get_app_state(runtime: State<'_, Runtime>) -> Result<AppStateDto, S
 
 /// Validates and saves settings, applies always on top, and changes launch at login. The settings
 /// are restored if launch at login can't be changed.
+///
+/// Turning FastFlags on or changing them writes them to Roblox's folder first, and turning them
+/// off deletes them, so a failure leaves the settings unsaved.
 #[tauri::command]
 pub async fn save_settings(
     app: AppHandle,
@@ -532,9 +629,37 @@ pub async fn save_settings(
     saved.show_game_names = settings.show_game_names;
     saved.notify_on_drop = settings.notify_on_drop;
     saved.always_on_top = settings.always_on_top;
+    saved.client_priority = settings.client_priority;
+    saved.cpu_cores = settings.cpu_cores;
+    saved.tile_size = settings.tile_size;
+    saved.fast_flags_enabled = settings.fast_flags_enabled;
+    saved.fast_flags = settings.fast_flags;
+    saved.client_settings_enabled = settings.client_settings_enabled;
+    saved.client_settings = settings.client_settings;
     saved
         .recent_places
         .truncate(crate::models::RECENT_PLACES_LIMIT);
+    saved.validate()?;
+    if saved.fast_flags_enabled && !runtime.safe_mode {
+        if !previous.fast_flags_enabled || saved.fast_flags != previous.fast_flags {
+            crate::roblox_files::write_flags(&saved.fast_flags)?;
+            log::info!("FastFlags written ({} flags)", saved.fast_flags.len());
+        }
+    } else if previous.fast_flags_enabled && !saved.fast_flags_enabled {
+        crate::roblox_files::remove_flags()?;
+        log::info!("FastFlags removed");
+    }
+    if saved.client_settings_enabled
+        && !runtime.safe_mode
+        && (!previous.client_settings_enabled || saved.client_settings != previous.client_settings)
+    {
+        crate::roblox_files::LaunchFiles {
+            flags: None,
+            settings: Some(saved.client_settings),
+        }
+        .write()?;
+        log::info!("Client settings written");
+    }
     runtime
         .storage
         .save_settings(&saved)
@@ -697,6 +822,7 @@ pub fn remove_account(account_id: u64, runtime: State<'_, Runtime>) -> Result<()
             Err(_) => Err("The account was removed, but its secure session couldn't be cleared. Can you restart Toolblox and try adding then removing the account again?".into()),
         };
     }
+    runtime.set_session_expired(account_id, false);
     log::info!("Removed account {account_id}");
     Ok(())
 }
@@ -735,6 +861,72 @@ pub fn reorder_accounts(account_ids: Vec<u64>, runtime: State<'_, Runtime>) -> R
         .map_err(command_error)
 }
 
+/// Sets an account's client priority. `None` uses the default priority.
+#[tauri::command]
+pub fn set_account_priority(
+    account_id: u64,
+    priority: Option<crate::models::ClientPriority>,
+    runtime: State<'_, Runtime>,
+) -> Result<(), String> {
+    runtime
+        .storage
+        .update_accounts(|accounts| {
+            let account = accounts
+                .iter_mut()
+                .find(|account| account.id == account_id)
+                .ok_or_else(|| {
+                    StorageError::Invalid(
+                        "The account wasn't found. Can you refresh the list?".into(),
+                    )
+                })?;
+            account.priority = priority;
+            Ok(())
+        })
+        .map_err(command_error)
+}
+
+/// Sets an account's client settings and FastFlags, which apply over the defaults while those
+/// advanced settings are on.
+#[tauri::command]
+pub fn set_account_launch_settings(
+    account_id: u64,
+    client_settings: crate::models::ClientSettings,
+    fast_flags: serde_json::Map<String, Value>,
+    runtime: State<'_, Runtime>,
+) -> Result<(), String> {
+    client_settings.validate()?;
+    crate::roblox_files::validate_flags(&fast_flags)?;
+    runtime
+        .storage
+        .update_accounts(|accounts| {
+            let account = accounts
+                .iter_mut()
+                .find(|account| account.id == account_id)
+                .ok_or_else(|| {
+                    StorageError::Invalid(
+                        "The account wasn't found. Can you refresh the list?".into(),
+                    )
+                })?;
+            account.client_settings = client_settings;
+            account.fast_flags = fast_flags;
+            Ok(())
+        })
+        .map_err(command_error)
+}
+
+/// Tiles the open Roblox windows at the saved tile size and returns how many moved.
+#[tauri::command]
+pub async fn tile_roblox_windows(runtime: State<'_, Runtime>) -> Result<usize, String> {
+    let size = runtime
+        .storage
+        .load_settings()
+        .map_err(command_error)?
+        .tile_size;
+    tauri::async_runtime::spawn_blocking(move || crate::roblox_process::tile_windows(size))
+        .await
+        .map_err(|_| "Tiling stopped unexpectedly. Can you try again?".to_string())?
+}
+
 /// Joins each account, at `place_id` when given, then minimizes the window if that setting is on.
 #[tauri::command]
 pub async fn join_accounts(
@@ -767,6 +959,7 @@ pub async fn join_accounts(
 #[tauri::command]
 pub async fn begin_roblox_login(
     app: AppHandle,
+    expected_account_id: Option<u64>,
     runtime: State<'_, Runtime>,
 ) -> Result<AccountView, String> {
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
@@ -785,6 +978,9 @@ pub async fn begin_roblox_login(
                 crate::roblox::RobloxError::Network => LoginError::Network,
                 _ => LoginError::InvalidSession,
             })?;
+            if expected_account_id.is_some_and(|expected| expected != profile.id) {
+                return Err(LoginError::WrongAccount);
+            }
             Ok(AccountIdentity {
                 id: profile.id,
                 name: profile.name,
@@ -844,6 +1040,9 @@ pub async fn begin_roblox_login(
             widget_data: BTreeMap::new(),
             place_id: None,
             last_place_id: None,
+            priority: None,
+            client_settings: Default::default(),
+            fast_flags: serde_json::Map::new(),
             extra: serde_json::Map::new(),
         };
         accounts.push(account.clone());
@@ -855,6 +1054,7 @@ pub async fn begin_roblox_login(
                 rollback.take();
             }
             log::info!("Signed in account {}", account.id);
+            runtime.set_session_expired(account.id, false);
             account
         }
         Err(error) => {
@@ -878,6 +1078,7 @@ pub async fn begin_roblox_login(
         presence: FrontendPresence::Warning,
         game_name: None,
         game_place_id: None,
+        session_expired: false,
     })
 }
 
@@ -1533,22 +1734,46 @@ pub(crate) async fn join_account_ids(
     let settings = runtime.storage.load_settings().map_err(command_error)?;
     let default_place = crate::roblox::parse_place_id(&settings.place_id).ok();
     let accounts = runtime.storage.load_accounts().map_err(command_error)?;
+    if settings.fast_flags_enabled
+        && runtime.safe_mode
+        && let Err(error) = crate::roblox_files::remove_flags()
+    {
+        log::warn!("FastFlags couldn't be removed in safe mode: {error}");
+    }
+    let files_for = |id: &u64| {
+        accounts
+            .iter()
+            .find(|account| account.id == *id)
+            .map(|account| launch_files(&settings, account, runtime.safe_mode))
+    };
+    let mut written = None;
+    let mut expired = Vec::new();
     let mut delay = FIRST_LAUNCH_DELAY;
-    for (index, id) in account_ids.iter().enumerate() {
+    'accounts: for (index, id) in account_ids.iter().enumerate() {
         let Some(account) = accounts.iter().find(|account| account.id == *id) else {
             return Err("An account wasn't found. Can you refresh the widget?".into());
         };
+        if runtime.session_expired(*id) {
+            expired.push(account.display_name.clone());
+            continue;
+        }
         let place_id = match place_id.or(account.place_id.as_deref()) {
             Some(place_id) => crate::roblox::parse_place_id(place_id).map_err(command_error)?,
             None => default_place.clone().ok_or_else(|| {
                 "No place is set to join. Can you set one on the Accounts screen?".to_string()
             })?,
         };
-        let secret = runtime
-            .credentials
-            .get(*id)
-            .inspect_err(|error| log::warn!("Session for account {id} couldn't be read: {error}"))
-            .map_err(command_error)?;
+        let secret = match runtime.session(*id) {
+            Ok(secret) => secret,
+            Err(crate::credentials::CredentialError::Missing) => {
+                expired.push(account.display_name.clone());
+                continue;
+            }
+            Err(error) => {
+                log::warn!("Session for account {id} couldn't be read: {error}");
+                return Err(command_error(error));
+            }
+        };
         log::info!("Joining place {place_id} as account {id}");
         let mut attempt = 0;
         let uri = loop {
@@ -1557,6 +1782,11 @@ pub(crate) async fn join_account_ids(
                 Err(error @ crate::roblox::RobloxError::InvalidPlace) => {
                     log::warn!("Place {place_id} isn't joinable: {error}");
                     return Err(command_error(error));
+                }
+                Err(error @ crate::roblox::RobloxError::Rejected(401)) => {
+                    runtime.note_session(*id, &Err::<(), _>(error));
+                    expired.push(account.display_name.clone());
+                    continue 'accounts;
                 }
                 Err(error) => {
                     attempt += 1;
@@ -1581,6 +1811,28 @@ pub(crate) async fn join_account_ids(
             )
             .inspect_err(|error| log::warn!("Multiple instances couldn't be enabled: {error}"))?;
         }
+        let files = launch_files(&settings, account, runtime.safe_mode);
+        if written.as_ref() != Some(&files) {
+            if let Err(error) = files.write() {
+                log::warn!("Roblox files for account {id} couldn't be written: {error}");
+            }
+            written = Some(files.clone());
+        }
+        let next_differs = account_ids
+            .get(index + 1)
+            .and_then(files_for)
+            .is_some_and(|next| next != files);
+        let tuning = crate::roblox_process::Tuning {
+            priority: account.priority.unwrap_or(settings.client_priority),
+            cpu_cores: if cfg!(windows) { settings.cpu_cores } else { 0 },
+            window_size: files
+                .settings
+                .and_then(|settings| settings.window_size)
+                .filter(|_| cfg!(windows)),
+        };
+        let before = (tuning.changes_process() || next_differs)
+            .then(crate::roblox_process::roblox_pids)
+            .and_then(Result::ok);
         if settings.multi_instance && cfg!(target_os = "macos") {
             crate::multi_instance::open_new_roblox_instance(&uri).inspect_err(|error| {
                 log::warn!("A separate Roblox client couldn't be started: {error}")
@@ -1590,6 +1842,16 @@ pub(crate) async fn join_account_ids(
                 log::error!("Roblox couldn't be opened: {error}");
                 "Roblox couldn't be opened. Is Roblox installed?".to_string()
             })?;
+        }
+        if let Some(before) = before.clone().filter(|_| tuning.changes_process()) {
+            let tuner = Arc::clone(&runtime.client_tuner);
+            let account_id = *id;
+            tauri::async_runtime::spawn(async move {
+                tuner.watch(before, tuning, account_id).await;
+            });
+        }
+        if let Some(before) = before.filter(|_| next_differs) {
+            crate::roblox_process::wait_for_client(&before).await;
         }
         if record_play {
             runtime
@@ -1614,7 +1876,38 @@ pub(crate) async fn join_account_ids(
             tokio::time::sleep(delay).await;
         }
     }
-    Ok(())
+    match expired.as_slice() {
+        [] => Ok(()),
+        [name] => Err(format!(
+            "{name} didn't join because its session expired. Can you sign in again from the Accounts page?"
+        )),
+        names => Err(format!(
+            "{} didn't join because their sessions expired. Can you sign them in again from the Accounts page?",
+            names.join(", ")
+        )),
+    }
+}
+
+/// The Roblox files an account's launch needs: the FastFlags with the account's own added, and the
+/// client settings with the account's own in place of the defaults. Nothing in safe mode.
+fn launch_files(
+    settings: &Settings,
+    account: &StoredAccount,
+    safe_mode: bool,
+) -> crate::roblox_files::LaunchFiles {
+    if safe_mode {
+        return Default::default();
+    }
+    crate::roblox_files::LaunchFiles {
+        flags: settings.fast_flags_enabled.then(|| {
+            let mut flags = settings.fast_flags.clone();
+            flags.extend(account.fast_flags.clone());
+            flags
+        }),
+        settings: settings
+            .client_settings_enabled
+            .then(|| account.client_settings.or(settings.client_settings)),
+    }
 }
 
 /// Gap between launches in a batch.
@@ -1848,6 +2141,25 @@ mod tests {
         assert!(without_session_cookie(json!({ "status": 200, "body": cookie })).is_err());
         let safe = json!([{ "id": 1, "name": "builderman" }]);
         assert_eq!(without_session_cookie(safe.clone()).unwrap(), safe);
+    }
+
+    #[test]
+    fn only_a_401_marks_a_session_expired() {
+        use crate::roblox::RobloxError;
+        assert_eq!(session_verdict(&Ok::<(), RobloxError>(())), Some(false));
+        assert_eq!(
+            session_verdict::<()>(&Err(RobloxError::Rejected(401))),
+            Some(true)
+        );
+        for error in [
+            RobloxError::Rejected(403),
+            RobloxError::Rejected(429),
+            RobloxError::Rejected(500),
+            RobloxError::Network,
+            RobloxError::InvalidResponse,
+        ] {
+            assert_eq!(session_verdict::<()>(&Err(error)), None);
+        }
     }
 
     #[test]

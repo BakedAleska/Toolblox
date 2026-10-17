@@ -29,6 +29,8 @@ the numeric account ID, which is an opaque handle for asking Rust to act on that
 | [`src-tauri/src/login.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/login.rs) | The isolated Roblox sign-in webview and the cookie handoff. |
 | [`src-tauri/src/roblox.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/roblox.rs) | Every Roblox HTTP call and the strict `roblox-player:` URI builder. |
 | [`src-tauri/src/multi_instance.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/multi_instance.rs) | Lets several Roblox clients run at once on Windows and macOS. |
+| [`src-tauri/src/roblox_process.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/roblox_process.rs) | Finds running clients, sets their priority and CPU cores, and tiles their windows. |
+| [`src-tauri/src/roblox_files.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/roblox_files.rs) | The FastFlags and client settings advanced settings, the only code that changes Roblox's files. |
 | [`src-tauri/src/app_commands.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/app_commands.rs) | The commands that tie the above together: sign-in, join, notes, places, reorder, remove. |
 | [`src/screens/Accounts.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Accounts.tsx) | The Accounts screen. |
 | [`src/logic.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/logic.ts) | Sorting, display names, relative times, and the client-side place ID parser. |
@@ -63,6 +65,9 @@ OS credential store, keyed by `id`. Field names on disk are snake_case, because 
 | `widget_data` | `BTreeMap<String, Value>` | `{}` | Per-widget JSON for this account, keyed by widget ID. |
 | `place_id` | `Option<String>` | omitted | Place this account joins instead of the default place. Omitted from the file when unset. |
 | `last_place_id` | `Option<String>` | omitted | Place of the last manual join. Omitted from the file when unset. |
+| `client_settings` | `ClientSettings` | omitted | The account's own frame rate cap, graphics quality, and window size, used in place of the defaults. Omitted from the file when empty. |
+| `fast_flags` | `Map<String, Value>` | omitted | FastFlags added to the defaults for this account. Omitted from the file when empty. |
+| `priority` | `Option<ClientPriority>` | omitted | Client priority instead of the default priority: `"normal"`, `"below_normal"`, or `"low"`. Omitted from the file when unset. |
 | `extra` | flattened map | `{}` | Unknown fields, preserved on save. |
 
 `StoredAccount::validate` runs on every load and every save. It rejects:
@@ -102,6 +107,13 @@ file has camelCase keys. See
 | `showGameNames` | `bool` | `true` | Look up and show game names for accounts in game. |
 | `notifyOnDrop` | `bool` | `false` | Notify when an account leaves a game. |
 | `alwaysOnTop` | `bool` | `false` | Keep the main window above others. |
+| `clientPriority` | `"normal"` \| `"below_normal"` \| `"low"` | `"normal"` | Priority of launched clients, unless an account sets its own. |
+| `cpuCores` | `u32` | `0` | Logical cores each launched client may use, from 0 to 64. `0` allows every core. Windows only. |
+| `tileSize` | `"fit"` \| `"medium"` \| `"small"` | `"fit"` | Window size used when tiling clients. |
+| `fastFlagsEnabled` | `bool` | `false` | Write `fastFlags` to Roblox's folder before each launch. An advanced setting. |
+| `fastFlags` | `Map<String, Value>` | `{}` | FastFlag names and values. |
+| `clientSettingsEnabled` | `bool` | `false` | Write `clientSettings` to Roblox's settings file before each launch. An advanced setting. |
+| `clientSettings` | `ClientSettings` | `{}` | Default `fpsCap`, `graphicsQuality`, and `windowSize` (`{ width, height }`). Each is `null` to leave Roblox's value unchanged. |
 | `recentPlaces` | `Vec<RecentPlace>` | `[]` | Recently used places, newest first, at most `RECENT_PLACES_LIMIT` (5). Longer lists saved by older versions load and are trimmed. |
 | `extra` | flattened map | `{}` | Unknown fields, preserved on save. |
 
@@ -109,7 +121,11 @@ A `RecentPlace` is `{ "placeId": String, "name": Option<String> }`. `name` is `n
 looks it up and an empty string when Roblox has no name for the place. `Settings::validate`
 requires a valid `placeId` when it's non-empty, at most `RECENT_PLACES_LIMIT` (6) recent places,
 each with a valid place ID and a name of at most 100 characters, and valid widget IDs in
-`disabledWidgets`, `widgetsStartOnLaunch`, and the keys of `widgetSettings`.
+`disabledWidgets`, `widgetsStartOnLaunch`, and the keys of `widgetSettings`. It also requires
+`cpuCores` of at most 64, and at most 200 FastFlags, each named with 1 to 100 ASCII letters, digits,
+and underscores, with a boolean, number, or text value of at most 200 characters. Client settings,
+here and on accounts, need a frame rate cap of 15 to 240, a graphics quality of 0 to 10, and a
+window size from 320 × 180 to 7680 × 4320.
 
 `Settings::remember_place` moves a place to the front of `recentPlaces`, keeping any name already
 looked up, and truncates the list to five. It runs when the default place changes or a
@@ -373,6 +389,28 @@ After startup reaches the ready state, `backfill_profiles` in `app_commands.rs` 
 accounts with no `avatar_url` and fills in `name`,
 `display_name`, and `avatar_url` from `roblox::public_profile`. Failures are logged and skipped.
 
+### Expired sessions
+
+Roblox sessions stop working when the user signs out everywhere, changes the password, or Roblox
+ends them. `Runtime.expired_sessions` holds the accounts that need to sign in again. It lives in
+memory and is rebuilt every launch:
+
+- After the profile backfill, `check_sessions` calls `roblox::authenticated_profile` once for each
+  account.
+- Every presence check (for the account list and auto-rejoin) and every join ticket records its
+  result with `Runtime::note_session`. A success marks the session valid, and only a `401` marks it
+  expired. Network errors, rate limits, and other statuses leave the state unchanged.
+- A session missing from the credential store also counts as expired.
+- Signing in again, or removing the account, clears it.
+
+`AccountView.sessionExpired` carries the state to the interface. `join_account_ids` skips expired
+accounts without asking Roblox for a ticket, launches the others, and then fails with one message
+that names the skipped accounts and points to the Accounts page.
+
+**Sign in again** calls `begin_roblox_login` with the account's ID. The validation step rejects a
+sign-in for any other account with "That's a different Roblox account. Can you sign in as the
+account you chose?", before anything is stored.
+
 ## Roblox HTTP flows
 
 Every Roblox request goes through one `reqwest::Client`, built in `lib.rs`:
@@ -615,6 +653,7 @@ renders `state.accounts` from `AppState`. It never holds anything secret; every 
 | Default place field | Accepts a place ID or game link. On blur or Enter: empty clears the default; otherwise `parsePlaceId` runs, `bridge.placeExists` confirms the place (a failed check is treated as existing), and `patchSettings("placeId", ...)` saves it. The map pin turns `text-destructive` when no default is set. |
 | Recent places menu | Shown when `recentPlaces` is non-empty. Anchored to the field, it lists names (or "Unknown game") and IDs; choosing one sets the default. |
 | Search | Filters by username, display name, and notes, case-insensitively. |
+| Tile toggle | Windows only. Calls `bridge.tileRobloxWindows()` to arrange every open Roblox window at the **Tile size** setting. With no window open, a toast says so. |
 | Select toggle | Enters selection mode, showing checkboxes and a panel with **Select all**, **Clear**, and **Join selected**. |
 | **Add** | Calls `bridge.beginRobloxLogin()`, shows a spinner while the sign-in window is open, then refreshes. |
 
@@ -630,14 +669,19 @@ Accounts are ordered by `sortAccounts` from `logic.ts`: `last_played` sorts by `
 - the avatar when **Show avatars** is on (smaller in compact mode);
 - the display name, and `@username` when different;
 - a place badge when the account has an override, labelled with the recent place name when known;
-- a presence badge from `presenceLabel` in `shared.tsx`: "In game: *name* (*placeId*)" or
-  "Status unavailable". Offline shows no badge;
+- a priority badge when the account has its own client priority;
+- a presence badge from `presenceLabel` in `shared.tsx`: "Session expired", "In game: *name*
+  (*placeId*)", or "Status unavailable". Offline shows no badge;
 - the `accounts.row` widget slot, which receives `{ account }`;
 - an inline notes field (hidden in compact mode) that saves on blur through
   `bridge.updateAccountNotes`;
-- a **Join** button;
+- a **Join** button, or **Sign in again** when the session expired;
 - a menu with **Move up** and **Move down** (manual order only), **Set place…** or **Change
-  place…**, **Use default place** when an override exists, and **Remove**.
+  place…**, **Use default place** when an override exists, a **Priority** submenu (**Default**,
+  **Normal**, **Below normal**, **Low**) that calls `bridge.setAccountPriority`, **Launch
+  settings…** while an advanced setting is on, and **Remove**. **Launch settings…** opens a dialog
+  for the account's client settings and FastFlags and saves them with
+  `bridge.setAccountLaunchSettings`.
 
 **Remove** opens a confirmation ("Removes the account and its saved session from this device.")
 and calls `bridge.removeAccount`. On the Rust side, `remove_account` deletes the account from

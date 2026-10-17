@@ -7,12 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { Account, AppRoute, AppState, Settings, WidgetSummary } from "@/types";
+import type { Account, AppRoute, AppState, ClientPriority, Settings, WidgetSummary } from "@/types";
 
 /** The core commitments from `PRODUCT.md`, shown on the dashboard. */
 export const commitments = (platform: AppState["platform"]) => [
   { icon: <Eye />, title: "Free and open source", text: "No ads or paid features. Every line of source code is public under the MIT License." },
-  { icon: <ShieldCheck />, title: "No injection", text: "Never injects code into Roblox or reads or changes its memory or files. Roblox opens through its own sign-in page and launcher." },
+  { icon: <ShieldCheck />, title: "No injection", text: "Never injects code into Roblox, reads or changes its memory, or provides exploits. Roblox opens through its own sign-in page and launcher." },
   { icon: <HardDrive />, title: "Data stays on this device", text: `Accounts and settings are stored on this device and sessions in ${platform === "macos" ? "the macOS login Keychain" : "Windows Credential Manager"}. There's no Toolblox server or telemetry.` },
 ];
 
@@ -39,6 +39,8 @@ export type PlaceRequest = { title: string; description: string; action: string;
 /** A place's game name when Toolblox knows it, otherwise its ID. */
 export const placeLabel = (state: AppState, placeId: string) => state.recentPlaces.find((place) => place.placeId === placeId)?.name || placeId;
 
+export const priorityLabels: Record<ClientPriority, string> = { normal: "Normal", below_normal: "Below normal", low: "Low" };
+
 export type ConfirmRequest = { title: string; message: string; action: string; danger?: boolean; run: () => Promise<void> };
 
 /** Shared callbacks every screen receives from the app shell. */
@@ -50,6 +52,8 @@ export type ScreenProps = {
   confirm: (request: ConfirmRequest) => void;
   /** Launches the accounts, first asking for a place when one of them has none. */
   join: (accountIds: number[], placeId?: string) => void;
+  /** Opens the Roblox sign-in for an account whose session expired. */
+  signIn: (accountId: number) => Promise<void>;
   askPlace: (request: PlaceRequest) => void;
   patchSettings: <K extends keyof Settings>(key: K, value: Settings[K]) => Promise<void>;
 };
@@ -188,6 +192,7 @@ export function AccountCard({ account, showAvatar, avatarClassName, nameClassNam
 }
 
 export const presenceLabel = (account: Account) => {
+  if (account.sessionExpired) return "Session expired";
   if (account.presence === "warning") return "Status unavailable";
   if (account.presence !== "playing") return "";
   const place = account.gamePlaceId ? `(${account.gamePlaceId})` : "";

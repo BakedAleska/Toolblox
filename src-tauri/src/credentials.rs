@@ -161,7 +161,7 @@ macro_rules! assert_not_impl {
 pub(crate) use assert_not_impl;
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::path::Path;
 
     use super::*;
@@ -183,7 +183,7 @@ mod tests {
     ];
 
     /// Returns a source file's non-test code with comment lines removed.
-    fn production_source(source: &str) -> String {
+    pub(crate) fn production_source(source: &str) -> String {
         let source = source.replace("\r\n", "\n");
         let end = ["#[cfg(test)]\nmod ", "#[cfg(test)]\npub(crate) mod "]
             .iter()

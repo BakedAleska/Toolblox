@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { activeFilters, applyInput, commitDraft, emptySearch, matchAccount, resolveMacros, suggest } from "./search";
 import type { Account } from "./types";
 
-const account = (id: number, name: string, extra: Partial<Account> = {}): Account => ({ id, name, displayName: name, notes: "", addedAt: 0, presence: "offline", ...extra });
+const account = (id: number, name: string, extra: Partial<Account> = {}): Account => ({ id, name, displayName: name, notes: "", addedAt: 0, presence: "offline", clientSettings: {}, fastFlags: {}, ...extra });
 const accounts = [
   account(25122, "L0rses", { displayName: "Lorses", presence: "playing", gameName: "Classic: Crossroads", gamePlaceId: 1818 }),
   account(9001, "builder", { notes: "main alt", placeId: "21242" }),

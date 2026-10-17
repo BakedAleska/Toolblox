@@ -37,25 +37,7 @@ pub fn clear_new_roblox_instances(
         let helper = helper.filter(|path| path.is_file()).ok_or_else(|| {
             "The multi-instance helper isn't installed. Can you reinstall Toolblox?".to_string()
         })?;
-        let output = Command::new("tasklist.exe")
-            .args([
-                "/FI",
-                "IMAGENAME eq RobloxPlayerBeta.exe",
-                "/FO",
-                "CSV",
-                "/NH",
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map_err(|_| {
-                "Toolblox couldn't inspect running Roblox processes. Can you try again?".to_string()
-            })?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        let running: HashSet<u32> = text
-            .lines()
-            .filter_map(|line| line.split("\",\"").nth(1))
-            .filter_map(|value| value.trim_matches('"').parse().ok())
-            .collect();
+        let running = crate::roblox_process::roblox_pids()?;
         cleared.retain(|pid| running.contains(pid));
         let new: Vec<_> = running.difference(cleared).copied().collect();
         if new.is_empty() {

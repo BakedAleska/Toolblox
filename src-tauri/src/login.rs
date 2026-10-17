@@ -58,6 +58,8 @@ pub enum LoginError {
     InvalidSession,
     CredentialStore,
     Cleanup,
+    /// The sign-in was for a different account than the one being signed in again.
+    WrongAccount,
 }
 
 impl fmt::Display for LoginError {
@@ -73,6 +75,9 @@ impl fmt::Display for LoginError {
             }
             Self::Cleanup => {
                 "The temporary Roblox browsing data couldn't be cleared. Would restarting Toolblox help?"
+            }
+            Self::WrongAccount => {
+                "That's a different Roblox account. Can you sign in as the account you chose?"
             }
         })
     }

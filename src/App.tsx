@@ -137,7 +137,11 @@ function App() {
     askPlace({ title: "Set default place", description: "Enter a Roblox game link or place ID.", action: "Save and join",
       run: async (placeId) => { await patchSettings("placeId", placeId); await launch(accountIds); } });
   };
-  const props: ScreenProps = { state, refresh: load, navigate, notify: setToast, confirm: (request) => { setConfirm(request); setConfirmOpen(true); }, join, askPlace, patchSettings };
+  const signIn = async (accountId: number) => {
+    try { await bridge.beginRobloxLogin(accountId); await load(); }
+    catch (error) { setToast(`Sign-in didn't complete. Was the sign-in window closed? (${String(error)})`); }
+  };
+  const props: ScreenProps = { state, refresh: load, navigate, notify: setToast, confirm: (request) => { setConfirm(request); setConfirmOpen(true); }, join, signIn, askPlace, patchSettings };
   host.current = [state, { navigate, notify: setToast, refresh: load, join }];
 
   const replaced = (name: CoreScreen) => {

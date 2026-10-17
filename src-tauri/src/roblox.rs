@@ -448,11 +448,13 @@ pub async fn build_join_uri(
         .send()
         .await
         .map_err(|_| RobloxError::Network)?;
-    let csrf = first
-        .headers()
-        .get("x-csrf-token")
-        .cloned()
-        .ok_or(RobloxError::InvalidResponse)?;
+    let csrf = first.headers().get("x-csrf-token").cloned().ok_or(
+        if first.status() == reqwest::StatusCode::UNAUTHORIZED {
+            RobloxError::Rejected(401)
+        } else {
+            RobloxError::InvalidResponse
+        },
+    )?;
     let second = client
         .post(TICKET_URL)
         .header(COOKIE, cookie)

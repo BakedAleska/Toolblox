@@ -7,7 +7,6 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::app_commands::Runtime;
-use crate::credentials::CredentialStore;
 use crate::models::PresenceState;
 
 /// Time between presence checks.
@@ -69,10 +68,12 @@ pub async fn run(app: AppHandle) {
         let mut states = None;
         let mut failure = None;
         for account in &accounts {
-            let Ok(secret) = runtime.credentials.get(account.id) else {
+            let Ok(secret) = runtime.session(account.id) else {
                 continue;
             };
-            match crate::roblox::fetch_presence(&runtime.client, &secret, &ids).await {
+            let result = crate::roblox::fetch_presence(&runtime.client, &secret, &ids).await;
+            runtime.note_session(account.id, &result);
+            match result {
                 Ok(found) => {
                     states = Some(found);
                     break;

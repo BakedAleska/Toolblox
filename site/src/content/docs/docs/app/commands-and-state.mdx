@@ -64,6 +64,8 @@ Every app command receives `State<'_, Runtime>`, a single struct created in `lib
 | `widget_sessions` | `Mutex<WidgetSessions>` | Open widget sessions and their granted permissions. |
 | `multi_instance_helper` | `Option<PathBuf>` | Path of the bundled Windows multi-instance helper. |
 | `cleared_roblox_pids` | `Mutex<HashSet<u32>>` | Roblox processes the helper already handled. |
+| `expired_sessions` | `Mutex<HashSet<u64>>` | Accounts that need to sign in again. |
+| `client_tuner` | `Arc<ClientTuner>` | Launched clients already tuned, and which cores the next limited client gets. |
 | `safe_mode` | `bool` | Widgets stay unloaded for this session. |
 
 `lib.rs` also manages an `Arc<LifecycleState>` (window and tray state) and a
@@ -71,7 +73,7 @@ Every app command receives `State<'_, Runtime>`, a single struct created in `lib
 
 ## Every command
 
-`lib.rs` registers 28 commands in `tauri::generate_handler!`. All of them are invoked only through
+`lib.rs` registers 35 commands in `tauri::generate_handler!`. All of them are invoked only through
 `bridge`, except where noted. "Async" commands run on Tauri's async runtime and may await network
 calls; the others run synchronously on a command thread.
 
@@ -91,7 +93,7 @@ These are defined in `startup.rs` and work before the app is ready. See
 | Command | Arguments | Returns | What it does | Bridge |
 | --- | --- | --- | --- | --- |
 | `get_app_state` | — | `AppStateDto` (async) | Builds the full interface snapshot. Loads the catalogue first if it hasn't been tried, names recent places, and fetches presence. [Details below](#how-get_app_state-builds-the-snapshot). | `getAppState()` |
-| `save_settings` | `settings: SettingsDto` | `()` (async) | Copies every DTO field onto the saved settings, re-parses `placeId` (blank clears it), saves, applies **always on top** to the main window, and enables or disables launch at login. If the login item can't change, the previous settings are restored and it fails with "The startup setting couldn't be changed. Does this account allow startup apps?". A changed place is then added to recent places only if Roblox confirms it exists; a missing place or failed lookup leaves the list unchanged. | `saveSettings(settings)` |
+| `save_settings` | `settings: SettingsDto` | `()` (async) | Copies every DTO field onto the saved settings, re-parses `placeId` (blank clears it), saves, applies **always on top** to the main window, and enables or disables launch at login. If the login item can't change, the previous settings are restored and it fails with "The startup setting couldn't be changed. Does this account allow startup apps?". A changed place is then added to recent places only if Roblox confirms it exists; a missing place or failed lookup leaves the list unchanged. Before saving, turning FastFlags on or changing them writes them to Roblox's folder, and turning them off deletes them; turning client settings on or changing them writes the defaults to Roblox's settings file. A failure leaves the settings unsaved. Outside safe mode only. | `saveSettings(settings)` |
 | `place_exists` | `place_id: String` | `bool` (async) | Asks Roblox whether the place has a universe. `false` only for a `400` or `404`; network failures are errors. | `placeExists(placeId)` |
 | `restart_app` | `safe_mode: bool` | `()` | Writes or removes the `safe-mode-next-launch` marker, then restarts. | `restartApp(safeMode)` |
 
@@ -101,12 +103,15 @@ The account flows are explained in depth on [Accounts](/docs/app/accounts/).
 
 | Command | Arguments | Returns | What it does | Bridge |
 | --- | --- | --- | --- | --- |
-| `begin_roblox_login` | — | `AccountView` (async) | Opens the isolated sign-in window, waits for it, stores the session, and adds or updates the account. Restores the previous session if saving fails. Returns the account with `presence: "warning"`. | `beginRobloxLogin()` |
+| `begin_roblox_login` | `expected_account_id: Option<u64>` | `AccountView` (async) | Opens the isolated sign-in window, waits for it, stores the session, and adds or updates the account. With `expected_account_id`, a sign-in for any other account fails before it's stored. Restores the previous session if saving fails, and clears the account's expired state on success. Returns the account with `presence: "warning"`. | `beginRobloxLogin(expectedAccountId?)` |
 | `update_account_notes` | `account_id: u64`, `notes: String` | `()` | Replaces an account's notes. Fails above 10,000 characters with "The note is too long. Can you shorten it?". | `updateAccountNotes(accountId, notes)` |
 | `set_account_place` | `account_id: u64`, `place_id: Option<String>` | `()` (async) | Sets the account's place override from an ID or game link, or clears it for `null` or blank input. The place is added to recent places only if Roblox confirms it exists. | `setAccountPlace(accountId, placeId)` |
 | `forget_recent_place` | `place_id: String` | `()` | Removes the place from recent places. | `forgetRecentPlace(placeId)` |
 | `remove_account` | `account_id: u64` | `()` | Removes the account, then deletes its session. Puts the account back if the session can't be deleted. | `removeAccount(accountId)` |
 | `reorder_accounts` | `account_ids: Vec<u64>` | `()` | Saves a manual order. The list must contain every saved account exactly once. | `reorderAccounts(accountIds)` |
+| `set_account_priority` | `account_id: u64`, `priority: Option<ClientPriority>` | `()` | Sets the account's client priority, or clears it for `null` so the default applies. | `setAccountPriority(accountId, priority)` |
+| `set_account_launch_settings` | `account_id: u64`, `client_settings: ClientSettings`, `fast_flags: Map<String, Value>` | `()` | Validates and saves the account's own client settings and FastFlags, which apply over the defaults while those advanced settings are on. | `setAccountLaunchSettings(accountId, clientSettings, fastFlags)` |
+| `tile_roblox_windows` | — | `usize` (async) | Tiles every visible Roblox window on the primary screen at the saved tile size and returns how many moved. Fails on macOS with "Tiling windows isn't supported on macOS yet." | `tileRobloxWindows()` |
 | `join_accounts` | `account_ids: Vec<u64>`, `place_id: Option<String>` | `()` (async) | Launches each account in order, at `place_id` when given, otherwise at its override or the default place. Records each join and minimizes the window afterwards when **minimize on join** is on. Rejects an empty list. | `joinAccounts(accountIds, placeId?)` |
 
 ### Widgets
@@ -188,9 +193,13 @@ and adds presence.
 | `playCount` | `number` | Manual joins. Sent by Rust but not declared in `types.ts`. |
 | `placeId` | `string \| null` | Place override. |
 | `lastPlaceId` | `string \| null` | Place of the last manual join. |
+| `priority` | `ClientPriority \| null` | The account's own client priority, or `null` for the default. |
+| `clientSettings` | `ClientSettings` | The account's own client settings. |
+| `fastFlags` | `Record<string, string \| number \| boolean>` | FastFlags added to the defaults for this account. |
 | `presence` | `"offline"` \| `"playing"` \| `"warning"` | `playing` covers in game and in Studio. `warning` covers online-but-not-in-game, unknown, and "presence couldn't be fetched". |
 | `gameName` | `string?` | Game name, when **show game names** is on and the account is in game. Omitted otherwise. |
 | `gamePlaceId` | `number?` | Place the account is in, when Roblox reveals it. Omitted otherwise. |
+| `sessionExpired` | `boolean` | Roblox no longer accepts the saved session, or none is stored. See [Expired sessions](/docs/app/accounts/#expired-sessions). |
 
 ### `WidgetSummary` and `CatalogueEntry`
 
@@ -224,7 +233,13 @@ read and write through `save_settings`.
 | `showAvatars`, `compactMode` | `boolean` |
 | `sortOrder` | `"last_played"` \| `"alphabetical"` \| `"manual"` |
 | `placeId` | `string` |
-| `multiInstance`, `autoRejoin`, `openOnLaunch`, `runInBackground`, `minimizeOnJoin`, `showGameNames`, `notifyOnDrop`, `alwaysOnTop` | `boolean` |
+| `multiInstance`, `autoRejoin`, `openOnLaunch`, `runInBackground`, `minimizeOnJoin`, `showGameNames`, `notifyOnDrop`, `alwaysOnTop`, `fastFlagsEnabled` | `boolean` |
+| `clientPriority` | `"normal"` \| `"below_normal"` \| `"low"` |
+| `cpuCores` | `number` |
+| `tileSize` | `"fit"` \| `"medium"` \| `"small"` |
+| `fastFlags` | `Record<string, string \| number \| boolean>` |
+| `clientSettingsEnabled` | `boolean` |
+| `clientSettings` | `{ fpsCap?, graphicsQuality?, windowSize? }`, each `null` when unset |
 
 Widget-related settings (`disabledWidgets`, `widgetsStartOnLaunch`, `widgetSettings`) and
 `recentPlaces` are deliberately absent. They change only through their dedicated commands, so a

@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { COMMANDS, respond } from "../src/commands.ts";
 import { verifyInteraction } from "../src/discord.ts";
-import { countDownloads, downloadIncrease, formatIncrease, formatVersion } from "../src/releases.ts";
+import { countDownloads, downloadIncrease, formatIncrease, formatTotals, formatVersion } from "../src/releases.ts";
 
 const toHex = (bytes) => Buffer.from(bytes).toString("hex");
 
@@ -32,28 +32,32 @@ test("accepts only bodies signed by the application key", async () => {
   assert.equal(await verifyInteraction(body, signature, "1700000000", "REPLACE"), false);
 });
 
-test("counts installers and updates and ignores signatures and notices", () => {
+test("counts installers only, skipping updates and installers that doubled as updates", () => {
   const asset = (name, download_count) => ({ name, download_count });
   const releases = [
     { tag_name: "v0.3.1-beta", html_url: "", draft: false, assets: [
-      asset("Toolblox-Setup.exe", 1), asset("Toolblox-Setup.exe.sig", 2), asset("Toolblox-Update.exe", 3),
-      asset("Toolblox.app.tar.gz", 2), asset("Toolblox.app.tar.gz.sig", 2), asset("Toolblox.dmg", 3),
-      asset("THIRD-PARTY-NOTICES.txt", 2),
+      asset("Toolblox-Setup.exe", 5), asset("Toolblox-Setup.exe.sig", 6), asset("Toolblox-Update.exe", 7),
+      asset("Toolblox.app.tar.gz", 6), asset("Toolblox.app.tar.gz.sig", 6), asset("Toolblox.dmg", 4),
+      asset("THIRD-PARTY-NOTICES.txt", 8),
+    ] },
+    { tag_name: "v0.3.0-beta", html_url: "", draft: false, assets: [
+      asset("Toolblox-Setup.exe", 2), asset("Toolblox-Update.exe", 4), asset("Toolblox.dmg", 1),
     ] },
     { tag_name: "v0.2.0-beta", html_url: "", draft: false, assets: [asset("Toolblox-Setup.exe", 46)] },
   ];
-  assert.deepEqual(countDownloads(releases), { windows: 47, macos: 3, updates: 5 });
+  assert.deepEqual(countDownloads(releases), { windows: 7, macos: 5 });
 });
 
-test("reports only kinds that grew", () => {
-  const previous = { windows: 47, macos: 3, updates: 5 };
+test("reports growth as a total and its split", () => {
+  const previous = { windows: 7, macos: 5 };
   assert.equal(downloadIncrease(previous, previous), null);
-  assert.equal(downloadIncrease(previous, { windows: 40, macos: 3, updates: 5 }), null);
+  assert.equal(downloadIncrease(previous, { windows: 6, macos: 5 }), null);
 
-  const current = { windows: 48, macos: 3, updates: 7 };
+  const current = { windows: 9, macos: 5 };
   const increase = downloadIncrease(previous, current);
-  assert.deepEqual(increase, { windows: 1, macos: 0, updates: 2 });
-  assert.equal(formatIncrease(increase, current), "New downloads: Windows +1, Updates +2\nTotal: Windows 48 · macOS 3 · Updates 7");
+  assert.deepEqual(increase, { windows: 2, macos: 0 });
+  assert.equal(formatIncrease(increase, current), "New downloads: +2 (Windows +2, macOS +0)\nTotal: 14 (Windows 9, macOS 5)");
+  assert.equal(formatTotals(previous), "12 (Windows 7, macOS 5)");
 });
 
 test("formats release tags", () => {
@@ -62,7 +66,7 @@ test("formats release tags", () => {
 });
 
 test("answers every registered command", async () => {
-  assert.deepEqual(COMMANDS.map((command) => command.name), ["link", "docs", "source", "version"]);
+  assert.deepEqual(COMMANDS.map((command) => command.name), ["link", "docs", "source", "version", "install"]);
   for (const command of COMMANDS) assert.ok(command.description.length <= 100);
   assert.equal(await respond("link"), "Download Toolblox: https://toolblox.dev/");
   assert.equal(await respond("unknown"), "This command isn't supported.");

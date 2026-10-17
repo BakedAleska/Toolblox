@@ -6,25 +6,16 @@ export interface Release {
   assets: { name: string; download_count: number }[];
 }
 
-/** A group of release assets counted together. */
-export type Kind = "windows" | "macos" | "updates";
+/** A platform whose installer downloads are counted. */
+export type Kind = "windows" | "macos";
 
-/** Download counts per kind. */
+/** Installer download counts per platform. */
 export type Totals = Record<Kind, number>;
 
-/** Release assets counted as downloads. Signatures and notices aren't counted. */
-const KINDS: Record<string, Kind> = {
-  "Toolblox-Setup.exe": "windows",
-  "Toolblox.dmg": "macos",
-  "Toolblox-Update.exe": "updates",
-  "Toolblox.app.tar.gz": "updates",
-};
-
-/** Display names for each kind, in display order. */
+/** Display names for each platform, in display order. */
 const LABELS: [Kind, string][] = [
   ["windows", "Windows"],
   ["macos", "macOS"],
-  ["updates", "Updates"],
 ];
 
 /** GitHub releases endpoint for the Toolblox repository. */
@@ -47,21 +38,26 @@ export function latestRelease(releases: Release[]): Release | undefined {
   return releases.find((release) => !release.draft);
 }
 
-/** Sums download counts by kind across every release. */
+/**
+ * Sums installer downloads per platform across every release, the same count the website shows.
+ * Updates aren't counted. Windows installers are counted only from releases with a separate
+ * `Toolblox-Update.exe`, because before 0.3.0 the updater also downloaded the installer.
+ */
 export function countDownloads(releases: Release[]): Totals {
-  const totals: Totals = { windows: 0, macos: 0, updates: 0 };
+  const totals: Totals = { windows: 0, macos: 0 };
   for (const release of releases) {
+    const separateUpdater = release.assets.some((asset) => asset.name === "Toolblox-Update.exe");
     for (const asset of release.assets) {
-      const kind = KINDS[asset.name];
-      if (kind) totals[kind] += asset.download_count;
+      if (asset.name === "Toolblox.dmg") totals.macos += asset.download_count;
+      if (asset.name === "Toolblox-Setup.exe" && separateUpdater) totals.windows += asset.download_count;
     }
   }
   return totals;
 }
 
-/** Returns how much each kind grew since `previous`, or null when none grew. */
+/** Returns how much each platform grew since `previous`, or null when none grew. */
 export function downloadIncrease(previous: Totals, current: Totals): Totals | null {
-  const increase: Totals = { windows: 0, macos: 0, updates: 0 };
+  const increase: Totals = { windows: 0, macos: 0 };
   let grew = false;
   for (const [kind] of LABELS) {
     increase[kind] = Math.max(0, current[kind] - (previous[kind] ?? 0));
@@ -70,17 +66,16 @@ export function downloadIncrease(previous: Totals, current: Totals): Totals | nu
   return grew ? increase : null;
 }
 
-/** Formats totals as one line, such as `Windows 49 · macOS 4 · Updates 12`. */
-export function formatTotals(totals: Totals): string {
-  return LABELS.map(([kind, label]) => `${label} ${totals[kind]}`).join(" · ");
+/** Formats counts as a total and its split, such as `12 (Windows 7, macOS 5)`. */
+export function formatTotals(totals: Totals, sign = ""): string {
+  const sum = LABELS.reduce((total, [kind]) => total + totals[kind], 0);
+  const split = LABELS.map(([kind, label]) => `${label} ${sign}${totals[kind]}`).join(", ");
+  return `${sign}${sum} (${split})`;
 }
 
 /** Formats a download notification. */
 export function formatIncrease(increase: Totals, current: Totals): string {
-  const changes = LABELS.filter(([kind]) => increase[kind] > 0)
-    .map(([kind, label]) => `${label} +${increase[kind]}`)
-    .join(", ");
-  return `New downloads: ${changes}\nTotal: ${formatTotals(current)}`;
+  return `New downloads: ${formatTotals(increase, "+")}\nTotal: ${formatTotals(current)}`;
 }
 
 /** Formats a release tag for display, such as `0.3.1 beta` for `v0.3.1-beta`. */

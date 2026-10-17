@@ -11,11 +11,12 @@ The Toolblox app doesn't report anything. The counts are GitHub's public release
 | `/docs` | The widget documentation link |
 | `/source` | The source code link |
 | `/version` | The latest version and its release page |
+| `/install` | The install guide |
 
-Downloads are grouped as Windows (`Toolblox-Setup.exe`), macOS (`Toolblox.dmg`), and Updates
-(`Toolblox-Update.exe`, `Toolblox.app.tar.gz`). Before 0.3.0, Windows updates also downloaded
-`Toolblox-Setup.exe`, so older Windows counts include some updates. These are download counts,
-not installs or active users.
+Each DM gives the total, then splits it into Windows (`Toolblox-Setup.exe`) and macOS
+(`Toolblox.dmg`), the same count the website shows. Updates aren't counted. Before 0.3.0, Windows
+updates also downloaded `Toolblox-Setup.exe`, so Windows installers count only from releases with
+a separate `Toolblox-Update.exe`. These are download counts, not installs or active users.
 
 ## Setup
 

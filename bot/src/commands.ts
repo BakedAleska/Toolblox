@@ -9,6 +9,7 @@ export const COMMANDS = [
   { name: "docs", description: "Get the widget documentation link" },
   { name: "source", description: "Get the source code link" },
   { name: "version", description: "Show the latest Toolblox version" },
+  { name: "install", description: "Get the install guide" },
 ].map((command) => ({ ...command, type: 1, integration_types: [0, 1], contexts: [0, 1, 2] }));
 
 /** Returns the reply to a slash command. */
@@ -18,6 +19,8 @@ export async function respond(name: string, githubToken?: string): Promise<strin
       return `Download Toolblox: ${SITE}`;
     case "docs":
       return `Widget documentation: ${SITE}docs/`;
+    case "install":
+      return `Install guide, including the Windows and macOS security prompts: ${SITE}docs/install/`;
     case "source":
       return "Source code: https://github.com/BakedAleska/Toolblox";
     case "version":

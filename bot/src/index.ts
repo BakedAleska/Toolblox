@@ -11,8 +11,11 @@ export interface Env {
   GITHUB_TOKEN?: string;
 }
 
-/** KV key holding the download totals from the last check. */
-const TOTALS_KEY = "totals";
+/**
+ * KV key holding the download totals from the last check. Changing it restarts tracking with a
+ * "Download tracking started" message, as when the counted assets changed.
+ */
+const TOTALS_KEY = "downloads";
 
 /** Discord interaction and response types. */
 const PING = 1;

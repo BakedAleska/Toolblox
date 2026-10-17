@@ -20,6 +20,7 @@ export default defineConfig({
       editLink: { baseUrl: "https://github.com/BakedAleska/Toolblox/edit/main/site/" },
       sidebar: [
         { label: "Introduction", link: "/docs/" },
+        { label: "Install Toolblox", link: "/docs/install/" },
         { label: "Start here", items: [{ autogenerate: { directory: "docs/start" } }] },
         { label: "The app", items: [{ autogenerate: { directory: "docs/app" } }] },
         { label: "Widget tutorials", items: [{ autogenerate: { directory: "docs/widgets/tutorials" } }] },

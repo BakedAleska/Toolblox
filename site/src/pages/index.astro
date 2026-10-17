@@ -14,14 +14,14 @@ const macInstaller = `${repo}/releases/latest/download/Toolblox.dmg`;
 /** The core commitments from `PRODUCT.md`, each linked to the evidence for it. */
 const commitments = [
   { icon: Eye, title: "Free and open source", text: "No ads or paid features. Every line of source code is public under the MIT License, and every release is built from it in the open.", link: { label: "Source code", href: repo } },
-  { icon: ShieldCheck, title: "No injection", text: "Toolblox never injects code into Roblox or reads or changes its memory or files. It signs in through Roblox's own page and launches Roblox the same way the Roblox website does.", link: { label: "Launch code", href: `${repo}/blob/main/src-tauri/src/roblox.rs` } },
+  { icon: ShieldCheck, title: "No injection", text: "Toolblox never injects code into Roblox, reads or changes its memory, or provides exploits or cheats. It signs in through Roblox's own page and launches Roblox the same way the Roblox website does.", link: { label: "Launch code", href: `${repo}/blob/main/src-tauri/src/roblox.rs` } },
   { icon: HardDrive, title: "Data stays on your device", text: "Accounts and settings are stored on your computer and logins in its secure storage: {storage}. There's no Toolblox server or telemetry, and Toolblox connects only to Roblox and GitHub.", link: { label: "Every connection", href: "/legal/#network-connections" } },
 ];
 
 const questions = [
   { question: "Is Toolblox free?", answer: "Yes. Toolblox is free, with no advertisements or paid features, and is released under the MIT License." },
   { question: "Can Toolblox see my password?", answer: "No. Accounts are added through Roblox's own sign-in page. Toolblox stores only the login token Roblox provides, keeps it in your computer's secure storage, and never sends it anywhere other than Roblox." },
-  { question: "Does Toolblox inject into Roblox?", answer: "No. Toolblox never injects code into Roblox, reads or changes its memory or files, or provides any in-game advantage. It launches Roblox the same way the Roblox website does. Roblox decides how its Terms of Use apply to third-party apps, so no outside app can guarantee an account's standing." },
+  { question: "Does Toolblox inject into Roblox?", answer: "No. Toolblox never injects code into Roblox, reads or changes its memory, or provides exploits, cheats, or any in-game advantage. It launches Roblox the same way the Roblox website does. Optional advanced settings can write Roblox's own configuration files, such as FastFlags and its graphics settings, which Roblox reads itself. Roblox decides how its Terms of Use apply to third-party apps, so no outside app can guarantee an account's standing." },
   { question: "Does my data leave my computer?", answer: "Not to Toolblox. There's no Toolblox server, account service, or telemetry. The app connects only to Roblox, to sign in and join games, and to GitHub, to check for updates and widgets. The privacy policy lists every connection, and the source code shows them." },
   { os: "windows", question: "Why does Windows show a warning?", answer: "Windows shows this warning for applications from publishers it doesn't recognize yet, and Toolblox doesn't currently have a paid code-signing certificate. Select More info, then Run anyway, but only for a file downloaded from this site or the official GitHub page." },
   { question: "Is Toolblox made by Roblox?", answer: "No. Toolblox is an independent project and isn't affiliated with or endorsed by Roblox Corporation." },
@@ -196,7 +196,8 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
           </div>
           <p class="text-center text-sm text-pretty text-muted-foreground">
             Download Toolblox only from this site or its official GitHub page.{" "}
-            <a href="/legal/#verify-a-download" class="underline underline-offset-4">How to verify a download</a>
+            <a href="/docs/install/" class="underline underline-offset-4">Install guide</a> ·{" "}
+            <a href="/docs/install/#verify-a-download" class="underline underline-offset-4">How to verify a download</a>
           </p>
         </div>
       </section>
@@ -228,12 +229,10 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
               if (macHero && link?.dataset.href) macHero.href = link.dataset.href;
             }
           }
-          const os = document.documentElement.dataset.os;
-          if (os !== "windows" && os !== "mac") return;
           const total = releases
             .flatMap((release) => {
-              const counted = os === "mac" ? "Toolblox.dmg" : release.assets.some((asset) => asset.name === "Toolblox-Update.exe") ? "Toolblox-Setup.exe" : "";
-              return release.assets.filter((asset) => asset.name === counted);
+              const separateUpdater = release.assets.some((asset) => asset.name === "Toolblox-Update.exe");
+              return release.assets.filter((asset) => asset.name === "Toolblox.dmg" || (separateUpdater && asset.name === "Toolblox-Setup.exe"));
             })
             .reduce((sum, asset) => sum + asset.download_count, 0);
           const element = document.querySelector<HTMLElement>("[data-downloads]");
@@ -241,7 +240,7 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
           const label = document.querySelector<HTMLElement>("[data-downloads-label]");
           if (!total || !element || !count || !label) return;
           count.textContent = total.toLocaleString("en-US");
-          label.textContent = ` ${total === 1 ? "download" : "downloads"} on ${os === "mac" ? "macOS" : "Windows"}`;
+          label.textContent = ` ${total === 1 ? "download" : "downloads"}`;
           element.hidden = false;
         })
         .catch(() => {});

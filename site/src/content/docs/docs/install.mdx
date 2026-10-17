@@ -1,0 +1,114 @@
+---
+title: Install Toolblox
+description: How to download and install Toolblox on Windows and macOS, what the security prompts mean, and how to check that a download is genuine.
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Toolblox runs on Windows 10 and 11, and on Apple silicon and Intel Macs. Roblox needs to be
+installed too. Download Toolblox only from [toolblox.dev](https://toolblox.dev/#download) or the
+[official GitHub releases page](https://github.com/BakedAleska/Toolblox/releases).
+
+<Tabs syncKey="os">
+<TabItem label="Windows">
+
+<Steps>
+
+1. Download **Toolblox-Setup.exe** from [toolblox.dev](https://toolblox.dev/#download).
+
+   If your browser says the file isn't commonly downloaded, open the download's menu and choose
+   **Keep**. Browsers say this about new apps that few people have downloaded yet.
+
+2. Open **Toolblox-Setup.exe**.
+
+3. If Windows shows **Windows protected your PC**, select **More info**, then **Run anyway**.
+
+   Windows shows this for apps from publishers it doesn't recognize yet. Toolblox doesn't have a
+   paid code-signing certificate, so this appears even for the genuine installer. Only continue
+   for a file you downloaded from toolblox.dev or the GitHub releases page.
+
+4. Finish the setup. It installs for your Windows user only, so it doesn't ask for administrator
+   access.
+
+5. Open Toolblox. It checks for updates before it opens, then installs new versions
+   automatically from then on.
+
+</Steps>
+
+</TabItem>
+<TabItem label="macOS">
+
+<Steps>
+
+1. Download **Toolblox.dmg** from [toolblox.dev](https://toolblox.dev/#download).
+
+2. Open **Toolblox.dmg** and drag **Toolblox** into **Applications**.
+
+3. Open Toolblox from Applications. If macOS says it can't verify the developer, select
+   **Done**.
+
+4. Open **System Settings** → **Privacy & Security**, scroll to **Security**, and select
+   **Open Anyway** next to the message about Toolblox. Confirm with your password.
+
+   macOS shows this for apps that Apple hasn't notarized. Toolblox doesn't have a paid Apple
+   Developer ID, so this appears even for the genuine app. Only continue for a file you
+   downloaded from toolblox.dev or the GitHub releases page.
+
+5. Toolblox checks for updates before it opens, then installs new versions automatically from
+   then on.
+
+</Steps>
+
+</TabItem>
+</Tabs>
+
+## Verify a download
+
+Every release lists the SHA-256 hash of each file. If the hash of your download matches, it's
+the exact file the release built.
+
+<Tabs syncKey="os">
+<TabItem label="Windows">
+
+Open PowerShell in your Downloads folder and run:
+
+```powershell
+Get-FileHash .\Toolblox-Setup.exe
+```
+
+</TabItem>
+<TabItem label="macOS">
+
+Open Terminal in your Downloads folder and run:
+
+```sh
+shasum -a 256 Toolblox.dmg
+```
+
+</TabItem>
+</Tabs>
+
+Compare the result with the SHA-256 for that file on the
+[releases page](https://github.com/BakedAleska/Toolblox/releases). If they differ, delete the
+file and download it again from toolblox.dev.
+
+## After installing
+
+Select **Add** on the Accounts page to sign in to an account. The sign-in opens Roblox's own
+page, so Toolblox never sees your password.
+
+<Aside type="tip" title="If Toolblox doesn't open">
+Toolblox needs to reach GitHub when it starts, to make sure it's up to date. If the update check
+fails, check the internet connection and select **Retry**.
+</Aside>
+
+## Uninstall
+
+- **Windows:** open **Settings** → **Apps** → **Installed apps**, find Toolblox, and select
+  **Uninstall**. Your accounts and settings stay in `%LOCALAPPDATA%\Toolblox` until you delete
+  that folder.
+- **macOS:** drag Toolblox from Applications to the Trash. Your accounts and settings stay in
+  `~/Library/Application Support/Toolblox` until you delete that folder.
+
+Saved sessions stay in Windows Credential Manager or the macOS Keychain under **Toolblox**.
+Remove each account in Toolblox before uninstalling to delete them too.

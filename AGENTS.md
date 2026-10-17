@@ -59,6 +59,15 @@ and installing reviewed game-specific widgets. `PRODUCT.md` is the product autho
   dialogs, toasts) get shadows. Group related rows in one `Panel` with dividers.
 - Don't add actual widgets to this repository. Implement and test the host contract.
 
+## Changelogs
+
+- Each version has `changelogs/<version>.md`, such as `changelogs/0.3.2-beta.md`. Every
+  user-facing change adds a line to the unreleased version's file, marked `*Unreleased*` until the
+  release sets the date.
+- Write for players, in plain language. They're pasted into Discord as-is: use headings, bold,
+  and bullets only, no tables or HTML, and keep each file under 2,000 characters.
+- Describe what changed for the user, not the code. Leave out refactors, tests, and CI.
+
 ## Verification
 
 - Frontend changes run `npm run check` and relevant tests.

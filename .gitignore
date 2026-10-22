@@ -28,3 +28,6 @@ _site
 .impeccable
 THIRD-PARTY-NOTICES.txt
 .astro
+
+# Local planning notes
+NOTES.md

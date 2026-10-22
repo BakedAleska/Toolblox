@@ -3,7 +3,14 @@ import { test } from "node:test";
 
 import { COMMANDS, respond } from "../src/commands.ts";
 import { verifyInteraction } from "../src/discord.ts";
-import { countDownloads, downloadIncrease, formatIncrease, formatTotals, formatVersion } from "../src/releases.ts";
+import {
+  countDownloads,
+  downloadIncrease,
+  formatIncrease,
+  formatTotals,
+  formatVersion,
+  highestTotals,
+} from "../src/releases.ts";
 
 const toHex = (bytes) => Buffer.from(bytes).toString("hex");
 
@@ -58,6 +65,18 @@ test("reports growth as a total and its split", () => {
   assert.deepEqual(increase, { windows: 2, macos: 0 });
   assert.equal(formatIncrease(increase, current), "New downloads: +2 (Windows +2, macOS +0)\nTotal: 14 (Windows 9, macOS 5)");
   assert.equal(formatTotals(previous), "12 (Windows 7, macOS 5)");
+});
+
+test("keeps the highest counts when GitHub reports fewer downloads", () => {
+  const saved = { windows: 9, macos: 7 };
+  const bad = { windows: 0, macos: 0 };
+  assert.equal(downloadIncrease(saved, bad), null);
+  assert.deepEqual(highestTotals(saved, bad), saved);
+  assert.equal(downloadIncrease(highestTotals(saved, bad), saved), null);
+
+  const partial = { windows: 10, macos: 0 };
+  assert.deepEqual(downloadIncrease(saved, partial), { windows: 1, macos: 0 });
+  assert.deepEqual(highestTotals(saved, partial), { windows: 10, macos: 7 });
 });
 
 test("formats release tags", () => {

@@ -1,6 +1,14 @@
 import { respond } from "./commands.ts";
 import { sendDirectMessage, verifyInteraction } from "./discord.ts";
-import { countDownloads, downloadIncrease, fetchReleases, formatIncrease, formatTotals, type Totals } from "./releases.ts";
+import {
+  countDownloads,
+  downloadIncrease,
+  fetchReleases,
+  formatIncrease,
+  formatTotals,
+  highestTotals,
+  type Totals,
+} from "./releases.ts";
 
 /** Worker bindings, set in `wrangler.toml` and with `wrangler secret put`. */
 export interface Env {
@@ -39,23 +47,33 @@ export default {
     const interaction = JSON.parse(body) as { type: number; data?: { name: string } };
     if (interaction.type === PING) return Response.json({ type: PONG });
     if (interaction.type === APPLICATION_COMMAND && interaction.data) {
-      const content = await respond(interaction.data.name, env.GITHUB_TOKEN);
+      const content = await respond(interaction.data.name, env.GITHUB_TOKEN?.trim());
       return Response.json({ type: CHANNEL_MESSAGE, data: { content, allowed_mentions: { parse: [] } } });
     }
     return new Response("Unsupported interaction.", { status: 400 });
   },
 
-  /** Compares download totals with the last check and sends the owner a DM when they grew. */
+  /**
+   * Compares download totals with the last check and sends the owner a DM when they grew. Secrets
+   * are trimmed, because a secret piped from `echo` ends with a newline.
+   */
   async scheduled(_controller, env) {
-    const current = countDownloads(await fetchReleases(env.GITHUB_TOKEN));
+    const token = env.DISCORD_BOT_TOKEN.trim();
+    const owner = env.OWNER_USER_ID.trim();
+    const current = countDownloads(await fetchReleases(env.GITHUB_TOKEN?.trim()));
     const previous = await env.STATE.get<Totals>(TOTALS_KEY, "json");
     if (!previous) {
-      await sendDirectMessage(env.DISCORD_BOT_TOKEN, env.OWNER_USER_ID, `Download tracking started.\nTotal: ${formatTotals(current)}`);
-    } else {
-      const increase = downloadIncrease(previous, current);
-      if (increase) await sendDirectMessage(env.DISCORD_BOT_TOKEN, env.OWNER_USER_ID, formatIncrease(increase, current));
-      else if (JSON.stringify(previous) === JSON.stringify(current)) return;
+      await sendDirectMessage(token, owner, `Download tracking started.\nTotal: ${formatTotals(current)}`);
+      await env.STATE.put(TOTALS_KEY, JSON.stringify(current));
+      return;
     }
-    await env.STATE.put(TOTALS_KEY, JSON.stringify(current));
+    const totals = highestTotals(previous, current);
+    if (formatTotals(totals) !== formatTotals(current)) {
+      console.warn(`GitHub reported fewer downloads: ${formatTotals(current)}, saved ${formatTotals(previous)}.`);
+    }
+    const increase = downloadIncrease(previous, current);
+    if (!increase) return;
+    await sendDirectMessage(token, owner, formatIncrease(increase, totals));
+    await env.STATE.put(TOTALS_KEY, JSON.stringify(totals));
   },
 } satisfies ExportedHandler<Env>;

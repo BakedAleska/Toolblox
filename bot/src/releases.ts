@@ -66,6 +66,17 @@ export function downloadIncrease(previous: Totals, current: Totals): Totals | nu
   return grew ? increase : null;
 }
 
+/**
+ * Returns the higher count for each platform. Download counts only grow, so a lower count is a
+ * bad GitHub response and isn't saved; otherwise the next good response reports every download
+ * again.
+ */
+export function highestTotals(previous: Totals, current: Totals): Totals {
+  const highest: Totals = { windows: 0, macos: 0 };
+  for (const [kind] of LABELS) highest[kind] = Math.max(previous[kind] ?? 0, current[kind]);
+  return highest;
+}
+
 /** Formats counts as a total and its split, such as `12 (Windows 7, macOS 5)`. */
 export function formatTotals(totals: Totals, sign = ""): string {
   const sum = LABELS.reduce((total, [kind]) => total + totals[kind], 0);

@@ -6,6 +6,10 @@ compatibility_date = "2026-10-01"
 [triggers]
 crons = ["*/5 * * * *"]
 
+# Keeps Worker logs, including warnings about bad GitHub responses, in the Cloudflare dashboard.
+[observability]
+enabled = true
+
 # Create with `npx wrangler kv namespace create STATE`, then paste the printed id here.
 [[kv_namespaces]]
 binding = "STATE"

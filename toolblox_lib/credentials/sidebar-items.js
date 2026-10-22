@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["SERVICE","SESSION_COOKIE_MARKER"],"enum":["CredentialError"],"fn":["contains_session_cookie"],"struct":["OsCredentialStore","Secret"],"trait":["CredentialStore"]};

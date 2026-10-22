@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["LAYER_OFFSET","MAX_CPU_CORES","WATCH_SECONDS"],"enum":["ClientPriority","TileSize"],"fn":["affinity_mask","apply","available_cores","client_windows","parse_tasklist","place_window","roblox_pids","tile_rects","tile_windows"],"struct":["ClientTuner","Rect","Tuning"]};

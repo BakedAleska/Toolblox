@@ -33,20 +33,23 @@ export async function verifyInteraction(
   }
 }
 
+/**
+ * Sends a request to the Discord API as the bot. Fails with the status unless the response is OK
+ * or its status is in `allowed`, which the caller handles.
+ */
+export async function discordRequest(token: string, method: string, path: string, body?: unknown, allowed: number[] = []): Promise<Response> {
+  const response = await fetch(`${API}${path}`, {
+    method,
+    headers: { Authorization: `Bot ${token}`, "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok && !allowed.includes(response.status)) throw new Error(`Discord returned status ${response.status} for ${method} ${path.replace(/\d{6,}/g, ":id")}.`);
+  return response;
+}
+
 /** Sends a direct message from the bot. The bot and the user must share a server. */
 export async function sendDirectMessage(token: string, userId: string, content: string): Promise<void> {
-  const headers = { Authorization: `Bot ${token}`, "Content-Type": "application/json" };
-  const channel = await fetch(`${API}/users/@me/channels`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ recipient_id: userId }),
-  });
-  if (!channel.ok) throw new Error(`Discord returned status ${channel.status} opening the direct message.`);
+  const channel = await discordRequest(token, "POST", "/users/@me/channels", { recipient_id: userId });
   const { id } = await channel.json<{ id: string }>();
-  const message = await fetch(`${API}/channels/${id}/messages`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
-  });
-  if (!message.ok) throw new Error(`Discord returned status ${message.status} sending the direct message.`);
+  await discordRequest(token, "POST", `/channels/${id}/messages`, { content, allowed_mentions: { parse: [] } });
 }

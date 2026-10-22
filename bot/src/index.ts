@@ -1,4 +1,5 @@
 import { respond } from "./commands.ts";
+import { syncChangelogs } from "./changelogs.ts";
 import { sendDirectMessage, verifyInteraction } from "./discord.ts";
 import {
   countDownloads,
@@ -54,12 +55,15 @@ export default {
   },
 
   /**
-   * Compares download totals with the last check and sends the owner a DM when they grew. Secrets
-   * are trimmed, because a secret piped from `echo` ends with a newline.
+   * Posts new released changelogs to the #changelogs channel, then compares download totals with
+   * the last check and sends the owner a DM when they grew. A changelog failure is logged and
+   * doesn't stop the download check. Secrets are trimmed, because a secret piped from `echo` ends
+   * with a newline.
    */
   async scheduled(_controller, env) {
     const token = env.DISCORD_BOT_TOKEN.trim();
     const owner = env.OWNER_USER_ID.trim();
+    await syncChangelogs(token, env.STATE, env.GITHUB_TOKEN?.trim()).catch((error) => console.warn(`Changelogs weren't posted: ${error}`));
     const current = countDownloads(await fetchReleases(env.GITHUB_TOKEN?.trim()));
     const previous = await env.STATE.get<Totals>(TOTALS_KEY, "json");
     if (!previous) {

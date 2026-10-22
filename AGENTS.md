@@ -54,14 +54,17 @@ and installing reviewed game-specific widgets. `PRODUCT.md` is the product autho
 - Use semantic HTML, visible keyboard focus, labelled controls, reduced-motion support, and
   responsive layouts.
 - Use the shared spacing scale: 4, 8, 12, 16, and 24 pixels.
-- Radii: 8 pixels for controls (`rounded-lg`), 12 for panels (`rounded-xl`), 16 for the hero
+- Radii: 6 pixels for controls (`rounded-lg`), 9 for panels (`rounded-xl`), 12 for the hero
   (`rounded-2xl`). Surfaces use tonal layering and hairline rings; only floating layers (menus,
   dialogs, toasts) get shadows. Group related rows in one `Panel` with dividers.
-- Don't add actual widgets to this repository. Implement and test the host contract.
+- Catalogue widgets live only in `widgets/<id>/`, each with its own `LICENSE`. App code never
+  imports from `widgets/`. App tests cover the host contract, not specific widgets.
+- A widget pull request changes only its own `widgets/<id>/` folder. Only the workflow that runs
+  on `main` after merge can use the catalogue signing key.
 
 ## Changelogs
 
-- Each version has `changelogs/<version>.md`, such as `changelogs/0.3.2-beta.md`. Every
+- Each version has `changelogs/<version>.md`, such as `changelogs/0.4.0-beta.md`. Every
   user-facing change adds a line to the unreleased version's file, marked `*Unreleased*` until the
   release sets the date.
 - Write for players, in plain language. They're pasted into Discord as-is: use headings, bold,

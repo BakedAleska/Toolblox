@@ -43,27 +43,25 @@ keep each description to what the linked evidence shows.
 2. **No injection.** Toolblox never injects code into Roblox, reads or changes its memory, or
    provides exploits, cheats, or any in-game advantage. It signs in through Roblox's own page and launches Roblox through its standard
    `roblox-player:` link, the same way the Roblox website does. Evidence: `roblox.rs`,
-   `multi_instance.rs`, `roblox_process.rs`, and `roblox_files.rs`. On Windows, the multi-instance
+   `multi_instance.rs`, and `roblox_process.rs`. On Windows, the multi-instance
    helper closes Roblox's single-instance handle so several clients can run at once. On macOS,
    Toolblox removes the name of Roblox's single-instance semaphore and starts the player with the
    same link. Toolblox can also lower a client's priority, limit its CPU cores, and move its
-   windows through operating-system APIs, and optional advanced settings write configuration
-   files that Roblox reads itself (see Advanced Settings). Don't describe Toolblox as never
-   touching the Roblox process or its files.
+   windows through operating-system APIs. Don't describe Toolblox as never touching the Roblox
+   process.
 
    "No injection" means no exploits: no code in Roblox's process and no access to its memory.
    Keep it unconditional. Never qualify it with "unless", "except", or "only when", because
-   players read any condition as "sometimes injects". Disclose configuration files as their own
-   fact, outside the commitment's text.
+   players read any condition as "sometimes injects".
 3. **Data stays on this device.** Accounts, notes, and settings are stored on this device and
    sessions in the operating system's credential store. There's no Toolblox server, account
    service, or telemetry. Toolblox connects only to Roblox and to GitHub for updates and widgets.
    Evidence: the [privacy policy](https://toolblox.dev/legal/#privacy), which lists every connection, and the source code. Installed widgets
    can connect to services their authors choose, so copy that covers widgets must say so.
 
-Don't claim that Toolblox is compliant with or approved under the Roblox Terms of Use. Roblox
-decides how its terms apply to third-party apps. State the facts above and keep the disclaimer
-that no outside app can guarantee an account's standing.
+Don't claim that Toolblox is compliant with or approved under the Roblox Terms of Use. Say that
+Toolblox shouldn't break any Roblox rules and is safe to use, and that Roblox decides how its
+terms are enforced, so no outside app can promise how they'll be applied.
 
 ## Operating Context
 
@@ -93,9 +91,6 @@ changes before they are merged or released.
 - Users can add, remove, annotate, sort, reorder, select, and launch Roblox accounts.
 - Users can set a default and per-account client priority, limit each client's CPU cores
   (Windows), and tile Roblox windows (Windows; macOS shows tiling as unsupported).
-- With the advanced settings on, users can set default and per-account FastFlags, frame rate
-  cap, graphics quality, and window size (Windows). When accounts in a batch need different
-  settings, they launch one at a time so each client starts with its own.
 - Users can install, enable, disable, configure, update, and uninstall extensible widgets.
 - Users can theme the app with custom CSS, which is also how themes are imported and exported.
   Setting a token in the CSS changes it across the app, and the color pickers in Settings show
@@ -118,23 +113,6 @@ changes before they are merged or released.
   cryptographic update signatures and transparent, reproducible evidence without claiming that
   the Windows executable itself is commercially signed.
 
-## Advanced Settings
-
-Options that write Roblox's configuration files live on a separate Advanced tab in Settings, shown
-only after a confirmation. None of them injects code, reads or changes Roblox's memory, or gives
-an in-game advantage. Each is off by default, asks for confirmation before it turns on, and is
-turned off by safe mode. Each lists exactly what it reads, writes, or connects to, its source file, and the API docs it relies on, so the list can be checked against
-the code. A test pins every Roblox path in the source to that list.
-
-- **FastFlags.** Writes `ClientSettings/ClientAppSettings.json` next to each installed Roblox
-  player before launches. Roblox ignores flags outside its allowlist.
-- **Client settings.** Sets `FramerateCap`, `SavedQualityLevel`, and `Fullscreen` in Roblox's
-  `GlobalBasicSettings_<n>.xml` before launches, and sizes the client's window afterwards. The
-  frame rate cap stops at 240, the highest option in Roblox's own menu.
-
-Where Toolblox explains what it does to Roblox (the FAQ, the docs, the Advanced tab), say plainly
-which configuration files the advanced settings write.
-
 ## Planned Widget Capabilities
 
 These aren't built yet. Each replaces the matching constraint above once it ships.
@@ -151,6 +129,9 @@ These aren't built yet. Each replaces the matching constraint above once it ship
   other widgets when published.
 - The Starlight docs at `toolblox.dev/docs/` serve committed widget authors, and cover the full
   host API, windows, processes, and packaging in depth.
+- Catalogue widgets live in the `widgets/` folder of this repository. Listing or updating a
+  widget is one pull request that changes only that widget's folder. Catalogue updates publish
+  separately from app releases.
 
 ## Planned Theme Capabilities
 

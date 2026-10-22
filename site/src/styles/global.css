@@ -36,6 +36,19 @@
   animation-delay: calc(var(--i, 0) * 100ms);
 }
 
+/* Typing caret in the hero title. It holds steady while text is being typed. */
+@keyframes caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+.caret {
+  animation: caret-blink 1s steps(1) infinite;
+}
+.caret[data-active] {
+  animation: none;
+}
+
 /* Section content fades up as it scrolls into view, where scroll-driven animations are supported. */
 @supports (animation-timeline: view()) {
   main > section + section > div {
@@ -47,6 +60,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .rise,
+  .caret,
   main > section + section > div {
     animation: none !important;
   }

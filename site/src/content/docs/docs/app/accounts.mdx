@@ -30,7 +30,6 @@ the numeric account ID, which is an opaque handle for asking Rust to act on that
 | [`src-tauri/src/roblox.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/roblox.rs) | Every Roblox HTTP call and the strict `roblox-player:` URI builder. |
 | [`src-tauri/src/multi_instance.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/multi_instance.rs) | Lets several Roblox clients run at once on Windows and macOS. |
 | [`src-tauri/src/roblox_process.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/roblox_process.rs) | Finds running clients, sets their priority and CPU cores, and tiles their windows. |
-| [`src-tauri/src/roblox_files.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/roblox_files.rs) | The FastFlags and client settings advanced settings, the only code that changes Roblox's files. |
 | [`src-tauri/src/app_commands.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/app_commands.rs) | The commands that tie the above together: sign-in, join, notes, places, reorder, remove. |
 | [`src/screens/Accounts.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Accounts.tsx) | The Accounts screen. |
 | [`src/logic.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/logic.ts) | Sorting, display names, relative times, and the client-side place ID parser. |
@@ -65,8 +64,6 @@ OS credential store, keyed by `id`. Field names on disk are snake_case, because 
 | `widget_data` | `BTreeMap<String, Value>` | `{}` | Per-widget JSON for this account, keyed by widget ID. |
 | `place_id` | `Option<String>` | omitted | Place this account joins instead of the default place. Omitted from the file when unset. |
 | `last_place_id` | `Option<String>` | omitted | Place of the last manual join. Omitted from the file when unset. |
-| `client_settings` | `ClientSettings` | omitted | The account's own frame rate cap, graphics quality, and window size, used in place of the defaults. Omitted from the file when empty. |
-| `fast_flags` | `Map<String, Value>` | omitted | FastFlags added to the defaults for this account. Omitted from the file when empty. |
 | `priority` | `Option<ClientPriority>` | omitted | Client priority instead of the default priority: `"normal"`, `"below_normal"`, or `"low"`. Omitted from the file when unset. |
 | `extra` | flattened map | `{}` | Unknown fields, preserved on save. |
 
@@ -110,10 +107,6 @@ file has camelCase keys. See
 | `clientPriority` | `"normal"` \| `"below_normal"` \| `"low"` | `"normal"` | Priority of launched clients, unless an account sets its own. |
 | `cpuCores` | `u32` | `0` | Logical cores each launched client may use, from 0 to 64. `0` allows every core. Windows only. |
 | `tileSize` | `"fit"` \| `"medium"` \| `"small"` | `"fit"` | Window size used when tiling clients. |
-| `fastFlagsEnabled` | `bool` | `false` | Write `fastFlags` to Roblox's folder before each launch. An advanced setting. |
-| `fastFlags` | `Map<String, Value>` | `{}` | FastFlag names and values. |
-| `clientSettingsEnabled` | `bool` | `false` | Write `clientSettings` to Roblox's settings file before each launch. An advanced setting. |
-| `clientSettings` | `ClientSettings` | `{}` | Default `fpsCap`, `graphicsQuality`, and `windowSize` (`{ width, height }`). Each is `null` to leave Roblox's value unchanged. |
 | `recentPlaces` | `Vec<RecentPlace>` | `[]` | Recently used places, newest first, at most `RECENT_PLACES_LIMIT` (5). Longer lists saved by older versions load and are trimmed. |
 | `extra` | flattened map | `{}` | Unknown fields, preserved on save. |
 
@@ -122,10 +115,7 @@ looks it up and an empty string when Roblox has no name for the place. `Settings
 requires a valid `placeId` when it's non-empty, at most `RECENT_PLACES_LIMIT` (6) recent places,
 each with a valid place ID and a name of at most 100 characters, and valid widget IDs in
 `disabledWidgets`, `widgetsStartOnLaunch`, and the keys of `widgetSettings`. It also requires
-`cpuCores` of at most 64, and at most 200 FastFlags, each named with 1 to 100 ASCII letters, digits,
-and underscores, with a boolean, number, or text value of at most 200 characters. Client settings,
-here and on accounts, need a frame rate cap of 15 to 240, a graphics quality of 0 to 10, and a
-window size from 320 × 180 to 7680 × 4320.
+`cpuCores` of at most 64.
 
 `Settings::remember_place` moves a place to the front of `recentPlaces`, keeping any name already
 looked up, and truncates the list to five. It runs when the default place changes or a
@@ -678,10 +668,7 @@ Accounts are ordered by `sortAccounts` from `logic.ts`: `last_played` sorts by `
 - a **Join** button, or **Sign in again** when the session expired;
 - a menu with **Move up** and **Move down** (manual order only), **Set place…** or **Change
   place…**, **Use default place** when an override exists, a **Priority** submenu (**Default**,
-  **Normal**, **Below normal**, **Low**) that calls `bridge.setAccountPriority`, **Launch
-  settings…** while an advanced setting is on, and **Remove**. **Launch settings…** opens a dialog
-  for the account's client settings and FastFlags and saves them with
-  `bridge.setAccountLaunchSettings`.
+  **Normal**, **Below normal**, **Low**) that calls `bridge.setAccountPriority`, and **Remove**.
 
 **Remove** opens a confirmation ("Removes the account and its saved session from this device.")
 and calls `bridge.removeAccount`. On the Rust side, `remove_account` deletes the account from

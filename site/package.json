@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
+    "dev": "npm run build:app && astro dev",
+    "build": "npm run build:app && astro build",
+    "build:app": "cd .. && npx vite build --base /preview/ --outDir site/public/preview --emptyOutDir",
     "preview": "astro preview"
   },
   "dependencies": {

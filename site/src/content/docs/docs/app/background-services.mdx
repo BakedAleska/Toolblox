@@ -429,9 +429,7 @@ only. It doesn't read from or write to a client's memory or files.
 ### Tuning launched clients
 
 For each account, `join_account_ids` works out the client's tuning: the account's `priority`, or
-`clientPriority` when the account has none, `cpuCores` on Windows, and the window size from the
-client settings advanced setting. When the tuning isn't the
-default, it lists the running Roblox processes before opening the `roblox-player:` URI, then
+`clientPriority` when the account has none, and `cpuCores` on Windows. When the tuning isn't the default, it lists the running Roblox processes before opening the `roblox-player:` URI, then
 starts `ClientTuner::watch` in the background, so tuning never slows a launch.
 
 `watch` checks the running clients once a second for 30 seconds. It claims the first new process
@@ -461,65 +459,6 @@ maximized windows first. **Fit screen** divides the area into a grid of
 `ceil(sqrt(count))` columns. **Medium** (960 × 540) and **Small** (640 × 360) fill the area left to
 right and top to bottom, and windows beyond one screen are layered with a 32-pixel offset. Tiling
 isn't supported on macOS yet: the button is hidden and the command fails with an explicit message.
-
-## Advanced settings
-
-Two **advanced settings** write configuration files that Roblox reads when a client starts. Neither
-injects code or touches Roblox's memory, so the "No injection" commitment holds. Both are off by
-default, and Settings shows them only after **See advanced settings** and a
-confirmation. Turning either on asks again. Each lists the files it writes, its source file, and
-the API docs it relies on. [`roblox_files.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/roblox_files.rs) is the only code that writes
-Roblox's files.
-
-### FastFlags
-
-The flags are written as `ClientSettings/ClientAppSettings.json` next to every installed player,
-which Roblox reads when a client starts:
-
-| Platform | Folders |
-| --- | --- |
-| Windows | `%LOCALAPPDATA%\Roblox\Versions\<version>` and `%ProgramFiles(x86)%\Roblox\Versions\<version>`, for each version folder that contains `RobloxPlayerBeta.exe` |
-| macOS | `Roblox.app/Contents/MacOS` in `/Applications` and `~/Applications` |
-
-Each launch gets the default flags with the account's own flags added. The file is also written
-when FastFlags are turned on or changed. Turning FastFlags off deletes the file, and in safe mode
-launches delete it instead of writing it. Roblox ignores flags outside its
-[allowlist](https://devforum.roblox.com/t/allowlist-for-local-client-configuration-via-fast-flags/3966569).
-
-### Client settings
-
-Roblox keeps its in-game settings in `GlobalBasicSettings_<n>.xml`, in `%LOCALAPPDATA%\Roblox` on
-Windows and `~/Library/Roblox` on macOS. Toolblox uses the file with the highest `<n>`, skips
-Studio's file, and changes only these values:
-
-| Setting | Value in the file | Notes |
-| --- | --- | --- |
-| Frame rate cap | `<int name="FramerateCap">` | 15 to 240, the highest option in Roblox's own menu. Roblox's allowlist ignores the FastFlag that used to set this. |
-| Graphics quality | `<token name="SavedQualityLevel">` | 1 to 10, Roblox's graphics slider. `0` is automatic. |
-| Window size | `<bool name="Fullscreen">` set to `false` | Windows only. `ClientTuner::watch` then sizes the client's window with `SetWindowPos`, keeping its position. |
-
-Each launch uses the account's own values, falling back to the defaults for any value the
-account doesn't set. An empty default leaves Roblox's value unchanged. The file is replaced
-atomically, and a missing file or value is an error rather than an insertion. Roblox keeps the
-last values written after the setting turns off, and a client that exits saves its own values.
-
-### One launch at a time
-
-Both files are shared by every account. When the next account in a batch needs different files,
-`join_account_ids` writes this account's files, launches it, and calls `wait_for_client`, which
-waits until a new Roblox process appears, plus 3 seconds for it to read the files, before the
-next launch. It gives up after 20 seconds. Batches where every account uses the same files
-launch at the usual pace.
-
-The test `roblox_file_access_matches_the_reviewed_list` pins every Roblox path that production code
-names to a reviewed list, like `SECRET_ACCESS` for sessions. A new path fails the test until it's
-added to the list, the Advanced tab, and these docs.
-
-<Aside type="caution" title="Known limits">
-When Roblox updates during a launch, that client starts from a new folder without the flags. The
-next launch writes them there. A client that reads its files more than 3 seconds after starting
-gets the next account's settings.
-</Aside>
 
 ## Logs
 
@@ -678,7 +617,5 @@ The message protocol, permissions, and limits are documented in the
 | Client priority | Priority classes | Nice values |
 | CPU cores per client | Process affinity mask | Not available; the setting is hidden and ignored |
 | Window tiling | `SetWindowPos` on the primary work area | Not available; the button is hidden and the command fails |
-| FastFlags | `ClientAppSettings.json` in each version folder | `ClientAppSettings.json` in `Roblox.app` |
-| Client settings | `%LOCALAPPDATA%\Roblox\GlobalBasicSettings_<n>.xml`, window size included | `~/Library/Roblox/GlobalBasicSettings_<n>.xml`, without window size |
 | Session storage used by auto-rejoin | Windows Credential Manager | macOS login Keychain |
 | Atomic file replace | `MoveFileExW` with write-through | `rename` |

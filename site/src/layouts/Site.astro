@@ -3,7 +3,7 @@ import "../styles/global.css";
 import GitHubIcon from "../components/GitHubIcon.astro";
 import { buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Star } from "lucide-react";
+import { CircleAlert, Monitor, Moon, Star, Sun } from "lucide-react";
 
 /** The page shell shared by the home page and the policy pages: header, footer, and theme. */
 interface Props {
@@ -13,6 +13,7 @@ interface Props {
 
 const { title, description = "A free, open-source Roblox account manager. No injection, and your data stays on your device." } = Astro.props;
 const repo = "https://github.com/BakedAleska/Toolblox";
+const discord = "https://discord.gg/pxBhrjEJM";
 ---
 
 <!doctype html>
@@ -29,12 +30,20 @@ const repo = "https://github.com/BakedAleska/Toolblox";
       const isWindows = /win/i.test(platform) || /Windows/.test(navigator.userAgent);
       document.documentElement.dataset.os = isMac ? "mac" : isWindows ? "windows" : "other";
       const scheme = matchMedia("(prefers-color-scheme: dark)");
-      const applyScheme = () => document.documentElement.classList.toggle("dark", scheme.matches);
+      const applyScheme = () => {
+        let choice = "system";
+        try { choice = localStorage.getItem("toolblox-theme") || "system"; } catch {}
+        const dark = choice === "dark" || (choice === "system" && scheme.matches);
+        document.documentElement.dataset.theme = choice;
+        document.documentElement.classList.toggle("dark", dark);
+        document.dispatchEvent(new CustomEvent("toolblox:scheme", { detail: dark }));
+      };
       applyScheme();
       scheme.addEventListener("change", applyScheme);
+      document.addEventListener("toolblox:theme", applyScheme);
     </script>
   </head>
-  <body>
+  <body class="pb-14 sm:pb-10">
     <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-background focus:px-3 focus:py-2">Skip to content</a>
 
     <header class="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
@@ -46,6 +55,12 @@ const repo = "https://github.com/BakedAleska/Toolblox";
         <a href="/#commitments" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">Commitments</a>
         <a href="/#widgets" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">Widgets</a>
         <a href="/#faq" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">FAQ</a>
+        <a href="/#download" class="hidden text-sm text-muted-foreground hover:text-foreground sm:inline">Download</a>
+        <button type="button" data-theme-toggle class={buttonVariants({ size: "icon-sm", variant: "ghost" })} aria-label="Theme: System" title="Theme: System">
+          <Monitor className="hidden in-data-[theme=system]:block" aria-hidden="true" />
+          <Sun className="hidden in-data-[theme=light]:block" aria-hidden="true" />
+          <Moon className="hidden in-data-[theme=dark]:block" aria-hidden="true" />
+        </button>
         <a href={repo} class={buttonVariants({ size: "sm", variant: "ghost" })} aria-label="Toolblox on GitHub"><GitHubIcon /><span data-stars hidden class="inline-flex items-center gap-1"><Star className="size-3.5" aria-hidden="true" /><span data-stars-count></span></span></a>
         <a href="/#download" class={buttonVariants({ size: "sm" })}>Download</a>
       </nav>
@@ -68,7 +83,31 @@ const repo = "https://github.com/BakedAleska/Toolblox";
       </div>
     </footer>
 
+    <aside class="fixed inset-x-0 bottom-0 z-40 border-t bg-background/90 backdrop-blur" aria-label="Payment warning">
+      <p class="mx-auto flex max-w-5xl items-center justify-center gap-2 px-4 py-2 text-center text-xs text-muted-foreground sm:text-sm">
+        <CircleAlert className="size-4 shrink-0" aria-hidden="true" />
+        <span>Toolblox is free and open source. If anyone asks you to pay for it, <a href={discord} class="font-medium text-foreground underline underline-offset-4">report it</a>.</span>
+      </p>
+    </aside>
+
     <script>
+      const themes = ["system", "light", "dark"];
+      const themeLabels: Record<string, string> = { system: "System", light: "Light", dark: "Dark" };
+      const themeToggle = document.querySelector<HTMLButtonElement>("[data-theme-toggle]");
+      const labelTheme = () => {
+        const label = `Theme: ${themeLabels[document.documentElement.dataset.theme || "system"]}`;
+        themeToggle?.setAttribute("aria-label", label);
+        themeToggle?.setAttribute("title", label);
+      };
+      labelTheme();
+      themeToggle?.addEventListener("click", () => {
+        const next = themes[(themes.indexOf(document.documentElement.dataset.theme || "system") + 1) % themes.length];
+        try { localStorage.setItem("toolblox-theme", next); } catch {}
+        document.documentElement.dataset.theme = next;
+        document.dispatchEvent(new Event("toolblox:theme"));
+        labelTheme();
+      });
+
       fetch("https://api.github.com/repos/BakedAleska/Toolblox")
         .then((response) => (response.ok ? response.json() : Promise.reject()))
         .then(({ stargazers_count: stars }: { stargazers_count: number }) => {

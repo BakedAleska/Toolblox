@@ -13,9 +13,9 @@ code itself.
 
 Only add Roblox accounts you own or have permission to use. You're responsible for what happens
 on the accounts you add, and for following the
-[Roblox Terms of Use](https://www.roblox.com/info/terms). Roblox decides how its terms apply to
-third-party tools and may restrict accounts that use them. Toolblox can't guarantee an account's
-standing.
+[Roblox Terms of Use](https://www.roblox.com/info/terms). Toolblox is designed not to break any
+Roblox rules, but Roblox decides how its terms are enforced, so no outside app can promise how
+they'll be applied.
 
 ### Acceptable use
 

@@ -1,8 +1,6 @@
 ---
 import Site from "../layouts/Site.astro";
 import GitHubIcon from "../components/GitHubIcon.astro";
-import Screenshot from "../components/Screenshot.astro";
-import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowRight, ChevronDown, CircleHelp, Download, Eye, Hammer, HardDrive, Laptop, Monitor, Puzzle, ShieldCheck } from "lucide-react";
@@ -21,7 +19,7 @@ const commitments = [
 const questions = [
   { question: "Is Toolblox free?", answer: "Yes. Toolblox is free, with no advertisements or paid features, and is released under the MIT License." },
   { question: "Can Toolblox see my password?", answer: "No. Accounts are added through Roblox's own sign-in page. Toolblox stores only the login token Roblox provides, keeps it in your computer's secure storage, and never sends it anywhere other than Roblox." },
-  { question: "Does Toolblox inject into Roblox?", answer: "No. Toolblox never injects code into Roblox, reads or changes its memory, or provides exploits, cheats, or any in-game advantage. It launches Roblox the same way the Roblox website does. Optional advanced settings can write Roblox's own configuration files, such as FastFlags and its graphics settings, which Roblox reads itself. Roblox decides how its Terms of Use apply to third-party apps, so no outside app can guarantee an account's standing." },
+  { question: "Does Toolblox inject into Roblox?", answer: "No. Toolblox never injects code into Roblox, reads or changes its memory, or provides exploits, cheats, or any in-game advantage. It launches Roblox the same way the Roblox website does, so it shouldn't break any Roblox rules and is safe to use. Roblox decides how its Terms of Use are enforced, so no outside app can promise how they'll be applied. Widgets are reviewed before they're listed and can never inject code into Roblox or provide exploits or cheats. A widget can use permissions Toolblox itself doesn't, such as contacting approved websites, and the app lists each widget's permissions before it's installed." },
   { question: "Does my data leave my computer?", answer: "Not to Toolblox. There's no Toolblox server, account service, or telemetry. The app connects only to Roblox, to sign in and join games, and to GitHub, to check for updates and widgets. The privacy policy lists every connection, and the source code shows them." },
   { os: "windows", question: "Why does Windows show a warning?", answer: "Windows shows this warning for applications from publishers it doesn't recognize yet, and Toolblox doesn't currently have a paid code-signing certificate. Select More info, then Run anyway, but only for a file downloaded from this site or the official GitHub page." },
   { question: "Is Toolblox made by Roblox?", answer: "No. Toolblox is an independent project and isn't affiliated with or endorsed by Roblox Corporation." },
@@ -31,29 +29,39 @@ const questions = [
 
 /** Hides a question from visitors on the other operating system. */
 const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
+
+/** Hero titles, typed in order. The first is the static title. */
+const titles = ["Toolblox, your new best friend.", "Sign in once. That's it.", "Your logins. Your device.", "No ads, no catch, no key.", "It just stays out of the way."];
 ---
 
 <Site>
       <section class="mx-auto flex max-w-5xl flex-col items-center gap-6 px-4 pt-16 pb-12 text-center sm:pt-24">
-        <h1 class="rise max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl">The open-source Roblox account manager.</h1>
+        <h1 class="rise grid max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
+          <span class="sr-only">{titles[0]}</span>
+          {titles.map((title) => <span aria-hidden="true" class="invisible col-start-1 row-start-1">{title}</span>)}
+          <span aria-hidden="true" class="col-start-1 row-start-1"><span data-typed data-titles={JSON.stringify(titles)}>{titles[0]}</span><span data-caret class="caret ml-[0.04em] inline-block h-[0.9em] w-[0.06em] min-w-[2px] bg-foreground align-[-0.1em]"></span></span>
+        </h1>
         <p class="rise max-w-2xl text-lg text-pretty text-muted-foreground" style="--i: 1">
-          Sign in to each Roblox account once, then launch any of them from one desktop app. The source code is public, so anyone can check how Toolblox handles your logins.
+          A free desktop app for managing Roblox accounts. Run several at once, tune how each one launches, and add widgets for the games you play as they're released.
         </p>
-        <ul class="rise flex flex-wrap justify-center gap-2" style="--i: 2" aria-label="Commitments">
+        <div class="rise grid w-full max-w-md grid-cols-1 gap-3 sm:grid-cols-2" style="--i: 2">
+          <span class="contents mac:hidden"><a href={installer} class={buttonVariants({ size: "lg", className: "h-10 w-full px-4" })}><Download />Download for Windows</a></span>
+          <span class="hidden mac:contents"><a href={macInstaller} data-mac-hero class={buttonVariants({ size: "lg", className: "h-10 w-full px-4" })}><Download />Download for macOS</a></span>
+          <a href={repo} class={buttonVariants({ size: "lg", variant: "outline", className: "h-10 w-full px-4" })}><GitHubIcon />View source code</a>
+        </div>
+        <ul class="rise flex justify-center gap-3" style="--i: 3" aria-label="Commitments">
           {commitments.map(({ icon: Icon, title }) => (
-            <li><a href="#commitments"><Badge variant="secondary"><Icon />{title}</Badge></a></li>
+            <li><a href="#commitments" aria-label={title} title={title} class="flex size-9 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"><Icon className="size-5" aria-hidden="true" /></a></li>
           ))}
         </ul>
-        <div class="rise flex flex-wrap justify-center gap-3" style="--i: 3">
-          <span class="contents mac:hidden"><a href={installer} class={buttonVariants({ size: "lg", className: "h-10 px-4" })}><Download />Download for Windows</a></span>
-          <span class="hidden mac:contents"><a href={macInstaller} data-mac-hero class={buttonVariants({ size: "lg", className: "h-10 px-4" })}><Download />Download for macOS</a></span>
-          <a href={repo} class={buttonVariants({ size: "lg", variant: "outline", className: "h-10 px-4" })}><GitHubIcon />View source code</a>
-        </div>
         <p class="rise text-sm text-muted-foreground" style="--i: 3">
           Free for Windows and macOS<span data-release-version hidden></span>
         </p>
         <div class="rise mt-6 w-full" style="--i: 4">
-          <Screenshot name="dashboard" alt="The Toolblox home screen showing the last account played, account counts, and recently played accounts." eager />
+          <div data-preview-box class="h-[560px] overflow-hidden rounded-xl bg-background ring-1 ring-border">
+            <iframe data-preview src="/preview/index.html?showcase" title="Toolblox, running on sample accounts" class="h-[560px] w-full origin-top-left"></iframe>
+          </div>
+          <p class="mt-3 text-sm text-muted-foreground">Interactive preview with sample accounts. Nothing here connects to Roblox.</p>
         </div>
       </section>
 
@@ -158,36 +166,43 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
               <Download className="size-10" aria-hidden="true" /><span data-downloads-count></span><span data-downloads-label class="sr-only"></span>
             </p>
           </div>
-          <div class="grid gap-4 md:grid-cols-2">
-            <Card>
+          <p class="hidden text-center text-sm text-muted-foreground other:block">Toolblox runs on Windows 10 and 11 and on Macs. Open this page on one of them to download it.</p>
+          <div data-download-cards class="mx-auto grid w-full max-w-md gap-4 other:max-w-none other:opacity-50 md:other:grid-cols-2">
+            <Card className="mac:hidden">
               <CardHeader>
                 <Monitor className="mb-2 size-6" />
                 <CardTitle>Windows</CardTitle>
                 <CardDescription>For Windows 10 and 11<span data-release-version hidden></span></CardDescription>
               </CardHeader>
               <CardContent>
-                <ol class="flex list-decimal flex-col gap-1 pl-5 text-sm text-muted-foreground">
+                <a href="/docs/install/" data-install-tab="Windows" class="group block rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+                  <ol class="flex max-h-16 list-decimal flex-col gap-1 overflow-hidden pl-5 text-sm text-muted-foreground mask-b-from-10%">
                   <li>Open <strong class="font-medium text-foreground">Toolblox-Setup.exe</strong> once the download completes.</li>
                   <li>If Windows shows “Windows protected your PC”, select <strong class="font-medium text-foreground">More info</strong>, then <strong class="font-medium text-foreground">Run anyway</strong>.</li>
                   <li>Complete the setup. Toolblox updates automatically from then on.</li>
-                </ol>
+                  </ol>
+                  <span class="mt-1 inline-flex items-center gap-1 text-sm underline-offset-4 group-hover:underline">More download instructions<ArrowRight className="size-3.5" /></span>
+                </a>
               </CardContent>
               <CardFooter className="mt-auto">
                 <a href={installer} class={buttonVariants({ className: "w-full" })}><Download />Download for Windows</a>
               </CardFooter>
             </Card>
-            <Card className="mac:order-first">
+            <Card className="windows:hidden">
               <CardHeader>
                 <Laptop className="mb-2 size-6" />
                 <CardTitle>macOS</CardTitle>
                 <CardDescription>For Apple silicon and Intel Macs<span data-mac-release-version hidden></span></CardDescription>
               </CardHeader>
               <CardContent>
-                <ol class="flex list-decimal flex-col gap-1 pl-5 text-sm text-muted-foreground">
+                <a href="/docs/install/" data-install-tab="macOS" class="group block rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+                  <ol class="flex max-h-16 list-decimal flex-col gap-1 overflow-hidden pl-5 text-sm text-muted-foreground mask-b-from-10%">
                   <li>Open <strong class="font-medium text-foreground">Toolblox.dmg</strong> and drag Toolblox to Applications.</li>
                   <li>If macOS says it can't verify the developer, select <strong class="font-medium text-foreground">Done</strong>, then <strong class="font-medium text-foreground">Open Anyway</strong> in System Settings → Privacy &amp; Security.</li>
                   <li>Toolblox updates automatically from then on.</li>
-                </ol>
+                  </ol>
+                  <span class="mt-1 inline-flex items-center gap-1 text-sm underline-offset-4 group-hover:underline">More download instructions<ArrowRight className="size-3.5" /></span>
+                </a>
               </CardContent>
               <CardFooter className="mt-auto">
                 <a href={macInstaller} data-mac-download data-href={macInstaller} data-ready-class={buttonVariants({ className: "w-full" })} class={buttonVariants({ className: "w-full" })}><Download /><span data-mac-download-label>Download for macOS</span></a>
@@ -202,6 +217,13 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
         </div>
       </section>
   <script>
+      /* The install guide opens on the tab for the card's platform. Starlight keeps synced tabs in this key. */
+      for (const link of document.querySelectorAll<HTMLAnchorElement>("[data-install-tab]")) {
+        link.addEventListener("click", () => {
+          try { localStorage.setItem("starlight-synced-tabs__os", link.dataset.installTab ?? ""); } catch {}
+        });
+      }
+      if (document.documentElement.dataset.os === "other") document.querySelector("[data-download-cards]")?.setAttribute("inert", "");
       fetch("https://api.github.com/repos/BakedAleska/Toolblox/releases?per_page=100")
         .then((response) => (response.ok ? response.json() : Promise.reject()))
         .then((releases: { tag_name: string; draft: boolean; assets: { name: string; download_count: number }[] }[]) => {
@@ -244,5 +266,52 @@ const questionClass = { windows: "mac:hidden", mac: "windows:hidden" } as const;
           element.hidden = false;
         })
         .catch(() => {});
+  </script>
+
+  <script>
+    /* The hero title types and erases each ending in turn, unless reduced motion is preferred. */
+    const typed = document.querySelector<HTMLElement>("[data-typed]");
+    const caret = document.querySelector<HTMLElement>("[data-caret]");
+    const titles: string[] = JSON.parse(typed?.dataset.titles ?? "[]");
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const cycleTitles = async () => {
+      if (!typed || !caret) return;
+      for (let index = 1; ; index = (index + 1) % titles.length) {
+        await wait(2600);
+        caret.dataset.active = "";
+        while (typed.textContent) {
+          typed.textContent = typed.textContent.slice(0, -1);
+          await wait(28);
+        }
+        await wait(350);
+        for (const character of titles[index]) {
+          typed.textContent += character;
+          await wait(character === "." ? 500 : 55 + Math.random() * 45);
+        }
+        delete caret.dataset.active;
+      }
+    };
+    if (titles.length > 1 && !matchMedia("(prefers-reduced-motion: reduce)").matches) cycleTitles();
+  </script>
+
+  <script>
+    /* The preview follows this page's color scheme while its own theme mode is System. */
+    const preview = document.querySelector<HTMLIFrameElement>("iframe[data-preview]");
+    const sendScheme = () => preview?.contentWindow?.postMessage({ type: "toolblox:scheme", dark: document.documentElement.classList.contains("dark") }, location.origin);
+    window.addEventListener("message", (event) => {
+      if (event.source === preview?.contentWindow && event.origin === location.origin && event.data?.type === "toolblox:ready") sendScheme();
+    });
+    document.addEventListener("toolblox:scheme", sendScheme);
+
+    /* Narrow screens show the preview at 720 pixels wide, scaled down to fit. */
+    const previewBox = document.querySelector<HTMLElement>("[data-preview-box]");
+    const fitPreview = () => {
+      if (!preview || !previewBox) return;
+      const scale = Math.min(1, previewBox.clientWidth / 720);
+      preview.style.width = `${previewBox.clientWidth / scale}px`;
+      preview.style.transform = scale < 1 ? `scale(${scale})` : "";
+      previewBox.style.height = `${560 * scale}px`;
+    };
+    if (previewBox) new ResizeObserver(fitPreview).observe(previewBox);
   </script>
 </Site>

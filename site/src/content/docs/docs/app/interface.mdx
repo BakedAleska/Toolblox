@@ -205,10 +205,13 @@ a widget's replacement screen or page, is discarded when the user navigates away
 
 ### Toast
 
-`notify(message)` sets a single string. The toast renders bottom-centre as an inverted
-(`bg-foreground text-background`) rounded box with `shadow-lg` and `role="status"`, and clears
-itself after 4 seconds. A new message replaces the current one; there is no queue. Widgets call
-the same function through `toolblox.notify()`.
+`notify(message, kind?)` adds a toast in the bottom corner of the window away from the sidebar, in a `role="status"`
+region. Each toast shows an icon for its kind, the message's first sentence as its title, the rest
+as its description, and a ring for the four seconds it stays. Toasts widen to fit their text, up
+to 560 pixels, and descriptions stop at two lines. Up to three show at once. Without a
+kind, a message with a question is an error and any other is a success. Keyboard focus pauses the
+timer and selecting a toast dismisses it. Widgets call the same function through
+`toolblox.notify()`. Source: `src/components/ui/toast.tsx`.
 
 ### Dialogs
 
@@ -658,7 +661,7 @@ All colours are OKLCH. Every neutral has zero chroma; only the three status colo
 | `--overlay` | `oklch(0 0 0 / 30%)` | `oklch(0 0 0 / 50%)` | Dialog backdrop |
 | `--shadow` | `oklch(0 0 0)` | `oklch(0 0 0)` | Shadow color for floating layers |
 
-`--radius` is set to `8px` in `:root`, and every step of the radius scale below is derived from it.
+`--radius` is set to `6px` in `:root`, and every step of the radius scale below is derived from it.
 The `.dark` block sets `color-scheme: dark` so native scrollbars and form controls match.
 
 Components style themselves only through these tokens, so a custom theme can change every color
@@ -680,9 +683,9 @@ overflow (each screen scrolls itself), and draw thin scrollbars in the `--border
   Every text size is multiplied by `--text-scale` (`1` by default), and `text-2xs` (11 px) and
   `text-button` (0.8 rem) cover the sizes between Tailwind's steps. Place IDs, paths, and the log use
   Tailwind's default `font-mono` stack. Numbers in stat tiles use `tabular-nums`.
-- **Radii**: multiples of `--radius`: `--radius-xs` 0.25× (2 px), `--radius-sm` 0.5× (4 px),
-  `--radius-md` 0.75× (6 px), `--radius-lg` 1× (8 px, controls), `--radius-xl` 1.5× (12 px, panels,
-  dialogs), `--radius-2xl` 2× (16 px, the Dashboard hero). Badges are pill-shaped.
+- **Radii**: multiples of `--radius`: `--radius-xs` 0.25× (1.5 px), `--radius-sm` 0.5× (3 px),
+  `--radius-md` 0.75× (4.5 px), `--radius-lg` 1× (6 px, controls), `--radius-xl` 1.5× (9 px, panels,
+  dialogs), `--radius-2xl` 2× (12 px, the Dashboard hero). Badges are pill-shaped.
 - **Spacing**: the shared scale is 4, 8, 12, 16, and 24 px (`1`, `2`, `3`, `4`, `6` in Tailwind
   units). Screens use `gap-4` between sections and `px-6 pb-6` around content, card grids use
   `gap-3`, and settings rows use `px-4 py-3`. Half steps such as `gap-1.5` and `py-2.5` appear only

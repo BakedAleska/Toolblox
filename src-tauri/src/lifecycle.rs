@@ -1,12 +1,12 @@
 //! Window, tray, single-instance, and autostart lifecycle helpers.
 
 use std::fmt;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{Manager, WebviewWindow};
+use tauri::{Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 /// Window label of the main app window.
 pub const MAIN_WINDOW_LABEL: &str = "main";
@@ -26,6 +26,8 @@ pub struct LifecycleState {
     quit_requested: AtomicBool,
     /// Set when a second launch arrived before the main window could be shown.
     pending_activation: AtomicBool,
+    /// The window's position and size before it became the mini window, while it is one.
+    pub mini_restore: Mutex<Option<(PhysicalPosition<i32>, PhysicalSize<u32>)>>,
 }
 
 impl LifecycleState {

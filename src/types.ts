@@ -20,21 +20,6 @@ export interface Account {
   sessionExpired?: boolean;
   /** Overrides the default client priority. */
   priority?: ClientPriority | null;
-  /** Overrides the default client settings, for each value that's set. */
-  clientSettings: ClientSettings;
-  /** Added to the default FastFlags for this account's launches. */
-  fastFlags: FastFlags;
-}
-
-export type FastFlags = Record<string, string | number | boolean>;
-
-/** Values written before a launch. `null` leaves Roblox's value, or the default, unchanged. */
-export interface ClientSettings {
-  fpsCap?: number | null;
-  /** `0` is automatic, `1` to `10` match Roblox's graphics slider. */
-  graphicsQuality?: number | null;
-  /** Windows only. */
-  windowSize?: { width: number; height: number } | null;
 }
 
 export type ClientPriority = "normal" | "below_normal" | "low";
@@ -89,10 +74,6 @@ export interface Settings {
   /** Logical cores each client may use. `0` allows every core. Windows only. */
   cpuCores: number;
   tileSize: TileSize;
-  fastFlagsEnabled: boolean;
-  fastFlags: FastFlags;
-  clientSettingsEnabled: boolean;
-  clientSettings: ClientSettings;
 }
 
 export interface RecentPlace {

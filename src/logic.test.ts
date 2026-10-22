@@ -6,8 +6,6 @@ const account = (id: number, name: string, addedAt: number, lastPlayedAt?: numbe
   id,
   name,
   displayName: name,
-  clientSettings: {},
-  fastFlags: {},
   notes: "",
   addedAt,
   lastPlayedAt,

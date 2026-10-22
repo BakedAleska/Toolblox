@@ -10,8 +10,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::{Deserialize, Serialize};
 
-use crate::roblox_files::WindowSize;
-
 /// Scheduling priority for a Roblox client.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -47,8 +45,6 @@ pub struct Tuning {
     pub priority: ClientPriority,
     /// Logical cores the client may use. `0` allows every core.
     pub cpu_cores: u32,
-    /// Size of the client's window once it opens. Windows only.
-    pub window_size: Option<WindowSize>,
 }
 
 impl Tuning {
@@ -92,7 +88,6 @@ impl ClientTuner {
         let slot = self.next_slot.fetch_add(1, Ordering::Relaxed);
         let mask = affinity_mask(slot, tuning.cpu_cores, available_cores());
         let mut current = None;
-        let mut sized = tuning.window_size.is_none();
         for _ in 0..WATCH_SECONDS {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             let Ok(Ok(running)) = tauri::async_runtime::spawn_blocking(roblox_pids).await else {
@@ -100,7 +95,6 @@ impl ClientTuner {
             };
             if !current.is_some_and(|pid| running.contains(&pid)) {
                 current = self.claim(&before, &running, account_id);
-                sized = tuning.window_size.is_none();
                 if let Some(pid) = current
                     && (tuning.priority != ClientPriority::Normal || mask.is_some())
                 {
@@ -110,40 +104,11 @@ impl ClientTuner {
                     }
                 }
             }
-            if let (Some(pid), Some(size), false) = (current, tuning.window_size, sized) {
-                sized = resize_client(pid, size);
-            }
         }
         if current.is_none() {
             log::info!("No new Roblox client appeared for account {account_id}");
         }
     }
-}
-
-/// Seconds to wait for a launched client before the next launch.
-const START_TIMEOUT_SECONDS: u32 = 20;
-/// Seconds a new client gets to read Roblox's files before the next launch rewrites them.
-const READ_FILES_SECONDS: u64 = 3;
-
-/// Waits until a Roblox client that wasn't in `before` is running, then a little longer, so the
-/// next launch can rewrite Roblox's files. Gives up after 20 seconds.
-///
-/// ponytail: the grace period is fixed. A client that reads its files later than that starts with
-/// the next account's settings. Watching Roblox's log for the point it reads them would be exact.
-pub async fn wait_for_client(before: &HashSet<u32>) {
-    for _ in 0..START_TIMEOUT_SECONDS * 2 {
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        let started = tauri::async_runtime::spawn_blocking(roblox_pids)
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .is_some_and(|running| running.iter().any(|pid| !before.contains(pid)));
-        if started {
-            tokio::time::sleep(std::time::Duration::from_secs(READ_FILES_SECONDS)).await;
-            return;
-        }
-    }
-    log::info!("No new Roblox client appeared before the next launch");
 }
 
 /// Number of logical cores, capped at the 64 one affinity mask can hold.
@@ -279,6 +244,7 @@ fn apply(pid: u32, priority: ClientPriority, mask: Option<usize>) -> Result<(), 
 }
 
 /// A screen rectangle in physical pixels.
+#[cfg(any(windows, test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Rect {
     pub x: i32,
@@ -288,9 +254,11 @@ pub(crate) struct Rect {
 }
 
 /// Offset between layers when fixed-size windows don't all fit on the screen.
+#[cfg(any(windows, test))]
 const LAYER_OFFSET: i32 = 32;
 
 /// Positions for `count` windows tiled in `area`, left to right and top to bottom.
+#[cfg(any(windows, test))]
 pub(crate) fn tile_rects(count: usize, area: Rect, size: TileSize) -> Vec<Rect> {
     if count == 0 || area.width <= 0 || area.height <= 0 {
         return Vec::new();
@@ -362,16 +330,13 @@ fn client_windows(pids: HashSet<u32>) -> Vec<(u32, windows_sys::Win32::Foundatio
     search.windows
 }
 
-/// Restores a window from minimized or maximized, then gives it the rectangle. With
-/// `keep_position`, only the size changes.
+/// Restores a window from minimized or maximized, then gives it the rectangle.
 #[cfg(windows)]
-fn place_window(window: windows_sys::Win32::Foundation::HWND, rect: Rect, keep_position: bool) {
+fn place_window(window: windows_sys::Win32::Foundation::HWND, rect: Rect) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        IsIconic, IsZoomed, SW_RESTORE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SetWindowPos,
-        ShowWindow,
+        IsIconic, IsZoomed, SW_RESTORE, SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos, ShowWindow,
     };
 
-    let flags = SWP_NOZORDER | SWP_NOACTIVATE | if keep_position { SWP_NOMOVE } else { 0 };
     // SAFETY: `window` is a top-level window found by `client_windows`. A window that closed since
     // then makes these calls fail harmlessly.
     unsafe {
@@ -385,31 +350,8 @@ fn place_window(window: windows_sys::Win32::Foundation::HWND, rect: Rect, keep_p
             rect.y,
             rect.width,
             rect.height,
-            flags,
+            SWP_NOZORDER | SWP_NOACTIVATE,
         );
-    }
-}
-
-/// Sizes a client's window. Returns whether the window was found. Does nothing outside Windows.
-fn resize_client(pid: u32, size: WindowSize) -> bool {
-    #[cfg(windows)]
-    {
-        let Some((_, window)) = client_windows(HashSet::from([pid])).into_iter().next() else {
-            return false;
-        };
-        let rect = Rect {
-            x: 0,
-            y: 0,
-            width: size.width,
-            height: size.height,
-        };
-        place_window(window, rect, true);
-        true
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = (pid, size);
-        true
     }
 }
 
@@ -445,7 +387,7 @@ pub fn tile_windows(size: TileSize) -> Result<usize, String> {
         };
         let rects = tile_rects(windows.len(), area, size);
         for ((_, window), rect) in windows.iter().zip(&rects) {
-            place_window(*window, *rect, false);
+            place_window(*window, *rect);
         }
         Ok(rects.len())
     }
@@ -466,7 +408,6 @@ mod tests {
         let low = Tuning {
             priority: ClientPriority::Low,
             cpu_cores: 0,
-            window_size: None,
         };
         assert!(low.changes_process());
     }

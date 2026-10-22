@@ -1,10 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Account, AppState, CatalogueEntry, ClientPriority, ClientSettings, FastFlags, LogLevel, Settings, StartupStatus, WidgetSummary } from "./types";
+import type { Account, AppState, CatalogueEntry, ClientPriority, LogLevel, Settings, StartupStatus, WidgetSummary } from "./types";
 
 const minutesAgo = (minutes: number) => Date.now() - minutes * 60_000;
 const demoAccount = (id: number, name: string, displayName: string, extra: Partial<Account> = {}): Account =>
-  ({ id, name, displayName, notes: "", addedAt: minutesAgo(60 * 24 * 30), presence: "offline", clientSettings: {}, fastFlags: {}, ...extra });
+  ({ id, name, displayName, notes: "", addedAt: minutesAgo(60 * 24 * 30), presence: "offline", ...extra });
 const demoWidget = (id: string, name: string, description: string, extra: Partial<WidgetSummary> = {}): WidgetSummary =>
   ({ id, name, description, enabled: true, version: "1.0.0", permissions: [], hasSettings: false, hasDashboardTile: false, hasPageFrame: true, canStartOnLaunch: false, startOnLaunch: false, hostUrl: "about:blank", ...extra });
 const demoEntry = (id: string, name: string, description: string, version: string, permissions: string[] = []): CatalogueEntry =>
@@ -58,10 +58,6 @@ const demoState: AppState = {
     clientPriority: "normal",
     cpuCores: 0,
     tileSize: "fit",
-    fastFlagsEnabled: false,
-    fastFlags: {},
-    clientSettingsEnabled: false,
-    clientSettings: {},
   },
   safeMode: false,
   recentPlaces: [
@@ -71,20 +67,33 @@ const demoState: AppState = {
   ],
 };
 
-/** `?showcase` limits the sample data to shipped features for the website screenshots. */
+/** `?showcase` limits the sample data to shipped features for the website preview. The accounts
+ * are Roblox developers with their real user IDs, each with their best-known game, in a fixed
+ * order. */
 if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("showcase")) {
   demoState.channel = "stable";
+  const places = [
+    { placeId: "4924922222", name: "Brookhaven 🏡RP" },
+    { placeId: "1537690962", name: "Bee Swarm Simulator" },
+    { placeId: "503506257", name: "Tales from the Valley" },
+    { placeId: "142823291", name: "Murder Mystery 2" },
+    { placeId: "13822889", name: "Lumber Tycoon 2" },
+  ];
+  const developer = (id: number, name: string, place: number, minutes: number, playing: boolean) => {
+    const { placeId, name: gameName } = places[place];
+    return demoAccount(id, name, name, { placeId, lastPlaceId: placeId, lastPlayedAt: minutesAgo(minutes), ...playing && { presence: "playing" as const, gameName, gamePlaceId: Number(placeId) } });
+  };
   demoState.accounts = [
-    demoAccount(101, "builderman_alt", "Builder", { presence: "playing", gameName: "Classic: Crossroads", gamePlaceId: 1818, lastPlayedAt: minutesAgo(4), lastPlaceId: "1818", notes: "Main account" }),
-    demoAccount(102, "crossroads_fan", "Crossroads Fan", { presence: "playing", gameName: "Classic: Crossroads", gamePlaceId: 1818, lastPlayedAt: minutesAgo(38), lastPlaceId: "1818" }),
-    demoAccount(103, "studio_tester", "Studio Tester", { lastPlayedAt: minutesAgo(60 * 5), notes: "Testing builds" }),
-    demoAccount(104, "weekend_player", "Weekend Player", { lastPlayedAt: minutesAgo(60 * 24 * 3), lastPlaceId: "1818" }),
-    demoAccount(105, "new_account_2026", "Fresh Start"),
+    developer(60596019, "Wolfpaq", 0, 4, true),
+    developer(1912490, "Onett", 1, 17, true),
+    developer(4416634, "Arch_Mage", 2, 38, true),
+    developer(1848960, "Nikilis", 3, 60 * 5, false),
+    developer(1320922, "Defaultio", 4, 60 * 24 * 3, false),
   ];
   demoState.installedWidgets = [];
   demoState.catalogue = [];
-  demoState.recentPlaces = [{ placeId: "1818", name: "Classic: Crossroads" }];
-  demoState.settings.placeId = "1818";
+  demoState.recentPlaces = places;
+  demoState.settings.placeId = places[0].placeId;
 }
 
 const demoStores = new Map<string, unknown>([
@@ -183,8 +192,6 @@ export const bridge = {
         notes: "",
         addedAt: Date.now(),
         presence: "offline",
-        clientSettings: {},
-        fastFlags: {},
       };
       demoState.accounts.push(account);
       return account;
@@ -207,6 +214,10 @@ export const bridge = {
         if (!accountIds.includes(account.id)) continue;
         account.lastPlayedAt = Date.now();
         account.lastPlaceId = placeId || account.placeId || demoState.settings.placeId || undefined;
+        if (!account.lastPlaceId) continue;
+        account.presence = "playing";
+        account.gamePlaceId = Number(account.lastPlaceId);
+        account.gameName = demoState.recentPlaces.find((place) => place.placeId === account.lastPlaceId)?.name;
       }
     }),
 
@@ -241,13 +252,6 @@ export const bridge = {
     call<void>("set_account_priority", { accountId, priority }, () => {
       const account = demoState.accounts.find(({ id }) => id === accountId);
       if (account) account.priority = priority;
-    }),
-
-  /** Sets an account's client settings and FastFlags, applied over the defaults. */
-  setAccountLaunchSettings: (accountId: number, clientSettings: ClientSettings, fastFlags: FastFlags) =>
-    call<void>("set_account_launch_settings", { accountId, clientSettings, fastFlags }, () => {
-      const account = demoState.accounts.find(({ id }) => id === accountId);
-      if (account) Object.assign(account, { clientSettings, fastFlags });
     }),
 
   /** Tiles the open Roblox windows and returns how many moved. Windows only. */
@@ -292,6 +296,14 @@ export const bridge = {
   openWidget: (widgetId: string, surface: "main" | "settings" | "dashboard" | "module" = "main") => call<{ sessionId: string; url: string }>("open_widget", { widgetId, surface }, () => ({ sessionId: crypto.randomUUID(), url: "about:blank" })),
   getWidgetStore: (widgetId: string) => call<unknown>("get_widget_store", { widgetId }, () => demoStores.get(widgetId) ?? null),
   setWidgetStore: (widgetId: string, value: unknown) => call<void>("set_widget_store", { widgetId, value }, () => { demoStores.set(widgetId, copy(value)); }),
+  /** Turns the window into the mini window, `height` pixels tall, or restores it with `null`. */
+  setMiniWindow: (height: number | null) => call<void>("set_mini_window", { height }, () => undefined),
+  /** Moves the window with the pointer. The mini window has no title bar. */
+  startWindowDrag: () => call<void>("start_window_drag", {}, () => undefined),
+  /** Shows a system notification. Used for messages while the mini window is open. */
+  showNotification: (title: string, body: string) => call<void>("show_notification", { title, body }, () => undefined),
+  /** Resizes the window to the default aspect ratio, leaving fullscreen or maximized first. */
+  snapWindow: () => call<void>("snap_window", {}, () => undefined),
   restartApp: (safeMode: boolean) => call<void>("restart_app", { safeMode }, () => { demoState.safeMode = safeMode; window.location.reload(); }),
   readLog: (lines?: number) => call<string>("read_log", { lines: lines ?? null }, () => demoLog.slice(-(lines ?? 300)).join("\n")),
   openLogFolder: () => call<void>("open_log_folder", {}, () => undefined),

@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ChevronDown, Gauge, KeyRound, SlidersHorizontal, GripVertical, LayoutGrid, ListChecks, MapPin, MapPinOff, MoreHorizontal, Play, Plus, Search, Trash2, Users, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, Gauge, KeyRound, GripVertical, LayoutGrid, ListChecks, MapPin, MapPinOff, MoreHorizontal, Play, Plus, Search, Trash2, Users, X } from "lucide-react";
 import { useMemo, useRef, useState, type PointerEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,6 @@ import type { Account, ClientPriority } from "@/types";
 import { WidgetSlot } from "@/widgets/host";
 import { activeFilters, emptySearch, matchAccount, type SearchState } from "@/search";
 import { AccountSearch } from "@/screens/AccountSearch";
-import { LaunchSettingsDialog } from "@/screens/LaunchSettings";
 
 export function Accounts({ state, refresh, notify, confirm, join, signIn, askPlace, patchSettings }: ScreenProps) {
   const { settings } = state;
@@ -25,9 +24,6 @@ export function Accounts({ state, refresh, notify, confirm, join, signIn, askPla
   const [over, setOver] = useState<number>();
   const placeField = useRef<HTMLLabelElement>(null);
   const [pendingOrder, setPendingOrder] = useState<Account[]>();
-  const [launchSettings, setLaunchSettings] = useState<Account>();
-  const [launchSettingsOpen, setLaunchSettingsOpen] = useState(false);
-  const advanced = settings.fastFlagsEnabled || settings.clientSettingsEnabled;
   const saved = useMemo(() => sortAccounts(state.accounts, settings.sortOrder), [state.accounts, settings.sortOrder]);
   const filters = activeFilters(search);
   const sorted = pendingOrder ?? saved;
@@ -99,7 +95,7 @@ export function Accounts({ state, refresh, notify, confirm, join, signIn, askPla
 
     {state.accounts.length === 0 ? <EmptyState icon={<Users />} title="No accounts" text="Accounts sign in through the official Roblox page. Passwords never reach Toolblox." action={<Button onClick={() => void addAccount()} disabled={adding}><Plus />Add account</Button>} />
       : visible.length === 0 ? <EmptyState icon={<Search />} title="No results" text="No account matches this search." />
-        : <div className="flex flex-col gap-2">{visible.map((account, index) => <AccountCard key={account.id} data-account-id={account.id} account={account}
+        : <div className="flex flex-col gap-list">{visible.map((account, index) => <AccountCard key={account.id} data-account-id={account.id} account={account}
           showAvatar={settings.showAvatars} avatarClassName={settings.compactMode ? "size-8" : "size-10"}
           className={cn("group px-3 transition-opacity", settings.compactMode ? "py-1.5" : "py-2.5", dragged === account.id && "opacity-50", over === account.id && dragged !== account.id && "ring-2 ring-ring")}
           leading={<>
@@ -141,7 +137,6 @@ export function Accounts({ state, refresh, notify, confirm, join, signIn, askPla
                     </DropdownMenuRadioGroup>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
-                {advanced && <DropdownMenuItem onClick={() => { setLaunchSettings(account); setLaunchSettingsOpen(true); }}><SlidersHorizontal />Launch settings…</DropdownMenuItem>}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onClick={() => confirm({ title: `Remove ${accountName(account)}?`, message: "Removes the account and its saved session from this device.", action: "Remove", danger: true, run: async () => { await bridge.removeAccount(account.id); await refresh(); } })}><Trash2 />Remove</DropdownMenuItem>
               </DropdownMenuContent>
@@ -152,7 +147,6 @@ export function Accounts({ state, refresh, notify, confirm, join, signIn, askPla
             className="-mx-1 mt-0.5 block max-h-16 w-full resize-none rounded-md bg-transparent px-1 text-xs text-muted-foreground outline-none [field-sizing:content] placeholder:text-muted-foreground/60 hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring/50"
             onBlur={(event) => { if (event.target.value !== account.notes) void bridge.updateAccountNotes(account.id, event.target.value).then(refresh).catch((error) => notify(`The note wasn't saved. Does retrying help? (${String(error)})`)); }} />}
         </AccountCard>)}</div>}
-    {launchSettings && <LaunchSettingsDialog account={launchSettings} state={state} open={launchSettingsOpen} close={() => setLaunchSettingsOpen(false)} saved={refresh} />}
     <span className="sr-only" aria-live="polite">{adding ? "Roblox sign-in window open." : ""}</span>
   </Screen>;
 }

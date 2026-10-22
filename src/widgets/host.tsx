@@ -6,6 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import type { ToastKind } from "@/components/ui/toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -30,7 +31,7 @@ export type SlotProps = {
 export type SlotName = keyof SlotProps;
 
 type Owned<T> = { widgetId: string; value: T; order: number };
-type HostActions = { navigate: (route: AppRoute) => void; notify: (message: string) => void; refresh: () => Promise<void>; join: (accountIds: number[]) => void };
+type HostActions = { navigate: (route: AppRoute) => void; notify: (message: string, kind?: ToastKind) => void; refresh: () => Promise<void>; join: (accountIds: number[]) => void };
 
 const screens = new Map<CoreScreen, Owned<ComponentType>>();
 const pages = new Map<string, ComponentType>();
@@ -85,7 +86,7 @@ function createApi(widget: WidgetSummary, sessionId?: string) {
     useAppState: () => { useSyncExternalStore(subscribe, () => version); return requireState(); },
     onStateChange: (listener: (state: AppState) => void) => track(id, subscribe(() => appState && listener(appState))),
     navigate: (route: AppRoute) => actions?.navigate(route),
-    notify: (message: string) => actions?.notify(message),
+    notify: (message: string, kind?: ToastKind) => actions?.notify(message, kind),
     refresh: () => actions?.refresh() ?? Promise.resolve(),
     join: (accountIds: number[]) => actions?.join(accountIds),
     replaceScreen: (screen: CoreScreen, component: ComponentType) => {

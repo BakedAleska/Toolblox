@@ -1,18 +1,20 @@
-import { ExternalLink, LayoutDashboard, Puzzle, Settings as SettingsIcon, ShieldAlert, Users, X } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { ExternalLink, LayoutDashboard, Minimize2, Monitor, Moon, Proportions, Puzzle, Settings as SettingsIcon, ShieldAlert, Sun, Users, X } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import "./index.css";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Toaster, parseToast, useToasts, type ToastKind } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { bridge } from "@/bridge";
+import { bridge, isDemo } from "@/bridge";
 import { pageOf, useCustomTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MAX, clampSidebarWidth, parsePlaceId, stepSidebarWidth } from "@/logic";
 import { Accounts } from "@/screens/Accounts";
 import { Dashboard } from "@/screens/Dashboard";
+import { MiniWindow } from "@/screens/Mini";
 import { SettingsScreen } from "@/screens/Settings";
-import { WIDGETS_AVAILABLE, Widgets } from "@/screens/Widgets";
+import { Widgets } from "@/screens/Widgets";
 import { EmptyState, IconButton, Panel, Screen, Spinner, SwitchRow, WidgetFrame, type ConfirmRequest, type PlaceRequest, type ScreenProps } from "@/shared";
 import { WidgetBoundary, WidgetSlot, syncWidgetHost, syncWidgetModules, useWidgetRegistry, type CoreScreen } from "@/widgets/host";
 import type { AppRoute, AppState, RecentPlace, Settings, StartupStatus, ThemeMode, WidgetSummary } from "@/types";
@@ -20,7 +22,7 @@ import type { AppRoute, AppState, RecentPlace, Settings, StartupStatus, ThemeMod
 const coreRoutes = [
   { route: "/" as const, label: "Dashboard", icon: LayoutDashboard },
   { route: "/accounts" as const, label: "Accounts", icon: Users },
-  { route: "/widgets" as const, label: "Widgets", icon: Puzzle, enabled: WIDGETS_AVAILABLE },
+  { route: "/widgets" as const, label: "Widgets", icon: Puzzle },
   { route: "/settings" as const, label: "Settings", icon: SettingsIcon },
 ];
 
@@ -36,14 +38,24 @@ const readSidebarWidth = () => {
   catch { return SIDEBAR_DEFAULT; }
 };
 
+/** The website's color scheme, which stands in for the OS one when the demo is embedded there. */
+let siteDark: boolean | undefined;
+const embedded = isDemo() && window.parent !== window;
+
 /** Applies the `dark` class from the saved mode, following the OS while the mode is "system". */
 function useTheme(mode: ThemeMode = "system") {
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => document.documentElement.classList.toggle("dark", mode === "dark" || (mode === "system" && media.matches));
+    const apply = () => document.documentElement.classList.toggle("dark", mode === "dark" || (mode === "system" && (siteDark ?? media.matches)));
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== window.parent || event.origin !== window.location.origin || event.data?.type !== "toolblox:scheme") return;
+      siteDark = event.data.dark === true;
+      apply();
+    };
     apply();
     media.addEventListener("change", apply);
-    return () => media.removeEventListener("change", apply);
+    if (embedded) { window.addEventListener("message", onMessage); window.parent.postMessage({ type: "toolblox:ready" }, window.location.origin); }
+    return () => { media.removeEventListener("change", apply); window.removeEventListener("message", onMessage); };
   }, [mode]);
 }
 
@@ -52,14 +64,26 @@ function App() {
   const [state, setState] = useState<AppState>();
   const [loadError, setLoadError] = useState("");
   const [route, setRoute] = useState<AppRoute>(routeFromHash);
-  const [toast, setToast] = useState("");
-  const [toastLeaving, setToastLeaving] = useState(false);
+  const toasts = useToasts();
+  const [mini, setMini] = useState(false);
+  const miniRef = useRef(false);
+  /** Shows a message as a toast, or as a system notification while the mini window is open. */
+  const notify = useCallback((message: string, kind?: ToastKind) => {
+    if (!miniRef.current) { toasts.notify(message, kind); return; }
+    const { title, description } = parseToast(message, kind);
+    void bridge.showNotification(title, description).catch(() => undefined);
+  }, [toasts.notify]);
+  const setMiniMode = (open: boolean) => {
+    miniRef.current = open;
+    setMini(open);
+    if (!open) void bridge.setMiniWindow(null).catch((error) => notify(`The window wasn't restored. Does retrying help? (${String(error)})`));
+  };
   const [confirm, setConfirm] = useState<ConfirmRequest>();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [placeRequest, setPlaceRequest] = useState<PlaceRequest>();
   const [placeOpen, setPlaceOpen] = useState(false);
   useTheme(state?.settings.themeMode);
-  const themes = useCustomTheme(startup?.phase === "ready", !state?.safeMode, setToast);
+  const themes = useCustomTheme(startup?.phase === "ready", !state?.safeMode, notify);
   const registry = useWidgetRegistry();
   const host = useRef<Parameters<typeof syncWidgetHost>>(undefined);
   useEffect(() => { if (host.current) syncWidgetHost(...host.current); });
@@ -106,12 +130,6 @@ function App() {
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
-  useEffect(() => {
-    if (!toast) return;
-    setToastLeaving(false);
-    const timeout = window.setTimeout(() => setToastLeaving(true), 4000);
-    return () => window.clearTimeout(timeout);
-  }, [toast]);
 
   const navigate = (next: AppRoute) => { window.location.hash = next; setRoute(next); };
   if (!startup || startup.phase !== "ready") return <UpdaterGate status={startup} />;
@@ -123,26 +141,28 @@ function App() {
     const settings = { ...state.settings, [key]: value };
     setState((current) => current ? { ...current, settings } : current);
     try { await bridge.saveSettings(settings); }
-    catch (error) { setToast(`The setting wasn't saved. Does retrying help? (${String(error)})`); void load(); }
+    catch (error) { notify(`The setting wasn't saved. Does retrying help? (${String(error)})`); void load(); }
   };
   const launch = async (accountIds: number[], placeId?: string) => {
     try { await bridge.joinAccounts(accountIds, placeId); await load(); }
-    catch (error) { setToast(`Join failed. Is Roblox installed and the account signed in? (${String(error)})`); }
+    catch (error) { notify(`Join failed. Is Roblox installed and the account signed in? (${String(error)})`); }
   };
   const askPlace = (request: PlaceRequest) => { setPlaceRequest(request); setPlaceOpen(true); };
   const join = (accountIds: number[], placeId?: string) => {
     if (placeId) { void launch(accountIds, placeId); return; }
     const needsPlace = !state.settings.placeId && accountIds.some((id) => !state.accounts.find((account) => account.id === id)?.placeId);
     if (!needsPlace) { void launch(accountIds); return; }
+    if (miniRef.current) { notify("Join needs a default place. Is one set on the Accounts page?"); return; }
     askPlace({ title: "Set default place", description: "Enter a Roblox game link or place ID.", action: "Save and join",
       run: async (placeId) => { await patchSettings("placeId", placeId); await launch(accountIds); } });
   };
   const signIn = async (accountId: number) => {
     try { await bridge.beginRobloxLogin(accountId); await load(); }
-    catch (error) { setToast(`Sign-in didn't complete. Was the sign-in window closed? (${String(error)})`); }
+    catch (error) { notify(`Sign-in didn't complete. Was the sign-in window closed? (${String(error)})`); }
   };
-  const props: ScreenProps = { state, refresh: load, navigate, notify: setToast, confirm: (request) => { setConfirm(request); setConfirmOpen(true); }, join, signIn, askPlace, patchSettings };
-  host.current = [state, { navigate, notify: setToast, refresh: load, join }];
+  const props: ScreenProps = { state, refresh: load, navigate, notify, confirm: (request) => { setConfirm(request); setConfirmOpen(true); }, join, signIn, askPlace, patchSettings, openMini: () => setMiniMode(true) };
+  host.current = [state, { navigate, notify, refresh: load, join }];
+  if (mini) return <TooltipProvider delay={400}><MiniWindow state={state} join={join} signIn={signIn} notify={notify} exit={() => setMiniMode(false)} /></TooltipProvider>;
 
   const replaced = (name: CoreScreen) => {
     const entry = registry.screens.get(name);
@@ -162,8 +182,8 @@ function App() {
   }
 
   return <TooltipProvider delay={400}>
-    <div className={cn("flex h-full", state.settings.sidebarPosition === "right" && "flex-row-reverse")}>
-      <Sidebar state={state} route={route} navigate={navigate} />
+    <div className={cn("relative flex h-full", state.settings.sidebarPosition === "right" && "flex-row-reverse")}>
+      <Sidebar state={state} route={route} navigate={navigate} patchSettings={patchSettings} openMini={props.openMini} />
       <div className="relative flex min-w-0 flex-1 flex-col">
         {state.safeMode && <div className="flex items-center gap-3 border-b bg-warning/10 px-6 py-2 text-sm" role="status">
           <ShieldAlert className="size-4 shrink-0 text-warning" aria-hidden="true" />
@@ -171,13 +191,11 @@ function App() {
           <Button variant="outline" size="sm" onClick={() => void bridge.restartApp(false)}>Restart normally</Button>
         </div>}
         <main key={route} data-page={pageOf(route)} className="min-h-0 flex-1 animate-in duration-200 fade-in-0 slide-in-from-bottom-1" id="main-content">{screen}</main>
-        {toast && <div role="status" onAnimationEnd={() => { if (toastLeaving) { setToast(""); setToastLeaving(false); } }}
-          className={cn("absolute inset-x-4 bottom-4 z-50 mx-auto w-fit max-w-[520px] rounded-xl bg-foreground px-4 py-3 text-sm text-background shadow-lg shadow-shadow/20",
-            toastLeaving ? "animate-out fill-mode-forwards fade-out-0 zoom-out-95 slide-out-to-bottom-1 duration-150 ease-exit" : "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-200 ease-enter")}>{toast}</div>}
       </div>
       {placeRequest && <PlaceDialog request={placeRequest} recentPlaces={state.recentPlaces} open={placeOpen} close={() => setPlaceOpen(false)}
-        forget={(placeId) => bridge.forgetRecentPlace(placeId).then(load).catch((error) => setToast(`The place wasn't removed. Does retrying help? (${String(error)})`))} />}
-      {confirm && <ConfirmDialog request={confirm} open={confirmOpen} close={() => setConfirmOpen(false)} notify={setToast} />}
+        forget={(placeId) => bridge.forgetRecentPlace(placeId).then(load).catch((error) => notify(`The place wasn't removed. Does retrying help? (${String(error)})`))} />}
+      {confirm && <ConfirmDialog request={confirm} open={confirmOpen} close={() => setConfirmOpen(false)} notify={notify} />}
+      <Toaster {...toasts} side={state.settings.sidebarPosition === "right" ? "left" : "right"} />
     </div>
   </TooltipProvider>;
 }
@@ -186,7 +204,7 @@ function UpdaterGate({ status }: { status?: StartupStatus }) {
   const [retrying, setRetrying] = useState(false);
   const failed = status?.phase === "failed";
   return <main className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center" aria-live={failed ? "assertive" : "polite"}>
-    <img src="/assets/logo.svg" alt="" width="56" height="56" />
+    <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="" width="56" height="56" />
     <div className="max-w-sm space-y-1">
       <h1 className="text-base font-semibold">{failed ? "Update verification failed" : status?.phase === "installing" ? `Installing Toolblox ${status.version}` : "Checking for updates"}</h1>
       <p className="text-sm text-muted-foreground">{failed ? status.message : "Toolblox opens only after the latest verified release is installed."}</p>
@@ -198,10 +216,19 @@ function UpdaterGate({ status }: { status?: StartupStatus }) {
   </main>;
 }
 
-function Sidebar({ state, route, navigate }: { state: AppState; route: AppRoute; navigate: (route: AppRoute) => void }) {
+const themeModes: { mode: ThemeMode; label: string; icon: ReactNode }[] = [
+  { mode: "system", label: "System", icon: <Monitor /> },
+  { mode: "light", label: "Light", icon: <Sun /> },
+  { mode: "dark", label: "Dark", icon: <Moon /> },
+];
+
+function Sidebar({ state, route, navigate, patchSettings, openMini }: Pick<ScreenProps, "state" | "navigate" | "patchSettings" | "openMini"> & { route: AppRoute }) {
   const [width, setWidth] = useState(readSidebarWidth);
   const [dragging, setDragging] = useState(false);
   const collapsed = width === SIDEBAR_COLLAPSED;
+  const themeIndex = Math.max(0, themeModes.findIndex(({ mode }) => mode === state.settings.themeMode));
+  const theme = themeModes[themeIndex];
+  const nextTheme = themeModes[(themeIndex + 1) % themeModes.length];
   const right = state.settings.sidebarPosition === "right";
   const persist = (next: number) => { setWidth(next); try { localStorage.setItem(sidebarWidthKey, String(next)); } catch { /* The width falls back to the default. */ } };
   useEffect(() => {
@@ -219,25 +246,36 @@ function Sidebar({ state, route, navigate }: { state: AppState; route: AppRoute;
     </TooltipTrigger>
     <TooltipContent side={right ? "left" : "right"} className={cn(!collapsed && "hidden")}>{enabled ? label : `${label} is disabled`}</TooltipContent>
   </Tooltip>;
-  return <aside data-slot="sidebar" style={{ width }} className={cn("relative flex shrink-0 flex-col gap-1 bg-sidebar p-2", !dragging && "transition-[width] duration-150", right ? "border-l border-sidebar-border" : "border-r border-sidebar-border")} aria-label="Main navigation">
-    <div className="mb-2 flex h-10 items-center gap-2 overflow-hidden px-1.5">
-      <img src="/assets/logo.svg" alt="" width="24" height="24" className="shrink-0" />
-      {!collapsed && <span className="truncate font-semibold tracking-tight">Toolblox</span>}
-    </div>
-    <nav className="flex flex-1 flex-col gap-0.5 overflow-hidden">
-      {coreRoutes.map(({ route: target, label, icon: Icon, enabled }) => item(target, label, <Icon aria-hidden="true" />, enabled))}
-      {state.installedWidgets.length > 0 && (collapsed ? <hr className="my-2 border-sidebar-border" /> : <p className="mt-4 mb-1 truncate px-2.5 text-xs text-muted-foreground">Widgets</p>)}
-      {state.installedWidgets.map((widget) => item(`/widgets/${widget.id}`, widget.name, <Puzzle aria-hidden="true" />, widget.enabled))}
-    </nav>
-    <div className="flex items-center gap-1 overflow-hidden px-0.5">
+  const footerItems = (clone: boolean) => {
+    const tabIndex = clone ? -1 : undefined;
+    return <>
       <Tooltip>
-        <TooltipTrigger render={<Button variant="ghost" size="icon" onClick={() => void bridge.openExternal("https://github.com/BakedAleska/Toolblox")} aria-label="GitHub repository" />}>
-          <img src="/assets/github.svg" alt="" width="16" height="16" className="opacity-60 dark:invert" />
+        <TooltipTrigger render={<Button variant="ghost" size="icon" tabIndex={tabIndex} onClick={() => void bridge.openExternal("https://github.com/BakedAleska/Toolblox")} aria-label="GitHub repository" />}>
+          <img src={`${import.meta.env.BASE_URL}assets/github.svg`} alt="" width="16" height="16" className="opacity-60 dark:invert" />
         </TooltipTrigger>
         <TooltipContent>GitHub</TooltipContent>
       </Tooltip>
-      {!collapsed && <span className="truncate text-xs text-muted-foreground" title={state.channel === "canary" ? "Running from a source checkout." : "The installed, publicly released build."}>v{state.version}{state.channel === "canary" ? "-canary" : ""}</span>}
-    </div>
+      <IconButton label={`Theme: ${theme.label}`} tabIndex={tabIndex} className="text-muted-foreground" onClick={() => void patchSettings("themeMode", nextTheme.mode)}>{theme.icon}</IconButton>
+      {!isDemo() && <IconButton label="Snap to default aspect ratio" tabIndex={tabIndex} className="text-muted-foreground" onClick={() => void bridge.snapWindow()}><Proportions /></IconButton>}
+      {!isDemo() && <IconButton label="Mini mode" tabIndex={tabIndex} className="text-muted-foreground" onClick={openMini}><Minimize2 /></IconButton>}
+      {!collapsed && <span className="shrink-0 px-2 text-xs whitespace-nowrap text-muted-foreground" title={state.channel === "canary" ? "Running from a source checkout." : "The installed, publicly released build."}>v{state.version}{state.channel === "canary" ? "-canary" : ""}</span>}
+    </>;
+  };
+  return <aside data-slot="sidebar" style={{ width }} className={cn("relative flex shrink-0 flex-col gap-1 bg-sidebar p-2", !dragging && "transition-[width] duration-150", right ? "border-l border-sidebar-border" : "border-r border-sidebar-border")} aria-label="Main navigation">
+    <Tooltip>
+      <TooltipTrigger render={<button className="mb-2 flex h-10 items-center gap-2 overflow-hidden rounded-lg px-1.5 outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-3 focus-visible:ring-ring/50" onClick={() => void bridge.openExternal("https://toolblox.dev")} aria-label="Toolblox website" />}>
+        <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="" width="24" height="24" className="shrink-0" />
+        {!collapsed && <span className="truncate font-semibold tracking-tight">Toolblox</span>}
+      </TooltipTrigger>
+      <TooltipContent side={right ? "left" : "right"}>Website</TooltipContent>
+    </Tooltip>
+    <nav className="flex flex-1 flex-col gap-0.5 overflow-hidden">
+      {coreRoutes.map(({ route: target, label, icon: Icon }) => item(target, label, <Icon aria-hidden="true" />))}
+      {state.installedWidgets.length > 0 && (collapsed ? <hr className="my-2 border-sidebar-border" /> : <p className="mt-4 mb-1 truncate px-2.5 text-xs text-muted-foreground">Widgets</p>)}
+      {state.installedWidgets.map((widget) => item(`/widgets/${widget.id}`, widget.name, <Puzzle aria-hidden="true" />, widget.enabled))}
+    </nav>
+    {collapsed ? <div className="flex flex-col items-start gap-1 overflow-hidden px-0.5">{footerItems(false)}</div>
+      : <LoopingRow className="px-0.5">{footerItems}</LoopingRow>}
     <WidgetSlot name="sidebar.footer" props={{ collapsed }} />
     <div role="separator" aria-orientation="vertical" aria-label="Resize sidebar" aria-valuemin={SIDEBAR_COLLAPSED} aria-valuemax={SIDEBAR_MAX} aria-valuenow={width} tabIndex={0}
       className={cn("group absolute inset-y-0 z-20 w-2 cursor-col-resize touch-none outline-none", right ? "-left-1" : "-right-1")}
@@ -253,6 +291,50 @@ function Sidebar({ state, route, navigate }: { state: AppState; route: AppRoute;
       <span className={cn("absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 transition-colors group-hover:bg-ring/60 group-focus-visible:bg-ring", dragging && "bg-ring")} />
     </div>
   </aside>;
+}
+
+/**
+ * A row that scrolls sideways without an end once it's wider than its container. Three copies sit
+ * side by side, and whenever the position leaves the middle copy it moves by one copy's width, so
+ * the row wraps around. Only the middle copy is in the tab order and the accessibility tree.
+ * Vertical wheel scrolling moves it sideways. A row that fits shows one copy and doesn't scroll.
+ */
+function LoopingRow({ className, children }: { className?: string; children: (clone: boolean) => ReactNode }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const middle = useRef<HTMLDivElement>(null);
+  const [fits, setFits] = useState(true);
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => setFits((middle.current?.offsetWidth ?? 0) <= element.clientWidth));
+    observer.observe(element);
+    if (middle.current) observer.observe(middle.current);
+    return () => observer.disconnect();
+  }, []);
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!element || fits) return;
+    const cycle = () => middle.current?.offsetWidth ?? 0;
+    element.scrollLeft = cycle();
+    const wrap = () => {
+      const width = cycle();
+      if (!width) return;
+      if (element.scrollLeft < width / 2) element.scrollLeft += width;
+      else if (element.scrollLeft > width * 1.5) element.scrollLeft -= width;
+    };
+    const wheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      event.preventDefault();
+      element.scrollLeft += event.deltaY;
+    };
+    element.addEventListener("scroll", wrap);
+    element.addEventListener("wheel", wheel, { passive: false });
+    return () => { element.removeEventListener("scroll", wrap); element.removeEventListener("wheel", wheel); };
+  }, [fits]);
+  const copy = (clone: boolean, key: number) => <div key={key} ref={clone ? undefined : middle} aria-hidden={clone || undefined} className="flex shrink-0 items-center gap-1 pr-1">{children(clone)}</div>;
+  return <div ref={scroller} className={cn("flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", fits ? "overflow-hidden" : "overflow-x-auto", className)}>
+    {fits ? copy(false, 1) : [copy(true, 0), copy(false, 1), copy(true, 2)]}
+  </div>;
 }
 
 function WidgetHost({ widget, navigate }: { widget: WidgetSummary; navigate: (route: AppRoute) => void }) {

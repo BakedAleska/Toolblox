@@ -50,6 +50,7 @@
     --color-warning: var(--warning);
     --color-overlay: var(--overlay);
     --color-shadow: var(--shadow);
+    --spacing-list: calc(var(--spacing) * 2);
 }
 
 :root {
@@ -75,7 +76,7 @@
     --ring: oklch(0.708 0 0);
     --overlay: oklch(0 0 0 / 30%);
     --shadow: oklch(0 0 0);
-    --radius: 8px;
+    --radius: 6px;
     --font: 'Geist Variable', sans-serif;
     --text-scale: 1;
     --sidebar: oklch(0.965 0 0);

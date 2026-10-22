@@ -325,8 +325,6 @@ mod tests {
             place_id: None,
             last_place_id: None,
             priority: None,
-            client_settings: Default::default(),
-            fast_flags: serde_json::Map::new(),
             extra: Map::new(),
         }
     }

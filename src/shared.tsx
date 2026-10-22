@@ -1,38 +1,14 @@
-import { Eye, HardDrive, LoaderCircle, ShieldCheck, UserRound } from "lucide-react";
+import { LoaderCircle, UserRound } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { bridge } from "@/bridge";
 import { accountName } from "@/logic";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import type { ToastKind } from "@/components/ui/toast";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Account, AppRoute, AppState, ClientPriority, Settings, WidgetSummary } from "@/types";
-
-/** The core commitments from `PRODUCT.md`, shown on the dashboard. */
-export const commitments = (platform: AppState["platform"]) => [
-  { icon: <Eye />, title: "Free and open source", text: "No ads or paid features. Every line of source code is public under the MIT License." },
-  { icon: <ShieldCheck />, title: "No injection", text: "Never injects code into Roblox, reads or changes its memory, or provides exploits. Roblox opens through its own sign-in page and launcher." },
-  { icon: <HardDrive />, title: "Data stays on this device", text: `Accounts and settings are stored on this device and sessions in ${platform === "macos" ? "the macOS login Keychain" : "Windows Credential Manager"}. There's no Toolblox server or telemetry.` },
-];
-
-/** The commitments as icons. Pressing one slides its title out beside it, and hovering an open
- * one shows its description. */
-export function Commitments({ platform, className }: { platform: AppState["platform"]; className?: string }) {
-  const [open, setOpen] = useState<Set<string>>(new Set());
-  const toggle = (title: string) => setOpen((current) => { const next = new Set(current); if (next.has(title)) next.delete(title); else next.add(title); return next; });
-  return <ul className={cn("flex flex-wrap items-center gap-1", className)}>
-    {commitments(platform).map(({ icon, title, text }) => <li key={title}>
-      <button type="button" aria-expanded={open.has(title)} aria-label={title} aria-description={text} title={open.has(title) ? text : title} onClick={() => toggle(title)}
-        className="inline-flex h-7 items-center rounded-lg px-1.5 text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 aria-expanded:text-foreground [&_svg]:size-4 [&_svg]:shrink-0">
-        {icon}
-        <span className={cn("grid transition-[grid-template-columns,opacity] duration-200 ease-enter motion-reduce:transition-none", open.has(title) ? "grid-cols-[1fr] opacity-100" : "grid-cols-[0fr] opacity-0")} aria-hidden="true">
-          <span className="overflow-hidden pl-1 text-xs whitespace-nowrap">{title}</span>
-        </span>
-      </button>
-    </li>)}
-  </ul>;
-}
 
 export type PlaceRequest = { title: string; description: string; action: string; run: (placeId: string) => Promise<void> };
 
@@ -48,7 +24,7 @@ export type ScreenProps = {
   state: AppState;
   refresh: () => Promise<void>;
   navigate: (route: AppRoute) => void;
-  notify: (message: string) => void;
+  notify: (message: string, kind?: ToastKind) => void;
   confirm: (request: ConfirmRequest) => void;
   /** Launches the accounts, first asking for a place when one of them has none. */
   join: (accountIds: number[], placeId?: string) => void;
@@ -56,6 +32,8 @@ export type ScreenProps = {
   signIn: (accountId: number) => Promise<void>;
   askPlace: (request: PlaceRequest) => void;
   patchSettings: <K extends keyof Settings>(key: K, value: Settings[K]) => Promise<void>;
+  /** Shrinks the window into the mini window. */
+  openMini: () => void;
 };
 
 const permissionLabels: Record<string, string> = {
@@ -111,10 +89,10 @@ export function Spinner({ className }: { className?: string }) {
   return <LoaderCircle className={cn("animate-spin", className)} aria-hidden="true" />;
 }
 
-export function Avatar({ account, className }: { account: Account; className?: string }) {
+export function Avatar({ account, className, status = true }: { account: Account; className?: string; status?: boolean }) {
   return <span className={cn("relative inline-grid size-10 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground", className)} aria-hidden="true">
     {account.avatarUrl ? <img className="size-full rounded-full object-cover" src={account.avatarUrl} alt="" /> : <UserRound className="size-1/2" />}
-    {account.presence !== "offline" && <span className={cn("absolute right-0 bottom-0 size-2.5 rounded-full ring-2 ring-card", account.presence === "playing" ? "bg-success" : "bg-warning")} />}
+    {status && account.presence !== "offline" && <span className={cn("absolute right-0 bottom-0 size-2.5 rounded-full ring-2 ring-card", account.presence === "playing" ? "bg-success" : "bg-warning")} />}
   </span>;
 }
 
@@ -222,13 +200,13 @@ export function ChoiceRow<T extends string>({ title, description, value, options
 
 export function StatTile({ icon, label, value, onClick }: { icon: ReactNode; label: string; value: ReactNode; onClick?: () => void }) {
   const body = <>
-    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground [&_svg]:size-4" aria-hidden="true">{icon}</span>
+    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground @max-[10rem]:hidden [&_svg]:size-4" aria-hidden="true">{icon}</span>
     <span className="min-w-0">
       <span className="block text-xl leading-tight font-semibold tabular-nums">{value}</span>
       <span className="block truncate text-xs text-muted-foreground">{label}</span>
     </span>
   </>;
-  const className = "flex items-center gap-3 rounded-xl bg-card p-4 text-left ring-1 ring-foreground/8";
+  const className = "@container flex items-center gap-3 rounded-xl bg-card p-4 text-left ring-1 ring-foreground/8";
   return onClick
     ? <button onClick={onClick} className={cn(className, "outline-none transition-colors hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50")}>{body}</button>
     : <div className={className}>{body}</div>;

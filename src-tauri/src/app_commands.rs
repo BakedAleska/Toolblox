@@ -110,10 +110,6 @@ pub struct SettingsDto {
     client_priority: crate::models::ClientPriority,
     cpu_cores: u32,
     tile_size: crate::models::TileSize,
-    fast_flags_enabled: bool,
-    fast_flags: serde_json::Map<String, Value>,
-    client_settings_enabled: bool,
-    client_settings: crate::models::ClientSettings,
 }
 
 impl From<&Settings> for SettingsDto {
@@ -136,10 +132,6 @@ impl From<&Settings> for SettingsDto {
             client_priority: settings.client_priority,
             cpu_cores: settings.cpu_cores,
             tile_size: settings.tile_size,
-            fast_flags_enabled: settings.fast_flags_enabled,
-            fast_flags: settings.fast_flags.clone(),
-            client_settings_enabled: settings.client_settings_enabled,
-            client_settings: settings.client_settings,
         }
     }
 }
@@ -510,6 +502,7 @@ async fn name_recent_places(runtime: &Runtime, settings: Settings) -> Settings {
 }
 
 /// Returns the full interface state, loading the catalogue first if it hasn't been tried.
+/// Development builds without a catalogue URL rebuild it from the working tree on every call.
 #[tauri::command]
 pub async fn get_app_state(runtime: State<'_, Runtime>) -> Result<AppStateDto, String> {
     let catalogue_unset = runtime
@@ -522,7 +515,8 @@ pub async fn get_app_state(runtime: State<'_, Runtime>) -> Result<AppStateDto, S
             .lock()
             .map(|value| value.is_none())
             .unwrap_or(false);
-    if catalogue_unset {
+    let local_catalogue = cfg!(debug_assertions) && option_env!("TOOLBLOX_CATALOGUE_URL").is_none();
+    if catalogue_unset || local_catalogue {
         let _ = refresh_catalogue_data(&runtime).await;
     }
     let mut settings = runtime.storage.load_settings().map_err(command_error)?;
@@ -594,9 +588,6 @@ pub async fn get_app_state(runtime: State<'_, Runtime>) -> Result<AppStateDto, S
 
 /// Validates and saves settings, applies always on top, and changes launch at login. The settings
 /// are restored if launch at login can't be changed.
-///
-/// Turning FastFlags on or changing them writes them to Roblox's folder first, and turning them
-/// off deletes them, so a failure leaves the settings unsaved.
 #[tauri::command]
 pub async fn save_settings(
     app: AppHandle,
@@ -632,34 +623,10 @@ pub async fn save_settings(
     saved.client_priority = settings.client_priority;
     saved.cpu_cores = settings.cpu_cores;
     saved.tile_size = settings.tile_size;
-    saved.fast_flags_enabled = settings.fast_flags_enabled;
-    saved.fast_flags = settings.fast_flags;
-    saved.client_settings_enabled = settings.client_settings_enabled;
-    saved.client_settings = settings.client_settings;
     saved
         .recent_places
         .truncate(crate::models::RECENT_PLACES_LIMIT);
     saved.validate()?;
-    if saved.fast_flags_enabled && !runtime.safe_mode {
-        if !previous.fast_flags_enabled || saved.fast_flags != previous.fast_flags {
-            crate::roblox_files::write_flags(&saved.fast_flags)?;
-            log::info!("FastFlags written ({} flags)", saved.fast_flags.len());
-        }
-    } else if previous.fast_flags_enabled && !saved.fast_flags_enabled {
-        crate::roblox_files::remove_flags()?;
-        log::info!("FastFlags removed");
-    }
-    if saved.client_settings_enabled
-        && !runtime.safe_mode
-        && (!previous.client_settings_enabled || saved.client_settings != previous.client_settings)
-    {
-        crate::roblox_files::LaunchFiles {
-            flags: None,
-            settings: Some(saved.client_settings),
-        }
-        .write()?;
-        log::info!("Client settings written");
-    }
     runtime
         .storage
         .save_settings(&saved)
@@ -885,35 +852,6 @@ pub fn set_account_priority(
         .map_err(command_error)
 }
 
-/// Sets an account's client settings and FastFlags, which apply over the defaults while those
-/// advanced settings are on.
-#[tauri::command]
-pub fn set_account_launch_settings(
-    account_id: u64,
-    client_settings: crate::models::ClientSettings,
-    fast_flags: serde_json::Map<String, Value>,
-    runtime: State<'_, Runtime>,
-) -> Result<(), String> {
-    client_settings.validate()?;
-    crate::roblox_files::validate_flags(&fast_flags)?;
-    runtime
-        .storage
-        .update_accounts(|accounts| {
-            let account = accounts
-                .iter_mut()
-                .find(|account| account.id == account_id)
-                .ok_or_else(|| {
-                    StorageError::Invalid(
-                        "The account wasn't found. Can you refresh the list?".into(),
-                    )
-                })?;
-            account.client_settings = client_settings;
-            account.fast_flags = fast_flags;
-            Ok(())
-        })
-        .map_err(command_error)
-}
-
 /// Tiles the open Roblox windows at the saved tile size and returns how many moved.
 #[tauri::command]
 pub async fn tile_roblox_windows(runtime: State<'_, Runtime>) -> Result<usize, String> {
@@ -1041,8 +979,6 @@ pub async fn begin_roblox_login(
             place_id: None,
             last_place_id: None,
             priority: None,
-            client_settings: Default::default(),
-            fast_flags: serde_json::Map::new(),
             extra: serde_json::Map::new(),
         };
         accounts.push(account.clone());
@@ -1094,9 +1030,16 @@ fn catalogue_entry(runtime: &Runtime, widget_id: &str) -> Result<CatalogueEntry,
         .ok_or_else(|| "The widget isn't in the verified catalogue. Can you refresh it?".into())
 }
 
-/// Downloads and installs a widget from the verified catalogue.
-async fn install_catalogue_widget(widget_id: &str, runtime: &Runtime) -> Result<(), String> {
-    let entry = catalogue_entry(runtime, widget_id)?;
+/// Downloads a catalogue entry's package. Development builds package local catalogue folders
+/// instead.
+async fn download_package(entry: &CatalogueEntry, runtime: &Runtime) -> Result<Vec<u8>, String> {
+    #[cfg(debug_assertions)]
+    if let Ok(folder) = url::Url::parse(&entry.archive_url)
+        .map_err(|_| ())
+        .and_then(|url| url.to_file_path())
+    {
+        return crate::widgets::package_folder(&folder);
+    }
     let response = runtime
         .client
         .get(&entry.archive_url)
@@ -1111,13 +1054,19 @@ async fn install_catalogue_widget(widget_id: &str, runtime: &Runtime) -> Result<
             response.status().as_u16()
         ));
     }
-    let bytes = read_response_limited(
+    read_response_limited(
         response,
         20 * 1024 * 1024,
         "The widget package is larger than 20 MB.",
         "The widget package couldn't be read. Can you try again?",
     )
-    .await?;
+    .await
+}
+
+/// Downloads and installs a widget from the verified catalogue.
+async fn install_catalogue_widget(widget_id: &str, runtime: &Runtime) -> Result<(), String> {
+    let entry = catalogue_entry(runtime, widget_id)?;
+    let bytes = download_package(&entry, runtime).await?;
     crate::widgets::install_archive(
         &bytes,
         &entry.id,
@@ -1266,15 +1215,17 @@ async fn refresh_catalogue_data(runtime: &Runtime) -> Result<(), String> {
     let Some(url) = option_env!("TOOLBLOX_CATALOGUE_URL") else {
         #[cfg(debug_assertions)]
         {
+            let catalogue = match crate::widgets::local_catalogue(
+                &crate::widgets::LOCAL_CATALOGUE.map(std::path::Path::new),
+            ) {
+                Ok(catalogue) => catalogue,
+                Err(error) => return set_catalogue_error(runtime, &error),
+            };
             *runtime
                 .catalogue
                 .lock()
                 .map_err(|_| "The widget catalogue is busy. Can you try again?".to_string())? =
-                Some(Catalogue {
-                    schema_version: 1,
-                    generated_at: 0,
-                    entries: Vec::new(),
-                });
+                Some(catalogue);
             *runtime
                 .catalogue_error
                 .lock()
@@ -1514,6 +1465,156 @@ pub fn restart_app(app: AppHandle, safe_mode: bool, runtime: State<'_, Runtime>)
     app.restart();
 }
 
+/// The default window size in logical pixels, from `tauri.conf.json`. Snapping keeps its shape.
+const DEFAULT_WINDOW: (f64, f64) = (900.0, 500.0);
+/// The minimum window size in logical pixels, from `tauri.conf.json`.
+const MIN_WINDOW: (f64, f64) = (720.0, 480.0);
+const MIN_WINDOW_HEIGHT: f64 = MIN_WINDOW.1;
+/// The mini window's width, and the range of heights it can grow to, in logical pixels.
+const MINI_WINDOW_WIDTH: f64 = 280.0;
+const MINI_WINDOW_HEIGHTS: (f64, f64) = (40.0, 420.0);
+
+/// The mini window's size for a requested `height`, kept within its range.
+pub(crate) fn mini_window_size(height: f64) -> (f64, f64) {
+    let height = if height.is_finite() {
+        height
+    } else {
+        MINI_WINDOW_HEIGHTS.0
+    };
+    (
+        MINI_WINDOW_WIDTH,
+        height
+            .clamp(MINI_WINDOW_HEIGHTS.0, MINI_WINDOW_HEIGHTS.1)
+            .round(),
+    )
+}
+
+/// The size with the default aspect ratio for a window `width` wide, at least the minimum height,
+/// and shrunk to fit `available`.
+pub(crate) fn snapped_window_size(width: f64, available: (f64, f64)) -> (f64, f64) {
+    let ratio = DEFAULT_WINDOW.0 / DEFAULT_WINDOW.1;
+    let height = (width / ratio).max(MIN_WINDOW_HEIGHT);
+    let width = height * ratio;
+    let fit = (available.0 / width).min(available.1 / height).min(1.0);
+    ((width * fit).round(), (height * fit).round())
+}
+
+/// Leaves fullscreen or maximized and resizes the main window to the default aspect ratio,
+/// keeping its width where it fits on the screen.
+#[tauri::command]
+pub fn snap_window(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window(crate::lifecycle::MAIN_WINDOW_LABEL)
+        .ok_or("The Toolblox window wasn't found.")?;
+    if window.is_fullscreen().map_err(command_error)? {
+        window.set_fullscreen(false).map_err(command_error)?;
+    }
+    if window.is_maximized().map_err(command_error)? {
+        window.unmaximize().map_err(command_error)?;
+    }
+    let scale = window.scale_factor().map_err(command_error)?;
+    let size = window
+        .inner_size()
+        .map_err(command_error)?
+        .to_logical::<f64>(scale);
+    let available = window
+        .current_monitor()
+        .map_err(command_error)?
+        .map(|monitor| {
+            let area = monitor
+                .work_area()
+                .size
+                .to_logical::<f64>(monitor.scale_factor());
+            (area.width * 0.9, area.height * 0.9)
+        })
+        .unwrap_or((f64::MAX, f64::MAX));
+    let (width, height) = snapped_window_size(size.width, available);
+    window
+        .set_size(tauri::LogicalSize::new(width, height))
+        .map_err(command_error)
+}
+
+/// Turns the main window into the mini window, `height` logical pixels tall, or restores it when
+/// `height` is `None`. The mini window is borderless, fixed in size, and always on top. Restoring
+/// brings back the previous position and size and the Always on top setting.
+#[tauri::command]
+pub fn set_mini_window(
+    app: AppHandle,
+    height: Option<f64>,
+    runtime: State<'_, Runtime>,
+    lifecycle: State<'_, Arc<crate::lifecycle::LifecycleState>>,
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window(crate::lifecycle::MAIN_WINDOW_LABEL)
+        .ok_or("The Toolblox window wasn't found.")?;
+    let mut restore = lifecycle.mini_restore.lock().map_err(command_error)?;
+    let Some(height) = height else {
+        let Some((position, size)) = restore.take() else {
+            return Ok(());
+        };
+        let always_on_top = runtime
+            .storage
+            .load_settings()
+            .is_ok_and(|settings| settings.always_on_top);
+        window.set_decorations(true).map_err(command_error)?;
+        window.set_resizable(true).map_err(command_error)?;
+        window
+            .set_min_size(Some(tauri::LogicalSize::new(MIN_WINDOW.0, MIN_WINDOW.1)))
+            .map_err(command_error)?;
+        window.set_size(size).map_err(command_error)?;
+        window.set_position(position).map_err(command_error)?;
+        return window
+            .set_always_on_top(always_on_top)
+            .map_err(command_error);
+    };
+    if restore.is_none() {
+        if window.is_fullscreen().map_err(command_error)? {
+            window.set_fullscreen(false).map_err(command_error)?;
+        }
+        if window.is_maximized().map_err(command_error)? {
+            window.unmaximize().map_err(command_error)?;
+        }
+        *restore = Some((
+            window.outer_position().map_err(command_error)?,
+            window.inner_size().map_err(command_error)?,
+        ));
+        window
+            .set_min_size(None::<tauri::LogicalSize<f64>>)
+            .map_err(command_error)?;
+        window.set_decorations(false).map_err(command_error)?;
+        window.set_resizable(false).map_err(command_error)?;
+        window.set_always_on_top(true).map_err(command_error)?;
+    }
+    let (width, height) = mini_window_size(height);
+    window
+        .set_size(tauri::LogicalSize::new(width, height))
+        .map_err(command_error)
+}
+
+/// Moves the main window with the pointer, for the mini window, which has no title bar.
+#[tauri::command]
+pub fn start_window_drag(app: AppHandle) -> Result<(), String> {
+    app.get_webview_window(crate::lifecycle::MAIN_WINDOW_LABEL)
+        .ok_or("The Toolblox window wasn't found.")?
+        .start_dragging()
+        .map_err(command_error)
+}
+
+/// Shows a system notification, used in place of in-app messages while the mini window is open.
+/// The title and body are cut to 64 and 256 characters.
+#[tauri::command]
+pub fn show_notification(app: AppHandle, title: String, body: String) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    let title: String = title.chars().take(64).collect();
+    let body: String = body.chars().take(256).collect();
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .map_err(command_error)
+}
+
 /// Ends a widget session.
 #[tauri::command]
 pub fn close_widget_session(session_id: String, runtime: State<'_, Runtime>) {
@@ -1734,19 +1835,6 @@ pub(crate) async fn join_account_ids(
     let settings = runtime.storage.load_settings().map_err(command_error)?;
     let default_place = crate::roblox::parse_place_id(&settings.place_id).ok();
     let accounts = runtime.storage.load_accounts().map_err(command_error)?;
-    if settings.fast_flags_enabled
-        && runtime.safe_mode
-        && let Err(error) = crate::roblox_files::remove_flags()
-    {
-        log::warn!("FastFlags couldn't be removed in safe mode: {error}");
-    }
-    let files_for = |id: &u64| {
-        accounts
-            .iter()
-            .find(|account| account.id == *id)
-            .map(|account| launch_files(&settings, account, runtime.safe_mode))
-    };
-    let mut written = None;
     let mut expired = Vec::new();
     let mut delay = FIRST_LAUNCH_DELAY;
     'accounts: for (index, id) in account_ids.iter().enumerate() {
@@ -1811,26 +1899,12 @@ pub(crate) async fn join_account_ids(
             )
             .inspect_err(|error| log::warn!("Multiple instances couldn't be enabled: {error}"))?;
         }
-        let files = launch_files(&settings, account, runtime.safe_mode);
-        if written.as_ref() != Some(&files) {
-            if let Err(error) = files.write() {
-                log::warn!("Roblox files for account {id} couldn't be written: {error}");
-            }
-            written = Some(files.clone());
-        }
-        let next_differs = account_ids
-            .get(index + 1)
-            .and_then(files_for)
-            .is_some_and(|next| next != files);
         let tuning = crate::roblox_process::Tuning {
             priority: account.priority.unwrap_or(settings.client_priority),
             cpu_cores: if cfg!(windows) { settings.cpu_cores } else { 0 },
-            window_size: files
-                .settings
-                .and_then(|settings| settings.window_size)
-                .filter(|_| cfg!(windows)),
         };
-        let before = (tuning.changes_process() || next_differs)
+        let before = tuning
+            .changes_process()
             .then(crate::roblox_process::roblox_pids)
             .and_then(Result::ok);
         if settings.multi_instance && cfg!(target_os = "macos") {
@@ -1843,15 +1917,12 @@ pub(crate) async fn join_account_ids(
                 "Roblox couldn't be opened. Is Roblox installed?".to_string()
             })?;
         }
-        if let Some(before) = before.clone().filter(|_| tuning.changes_process()) {
+        if let Some(before) = before {
             let tuner = Arc::clone(&runtime.client_tuner);
             let account_id = *id;
             tauri::async_runtime::spawn(async move {
                 tuner.watch(before, tuning, account_id).await;
             });
-        }
-        if let Some(before) = before.filter(|_| next_differs) {
-            crate::roblox_process::wait_for_client(&before).await;
         }
         if record_play {
             runtime
@@ -1885,28 +1956,6 @@ pub(crate) async fn join_account_ids(
             "{} didn't join because their sessions expired. Can you sign them in again from the Accounts page?",
             names.join(", ")
         )),
-    }
-}
-
-/// The Roblox files an account's launch needs: the FastFlags with the account's own added, and the
-/// client settings with the account's own in place of the defaults. Nothing in safe mode.
-fn launch_files(
-    settings: &Settings,
-    account: &StoredAccount,
-    safe_mode: bool,
-) -> crate::roblox_files::LaunchFiles {
-    if safe_mode {
-        return Default::default();
-    }
-    crate::roblox_files::LaunchFiles {
-        flags: settings.fast_flags_enabled.then(|| {
-            let mut flags = settings.fast_flags.clone();
-            flags.extend(account.fast_flags.clone());
-            flags
-        }),
-        settings: settings
-            .client_settings_enabled
-            .then(|| account.client_settings.or(settings.client_settings)),
     }
 }
 
@@ -2124,6 +2173,27 @@ pub fn export_theme(app: AppHandle, runtime: State<'_, Runtime>) -> Result<Strin
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_mini_window_stays_within_its_size_range() {
+        assert_eq!(mini_window_size(120.0), (280.0, 120.0));
+        assert_eq!(mini_window_size(10.0), (280.0, 40.0));
+        assert_eq!(mini_window_size(5000.0), (280.0, 420.0));
+        assert_eq!(mini_window_size(f64::NAN), (280.0, 40.0));
+    }
+
+    #[test]
+    fn snapping_keeps_the_default_aspect_ratio_within_the_screen() {
+        let unlimited = (f64::MAX, f64::MAX);
+        assert_eq!(snapped_window_size(900.0, unlimited), (900.0, 500.0));
+        assert_eq!(snapped_window_size(1440.0, unlimited), (1440.0, 800.0));
+        assert_eq!(snapped_window_size(720.0, unlimited), (864.0, 480.0));
+        assert_eq!(
+            snapped_window_size(2560.0, (1728.0, 1000.0)),
+            (1728.0, 960.0)
+        );
+    }
+
     use super::*;
 
     #[test]

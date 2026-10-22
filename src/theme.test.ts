@@ -11,7 +11,7 @@ describe("theme tokens", () => {
   });
 
   it("derives every radius from --radius", () => {
-    expect(defaultColors.light.radius).toBe("8px");
+    expect(defaultColors.light.radius).toBe("6px");
   });
 });
 

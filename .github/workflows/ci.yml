@@ -43,6 +43,15 @@ jobs:
         working-directory: src-tauri
       - run: npm run tauri build -- --debug --no-bundle
 
+  widgets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/widgets.mjs
+
   bot:
     runs-on: ubuntu-latest
     defaults:

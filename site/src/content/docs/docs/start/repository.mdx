@@ -26,6 +26,8 @@ from the top.
 - docs/
   - RELEASING.md release, signing, and hosting runbook
   - WIDGETS.md the widget contract
+- examples/
+  - hello_world/ the example widget in development builds
 - public/
   - assets/ logo and icons served at /assets/
 - schemas/
@@ -36,6 +38,7 @@ from the top.
   - release-notes.mjs
   - set-version.mjs
   - third-party-notices.mjs
+  - widgets.mjs checks and packages catalogue widgets
 - site/ Astro and Starlight website
   - astro.config.mjs
   - public/
@@ -272,7 +275,8 @@ Node scripts used by the release and Pages workflows. All can also run locally.
 | --- | --- |
 | [`set-version.mjs`](https://github.com/BakedAleska/Toolblox/blob/main/scripts/set-version.mjs) | `node scripts/set-version.mjs 0.3.0-beta` writes the version into `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and the demo state in `src/bridge.ts`. With `--check` it only verifies the version is newer than the current one. Every file must agree because the update gate compares the Cargo version with the signed manifest. |
 | [`release-notes.mjs`](https://github.com/BakedAleska/Toolblox/blob/main/scripts/release-notes.mjs) | Prints release notes from the `feat`, `fix`, and `perf` commit subjects since the previous tag, under a fixed download section with the installer's SHA-256. |
-| [`publish-updates.mjs`](https://github.com/BakedAleska/Toolblox/blob/main/scripts/publish-updates.mjs) | Copies the built site from `site/dist` into `_site`, then writes `updates/stable.json` (for the latest release's installer, valid for seven days) and `catalogue/v1.json`, each with a detached Ed25519 `.sig`. The catalogue currently has no entries. |
+| [`publish-updates.mjs`](https://github.com/BakedAleska/Toolblox/blob/main/scripts/publish-updates.mjs) | Copies the built site from `site/dist` into `_site`, then writes `updates/stable.json` (for the latest release's installer, valid for seven days) and `catalogue/v1.json`, each with a detached Ed25519 `.sig`. The catalogue lists every widget in `widgets/`. |
+| [`widgets.mjs`](https://github.com/BakedAleska/Toolblox/blob/main/scripts/widgets.mjs) | `node scripts/widgets.mjs` checks every folder in `widgets/`. `publish-updates.mjs` uses it to package each one into a reproducible ZIP and build its catalogue entry. |
 | [`third-party-notices.mjs`](https://github.com/BakedAleska/Toolblox/blob/main/scripts/third-party-notices.mjs) | Writes the license texts of every Rust crate and npm package that ships in a release build into `THIRD-PARTY-NOTICES.txt`. |
 
 ## `site`
@@ -326,6 +330,9 @@ cargo clippy --release --all-targets -- -D warnings              # in src-tauri
 npm run tauri build -- --debug --no-bundle
 ```
 
+A separate `widgets` job on `ubuntu-latest` runs `node scripts/widgets.mjs` to check every
+catalogue widget folder.
+
 The `cargo doc` step fails on any rustdoc warning, such as a broken intra-doc link. The release
 clippy pass matters because much of `startup.rs` only compiles outside debug builds.
 
@@ -341,8 +348,8 @@ It then calls `pages.yml` to redeploy. Private items are documented, so module p
 
 ### `pages.yml`
 
-The only workflow that deploys GitHub Pages. It runs daily at 06:17 UTC, when called by the
-release and docs workflows, and on demand. It:
+The only workflow that deploys GitHub Pages. It runs daily at 06:17 UTC, on pushes to `main` that
+change `widgets/`, when called by the release and docs workflows, and on demand. It:
 
 1. Checks out `main` and the `docs` branch.
 2. Builds the Astro site in `site/`.

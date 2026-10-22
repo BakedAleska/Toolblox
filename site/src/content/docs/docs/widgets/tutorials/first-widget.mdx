@@ -1,19 +1,19 @@
 ---
 title: Your first widget
-description: Build a module widget from an empty folder, load it in a development build, and recover when it breaks the app.
+description: Start from the Hello, world! widget that development builds include, make it your own, and recover when it breaks the app.
 sidebar:
   order: 1
 ---
 
 import { Aside, Steps, FileTree, Tabs, TabItem } from '@astrojs/starlight/components';
 
-This tutorial takes you from an empty folder to a module widget running inside a development build
-of Toolblox. The widget adds a page with two stat tiles and a button, built from the same
-components the app uses. Along the way it covers where Toolblox looks for unpacked widgets, what
-happens between dropping a folder in place and `activate` running, how to pick up code changes,
-where your log lines go, and how to get the app back when a widget breaks it.
+Every development build of Toolblox includes **Hello, world!**, a small working widget to start
+from. It adds a page with two stat tiles and a button, built from the same components the app
+uses. This tutorial walks through it, turns a copy of it into your own widget, and covers what
+happens between a folder appearing and `activate` running, how to pick up code changes, where your
+log lines go, and how to get the app back when a widget breaks it.
 
-The finished widget is about 40 lines. Later tutorials build on it:
+Hello, world! is about 40 lines. Later tutorials expand on it:
 [pages and screens](/docs/widgets/tutorials/pages-and-screens/),
 [slots and styles](/docs/widgets/tutorials/slots-and-styles/),
 [storage and state](/docs/widgets/tutorials/storage-and-state/), and
@@ -34,7 +34,9 @@ full-trust by design: safety comes from catalogue review, signed and hash-pinned
 mode, and error boundaries, not from limits on the API. The one thing a widget never receives is a
 Roblox session cookie; those stay in Rust for widgets and for the Toolblox interface alike.
 
-The two demo widgets in the repository use exactly this shape and are worth keeping open while you
+Hello, world! lives in
+[`examples/hello_world/`](https://github.com/BakedAleska/Toolblox/tree/main/examples/hello_world).
+The two demo widgets in the repository use the same shape and are worth keeping open while you
 work:
 
 - [`src/demo-widgets/stock_notifier/main.js`](https://github.com/BakedAleska/Toolblox/blob/main/src/demo-widgets/stock_notifier/main.js)
@@ -111,129 +113,156 @@ TOOLBLOX_DATA_DIR="$HOME/toolblox-dev-data" npm run tauri dev
 </TabItem>
 </Tabs>
 
-## Build the widget
+## Meet Hello, world!
+
+The first time a development build starts, it adds Hello, world! to the widgets folder. It
+appears in the **Installed** section of the Widgets page, enabled, and in the sidebar under
+**Widgets**. Select it to open its page, then select **Say hello**: the counter goes up and a toast
+reads "Hello, world!"
+
+Toolblox adds it only once, and records that in a hidden `.example-added` file in the widgets
+folder. Uninstalling it sticks. To get it back, install it from the **Catalogue** section, which in
+development builds lists the repository's example and catalogue widgets (see
+[Testing the catalogue locally](/docs/widgets/publishing/catalogue/#testing-the-catalogue-locally)).
+Release builds never include it.
+
+<FileTree>
+- widgets/
+  - hello_world/
+    - widget.json
+    - main.js
+    - LICENSE
+</FileTree>
+
+The manifest, `widget.json`:
+
+```json title="hello_world/widget.json"
+{
+  "schemaVersion": 1,
+  "id": "hello_world",
+  "name": "Hello, world!",
+  "version": "1.0.0",
+  "description": "The example widget in development builds. Start a new widget from it.",
+  "module": "main.js"
+}
+```
+
+Each field is checked by `WidgetManifest::validate` in
+[`src-tauri/src/widgets.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widgets.rs):
+
+- `schemaVersion` must be `1`.
+- `id` is 1 to 64 lowercase letters, digits, and underscores. Hyphens and capitals are rejected.
+  The folder name must be identical to it: Toolblox finds the manifest by scanning every folder,
+  but serves the module from `<widgets folder>/<id>/main.js`.
+- `name` is 1 to 80 characters. It's the sidebar label and the page title.
+- `version` must be valid SemVer, such as `1.0.0`. `1.0` is rejected.
+- `module` must be exactly `main.js` at the package root. Other names and paths are rejected.
+
+Hello, world! needs no permissions, so it declares none. Module widgets receive every permission
+at run time regardless, but the catalogue requires the declared list to match what the widget
+does, and the install dialog shows it to the user. The
+[Manifest reference](/docs/widgets/reference/manifest/) covers every field.
+
+The module, `main.js`:
+
+```js title="hello_world/main.js"
+const svg = (h, ...paths) => h("svg", {
+  viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
+  strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round",
+}, ...paths.map((d) => h("path", { key: d, d })));
+
+export async function activate(toolblox) {
+  const { React, ui } = toolblox;
+  const h = React.createElement;
+  const usersIcon = svg(h, "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8");
+  const playIcon = svg(h, "M6 3v18l15-9Z");
+
+  void toolblox.log.info(`Activated version ${toolblox.widget.version}`);
+
+  toolblox.registerPage(function HelloPage() {
+    const state = toolblox.useAppState();
+    const [greetings, setGreetings] = React.useState(0);
+    const inGame = state.accounts.filter((account) => account.presence === "playing").length;
+
+    const greet = () => {
+      setGreetings((count) => count + 1);
+      toolblox.notify("Hello, world!");
+      void toolblox.log.debug("Greeted");
+    };
+
+    return h(React.Fragment, null,
+      h("div", { className: "grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3" },
+        h(ui.StatTile, { icon: usersIcon, label: "Accounts", value: state.accounts.length, onClick: () => toolblox.navigate("/accounts") }),
+        h(ui.StatTile, { icon: playIcon, label: "In game", value: inGame })),
+      h("section", { className: "flex flex-col gap-2" },
+        h(ui.SectionTitle, null, "Greeting"),
+        h(ui.Panel, { className: "flex items-center gap-3 px-4 py-3" },
+          h("p", { className: "min-w-0 flex-1 text-sm" }, greetings ? `Greeted ${greetings} times.` : "No greetings yet."),
+          h(ui.Button, { variant: "outline", size: "sm", onClick: greet }, "Say hello"))));
+  });
+}
+
+export function deactivate() {}
+```
+
+A few things in this file are deliberate:
+
+- **`h` is `toolblox.React.createElement`.** The widget doesn't import or bundle React. It uses
+  the app's own React instance, which is what makes hooks such as `React.useState` work inside
+  the app's component tree. A second copy of React breaks hooks with "Invalid hook call".
+- **Hooks run inside components, never in `activate`.** `activate` is a plain function that runs
+  once. `HelloPage` is a React component that Toolblox renders whenever the page is open, so
+  `toolblox.useAppState()` and `React.useState` belong there.
+- **The component is a named function.** React shows `HelloPage` in error messages and in the
+  component stack that Toolblox writes to the log when a render fails.
+- **The icons are inline SVG elements**, as in the stock_notifier demo. Icon libraries import
+  `react` themselves, so bundling one pulls in a second copy.
+- **Every class name is one the app already uses.** Tailwind CSS is compiled into the app ahead
+  of time, so only classes that appear somewhere in the Toolblox source exist. The grid class
+  is copied from the Dashboard's stat row, and `flex-1`, `px-4`, and the rest appear throughout
+  the app. A class that doesn't exist does nothing, silently. See
+  [Slots and styles](/docs/widgets/tutorials/slots-and-styles/) for shipping your own CSS.
+- **`deactivate` is optional.** Toolblox removes every page, settings page, slot contribution,
+  stylesheet, and state listener a widget registered when it unloads the widget, so `deactivate`
+  is only for things Toolblox doesn't track, such as timers. The
+  [storage and state](/docs/widgets/tutorials/storage-and-state/) tutorial uses it.
+
+## Make it your own
 
 <Steps>
 
-1. **Create the folder.** Inside the widgets folder, create a folder named `hello_panel`.
+1. **Copy the folder.** In the widgets folder, copy `hello_world` to a folder named after your
+   widget's ID, such as `my_widget`. Keep `hello_world` as a reference.
 
-   The folder name must be identical to the widget ID you put in the manifest. Toolblox finds the
-   manifest by scanning every folder, but it serves the module from
-   `<widgets folder>/<id>/main.js`. If the names differ, the manifest loads and the import fails.
+2. **Rename it.** In the copy's `widget.json`, set `id` to the folder name, and give it its own
+   `name` and `description`. Keep `version` at `1.0.0` until you publish.
 
-   <FileTree>
-   - widgets/
-     - hello_panel/
-       - widget.json
-       - main.js
-   </FileTree>
-
-2. **Write the manifest.** Create `widget.json`:
-
-   ```json title="hello_panel/widget.json"
-   {
-     "schemaVersion": 1,
-     "id": "hello_panel",
-     "name": "Hello Panel",
-     "version": "1.0.0",
-     "description": "Shows account counts and says hello.",
-     "module": "main.js"
-   }
-   ```
-
-   Each field is checked by `WidgetManifest::validate` in
-   [`src-tauri/src/widgets.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widgets.rs):
-
-   - `schemaVersion` must be `1`.
-   - `id` is 1 to 64 lowercase letters, digits, and underscores. Hyphens and capitals are rejected.
-   - `name` is 1 to 80 characters. It's the sidebar label and the page title.
-   - `version` must be valid SemVer, such as `1.0.0`. `1.0` is rejected.
-   - `module` must be exactly `main.js` at the package root. Other names and paths are rejected.
-
-   This widget needs no permissions, so it declares none. Module widgets receive every permission
-   at run time regardless, but the catalogue requires the declared list to match what the widget
-   does, and the install dialog shows it to the user. The
-   [Manifest reference](/docs/widgets/reference/manifest/) covers every field.
-
-3. **Write the module.** Create `main.js`:
-
-   ```js title="hello_panel/main.js"
-   const svg = (h, ...paths) => h("svg", {
-     viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
-     strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round",
-   }, ...paths.map((d) => h("path", { key: d, d })));
-
-   export async function activate(toolblox) {
-     const { React, ui } = toolblox;
-     const h = React.createElement;
-     const usersIcon = svg(h, "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8");
-     const playIcon = svg(h, "M6 3v18l15-9Z");
-
-     void toolblox.log.info(`Activated version ${toolblox.widget.version}`);
-
-     toolblox.registerPage(function HelloPage() {
-       const state = toolblox.useAppState();
-       const [greetings, setGreetings] = React.useState(0);
-       const inGame = state.accounts.filter((account) => account.presence === "playing").length;
-
-       const greet = () => {
-         setGreetings((count) => count + 1);
-         toolblox.notify("Hello from Hello Panel.");
-         void toolblox.log.debug("Greeted");
-       };
-
-       return h(React.Fragment, null,
-         h("div", { className: "grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3" },
-           h(ui.StatTile, { icon: usersIcon, label: "Accounts", value: state.accounts.length, onClick: () => toolblox.navigate("/accounts") }),
-           h(ui.StatTile, { icon: playIcon, label: "In game", value: inGame })),
-         h("section", { className: "flex flex-col gap-2" },
-           h(ui.SectionTitle, null, "Greeting"),
-           h(ui.Panel, { className: "flex items-center gap-3 px-4 py-3" },
-             h("p", { className: "min-w-0 flex-1 text-sm" }, greetings ? `Greeted ${greetings} times.` : "No greetings yet."),
-             h(ui.Button, { variant: "outline", size: "sm", onClick: greet }, "Say hello"))));
-     });
-   }
-
-   export function deactivate() {}
-   ```
-
-   A few things in this file are deliberate:
-
-   - **`h` is `toolblox.React.createElement`.** The widget doesn't import or bundle React. It uses
-     the app's own React instance, which is what makes hooks such as `React.useState` work inside
-     the app's component tree. A second copy of React breaks hooks with "Invalid hook call".
-   - **Hooks run inside components, never in `activate`.** `activate` is a plain function that runs
-     once. `HelloPage` is a React component that Toolblox renders whenever the page is open, so
-     `toolblox.useAppState()` and `React.useState` belong there.
-   - **The component is a named function.** React shows `HelloPage` in error messages and in the
-     component stack that Toolblox writes to the log when a render fails.
-   - **The icons are inline SVG elements**, as in the stock_notifier demo. Icon libraries import
-     `react` themselves, so bundling one pulls in a second copy.
-   - **Every class name is one the app already uses.** Tailwind CSS is compiled into the app ahead
-     of time, so only classes that appear somewhere in the Toolblox source exist. The grid class
-     is copied from the Dashboard's stat row, and `flex-1`, `px-4`, and the rest appear throughout
-     the app. A class that doesn't exist does nothing, silently. See
-     [Slots and styles](/docs/widgets/tutorials/slots-and-styles/) for shipping your own CSS.
-   - **`deactivate` is optional.** Toolblox removes every page, settings page, slot contribution,
-     stylesheet, and state listener a widget registered when it unloads the widget, so `deactivate`
-     is only for things Toolblox doesn't track, such as timers. The
-     [storage and state](/docs/widgets/tutorials/storage-and-state/) tutorial uses it.
-
-4. **Bring Toolblox to the front.** Toolblox reloads its state when the window gains focus, every
-   60 seconds, and after most actions. On the next load the widget appears:
-
-   - in the **Installed** section of the Widgets page, enabled;
-   - in the sidebar under **Widgets**, as "Hello Panel".
+3. **Bring Toolblox to the front.** Toolblox reloads its state when the window gains focus, every
+   60 seconds, and after most actions. Your widget appears next to Hello, world!, enabled.
 
    New folders are enabled by default because Toolblox stores the list of disabled widgets, not
-   enabled ones. Turning the switch on the widget's card off adds it to that list, unloads the
+   enabled ones. Turning the switch on a widget's card off adds it to that list, unloads the
    module, and stops any processes it started.
 
-5. **Open the page.** Select **Hello Panel** in the sidebar, or **Open** on its card. The page
-   renders under a header with the widget's name. Select **Say hello**: the counter goes up and a
-   toast appears at the bottom of the window for four seconds.
+4. **Change the page.** Edit the copy's `main.js`, for example change the toast text, then
+   [reload the window](#change-the-code-and-reload).
+
+5. **Add to the app outside your page.** Widgets can add to existing screens through slots. Add
+   this to `activate` to put a badge under every account's name on the Accounts page:
+
+   ```js
+   toolblox.addToSlot("accounts.row", () => h(ui.Badge, { variant: "outline" }, "Hello"));
+   ```
+
+   The [slots and styles](/docs/widgets/tutorials/slots-and-styles/) tutorial covers every slot.
 
 </Steps>
+
+From here, each tutorial adds one capability to the same widget: a settings page and tabs in
+[pages and screens](/docs/widgets/tutorials/pages-and-screens/), saved data in
+[storage and state](/docs/widgets/tutorials/storage-and-state/), and helper programs in
+[processes](/docs/widgets/tutorials/processes/). When it's ready, list it with
+[one pull request](/docs/widgets/publishing/catalogue/#getting-a-widget-listed).
 
 ## What happens when the widget loads
 
@@ -247,8 +276,8 @@ code that runs it.
    it. A folder that fails produces an entry in `widgetErrors`, which the Widgets page shows as a
    red panel above the Installed section.
 2. **Summary.** Each valid widget becomes a `WidgetSummary` in app state. Its `moduleUrl` points at
-   the widget's custom protocol: `http://widget.localhost/hello_panel/main.js` on Windows, where
-   WebView2 serves custom schemes over HTTP, and `widget://localhost/hello_panel/main.js` on macOS.
+   the widget's custom protocol: `http://widget.localhost/hello_world/main.js` on Windows, where
+   WebView2 serves custom schemes over HTTP, and `widget://localhost/hello_world/main.js` on macOS.
    The protocol handler in
    [`widget_protocol.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/widget_protocol.rs)
    only serves files that resolve inside the widget's folder, only to the main window, and with
@@ -266,11 +295,11 @@ code that runs it.
    `activate(toolblox)`. It awaits the returned promise, so an `async` activate can load stored
    data before it registers anything.
 6. **Rendering.** `registerPage` stores `HelloPage` in the widget registry and notifies the shell,
-   which re-renders. When the route is `/widgets/hello_panel`, the shell renders the component
+   which re-renders. When the route is `/widgets/hello_world`, the shell renders the component
    inside an error boundary.
 
 If the import or `activate` throws, Toolblox writes "Module failed to load: …" with the stack to the
-log under `widget:hello_panel`, and the widget's card shows **Failed to load** with the error in its
+log under `widget:hello_world`, and the widget's card shows **Failed to load** with the error in its
 tooltip. Contributions registered before the throw stay registered.
 
 ## Change the code and reload
@@ -310,8 +339,8 @@ and **Open folder** opens the log folder.
 The widget's records use the target `widget:<id>`:
 
 ```text
-2026-10-14T09:12:03.512Z INFO  widget:hello_panel: Activated version 1.0.0
-2026-10-14T09:12:09.880Z DEBUG widget:hello_panel: Greeted
+2026-10-14T09:12:03.512Z INFO  widget:hello_world: Activated version 1.0.0
+2026-10-14T09:12:09.880Z DEBUG widget:hello_world: Greeted
 ```
 
 `toolblox.log` has `debug`, `info`, `warn`, and `error`. Each returns a promise that never rejects.
@@ -340,7 +369,7 @@ toolblox.registerPage(function HelloPage() {
 });
 ```
 
-After a reload, the page shows an inline alert, "Hello Panel failed to render. (Error: Not yet)",
+After a reload, the page shows an inline alert, "Hello, world! failed to render. (Error: Not yet)",
 in place of the widget's content, and the rest of the app keeps working. The log gets a "Render
 failed" line with the component stack.
 
@@ -364,7 +393,7 @@ In safe mode a banner reads "Safe mode. Widgets are off for this session." No mo
 still works, so you can turn the broken widget off, then select **Restart normally**.
 
 While developing you can also hide a widget from Toolblox without deleting it: rename its folder so
-it starts with a dot, such as `.hello_panel`. Discovery skips hidden folders.
+it starts with a dot, such as `.hello_world`. Discovery skips hidden folders.
 
 ## Write it with JSX
 
@@ -374,7 +403,7 @@ JSX factory works, as long as the factory is the app's React. The approach below
 widget root.
 
 <FileTree>
-- hello_panel/
+- hello_world/
   - widget.json
   - main.js (built)
   - package.json
@@ -419,7 +448,7 @@ export function HelloPage() {
       <ui.SectionTitle>Greeting</ui.SectionTitle>
       <ui.Panel className="flex items-center gap-3 px-4 py-3">
         <p className="min-w-0 flex-1 text-sm">{greetings ? `Greeted ${greetings} times.` : "No greetings yet."}</p>
-        <ui.Button variant="outline" size="sm" onClick={() => { setGreetings((count) => count + 1); toolblox.notify("Hello from Hello Panel."); }}>Say hello</ui.Button>
+        <ui.Button variant="outline" size="sm" onClick={() => { setGreetings((count) => count + 1); toolblox.notify("Hello, world!"); }}>Say hello</ui.Button>
       </ui.Panel>
     </section>
   </>;

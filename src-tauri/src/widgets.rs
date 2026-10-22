@@ -382,6 +382,165 @@ pub fn discover_installed(widgets_root: &Path) -> Vec<Result<InstalledWidget, St
     found
 }
 
+/// The Hello, world! example widget, compiled into development builds only.
+#[cfg(debug_assertions)]
+const EXAMPLE_WIDGET: [(&str, &str); 3] = [
+    (
+        "widget.json",
+        include_str!("../../examples/hello_world/widget.json"),
+    ),
+    (
+        "main.js",
+        include_str!("../../examples/hello_world/main.js"),
+    ),
+    (
+        "LICENSE",
+        include_str!("../../examples/hello_world/LICENSE"),
+    ),
+];
+
+/// Adds the example widget to the widgets folder once. A hidden marker file records that it was
+/// added, so an uninstalled example stays uninstalled and an edited copy is never replaced.
+/// Development builds only.
+#[cfg(debug_assertions)]
+pub fn add_example_widget(widgets_root: &Path) -> Result<(), String> {
+    let marker = widgets_root.join(".example-added");
+    let target = widgets_root.join("hello_world");
+    if marker.exists() {
+        return Ok(());
+    }
+    if !target.exists() {
+        fs::create_dir_all(&target)
+            .map_err(|_| "Couldn't create the example widget folder.".to_string())?;
+        for (name, contents) in EXAMPLE_WIDGET {
+            fs::write(target.join(name), contents)
+                .map_err(|_| format!("Couldn't write the example widget's {name}."))?;
+        }
+    }
+    fs::write(marker, "").map_err(|_| "Couldn't record the example widget.".to_string())
+}
+
+/// The working tree's `widgets/` and `examples/` folders, which development builds list as
+/// their catalogue.
+#[cfg(debug_assertions)]
+pub const LOCAL_CATALOGUE: [&str; 2] = [
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../widgets"),
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../examples"),
+];
+
+/// Builds an unsigned catalogue from the widget folders in `roots`, packaging each one in memory
+/// so installs run the same checks as catalogue packages. Missing folders list no widgets.
+/// Development builds only.
+#[cfg(debug_assertions)]
+pub fn local_catalogue(roots: &[&Path]) -> Result<Catalogue, String> {
+    let mut folders: Vec<_> = roots
+        .iter()
+        .filter_map(|root| fs::read_dir(root).ok())
+        .flat_map(|entries| entries.flatten())
+        .filter(|entry| {
+            entry.path().is_dir() && !entry.file_name().to_string_lossy().starts_with('.')
+        })
+        .map(|entry| entry.path())
+        .collect();
+    folders.sort();
+    let mut entries: Vec<CatalogueEntry> = Vec::new();
+    for folder in folders {
+        let name = folder
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let manifest = read_manifest(&folder).map_err(|error| format!("Widget {name}: {error}"))?;
+        if manifest.id != name {
+            return Err(format!(
+                "Widget {name}: the manifest ID must match its folder name."
+            ));
+        }
+        if entries.iter().any(|entry| entry.id == name) {
+            return Err(format!(
+                "The catalogue contains widget {name} more than once."
+            ));
+        }
+        let archive = package_folder(&folder)?;
+        entries.push(CatalogueEntry {
+            id: manifest.id,
+            name: manifest.name,
+            version: manifest.version,
+            description: manifest.description,
+            archive_url: Url::from_directory_path(&folder)
+                .map_err(|_| format!("Widget {name}: the folder path isn't absolute."))?
+                .to_string(),
+            sha256: hex::encode(Sha256::digest(&archive)),
+            permissions: manifest.permissions,
+            icon_url: None,
+        });
+    }
+    Ok(Catalogue {
+        schema_version: 1,
+        generated_at: 0,
+        entries,
+    })
+}
+
+/// Packages a widget folder as a ZIP, skipping hidden files and rejecting symbolic links.
+/// Development builds only.
+#[cfg(debug_assertions)]
+pub fn package_folder(folder: &Path) -> Result<Vec<u8>, String> {
+    fn collect(folder: &Path, files: &mut Vec<std::path::PathBuf>) -> Result<(), String> {
+        let entries =
+            fs::read_dir(folder).map_err(|_| "Couldn't read a widget folder.".to_string())?;
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            let kind = entry
+                .file_type()
+                .map_err(|_| "Couldn't read a widget file.".to_string())?;
+            if kind.is_symlink() {
+                return Err("The widget folder contains a symbolic link.".into());
+            }
+            if kind.is_dir() {
+                collect(&entry.path(), files)?;
+            } else {
+                files.push(entry.path());
+            }
+        }
+        Ok(())
+    }
+    let mut files = Vec::new();
+    collect(folder, &mut files)?;
+    files.sort();
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for file in files {
+        let name = file
+            .strip_prefix(folder)
+            .map_err(|_| "Couldn't read a widget file.".to_string())?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        #[cfg(unix)]
+        let options = {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&file)
+                .map_err(|_| "Couldn't read a widget file.".to_string())?
+                .permissions()
+                .mode();
+            options.unix_permissions(mode & 0o777)
+        };
+        zip.start_file(name, options)
+            .and_then(|()| {
+                fs::read(&file)
+                    .and_then(|bytes| zip.write_all(&bytes))
+                    .map_err(Into::into)
+            })
+            .map_err(|_| "Couldn't package a widget file.".to_string())?;
+    }
+    zip.finish()
+        .map(Cursor::into_inner)
+        .map_err(|_| "Couldn't package the widget.".to_string())
+}
+
 /// Removes an installed widget's folder. A missing widget succeeds.
 pub fn uninstall_widget(widget_id: &str, widgets_root: &Path) -> Result<(), String> {
     validate_widget_id(widget_id)?;
@@ -806,6 +965,72 @@ mod tests {
         .unwrap_err();
         assert!(error.contains("version"));
         assert!(!root.path().join("example_widget").exists());
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn local_catalogue_packages_install_with_catalogue_checks() {
+        let root = tempdir().unwrap();
+        add_example_widget(root.path()).unwrap();
+        let catalogue = local_catalogue(&[root.path()]).unwrap();
+        let entry = &catalogue.entries[0];
+        assert_eq!(entry.id, "hello_world");
+        let folder = Url::parse(&entry.archive_url)
+            .unwrap()
+            .to_file_path()
+            .unwrap();
+        let archive = package_folder(&folder).unwrap();
+        let installed = tempdir().unwrap();
+        install_archive(
+            &archive,
+            &entry.id,
+            &entry.version,
+            &entry.sha256,
+            &entry.permissions,
+            installed.path(),
+        )
+        .unwrap();
+        assert!(discover_installed(installed.path())[0].is_ok());
+
+        fs::rename(root.path().join("hello_world"), root.path().join("renamed")).unwrap();
+        assert!(
+            local_catalogue(&[root.path()])
+                .unwrap_err()
+                .contains("folder name")
+        );
+        assert!(
+            local_catalogue(&[&root.path().join("missing")])
+                .unwrap()
+                .entries
+                .is_empty()
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn example_widget_is_added_once_and_never_replaces_an_edited_copy() {
+        let root = tempdir().unwrap();
+        add_example_widget(root.path()).unwrap();
+        let installed = discover_installed(root.path());
+        assert_eq!(
+            installed.len(),
+            1,
+            "the marker file is hidden from discovery"
+        );
+        assert_eq!(installed[0].as_ref().unwrap().id, "hello_world");
+
+        let module = root.path().join("hello_world/main.js");
+        fs::write(&module, "export function activate() {}").unwrap();
+        fs::remove_file(root.path().join(".example-added")).unwrap();
+        add_example_widget(root.path()).unwrap();
+        assert_eq!(
+            fs::read_to_string(module).unwrap(),
+            "export function activate() {}"
+        );
+
+        uninstall_widget("hello_world", root.path()).unwrap();
+        add_example_widget(root.path()).unwrap();
+        assert!(!root.path().join("hello_world").exists());
     }
 
     #[test]

@@ -213,8 +213,9 @@ The manifest is still validated, so mistakes show up at the top of the Widgets p
 has an `.installed.json` from a real install, the manifest hash check still applies; delete the
 file to edit the manifest freely.
 
-Development builds without a configured catalogue URL use an empty catalogue, so unpacked widgets
-are the only way to load widgets in them.
+Development builds without a configured catalogue URL list the repository's `widgets/` and
+`examples/` folders as their catalogue. See
+[Testing the catalogue locally](/docs/widgets/publishing/catalogue/#testing-the-catalogue-locally).
 
 <Aside>
 Release builds currently install only catalogue widgets. A folder copied into the widgets folder

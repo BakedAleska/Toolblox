@@ -3,10 +3,12 @@
  *
  * Reads the latest GitHub release, hashes its Windows installer and macOS app archive, and writes `_site/` from the
  * built site in `site/dist/` plus `updates/stable.json` and `catalogue/v1.json`, each with a detached Ed25519 `.sig`.
+ * The catalogue lists every widget in `widgets/`, packaged under `catalogue/<id>/<version>/`.
  * Private keys are base64 32-byte seeds in `MANIFEST_PRIVATE_KEY` and `CATALOGUE_PRIVATE_KEY`.
  */
 import { createHash, createPrivateKey, sign } from "node:crypto";
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { packageWidgets } from "./widgets.mjs";
 
 const INSTALLER = "Toolblox-Setup.exe";
 /** The same installer under a second name, so updates and manifest builds stay out of the download count of `INSTALLER`. Older releases don't have it. */
@@ -15,6 +17,8 @@ const UPDATER_INSTALLER = "Toolblox-Update.exe";
 const MACOS_ARCHIVE = "Toolblox.app.tar.gz";
 const MANIFEST_LIFETIME = 7 * 24 * 60 * 60;
 const CLOCK_ALLOWANCE = 60 * 60;
+/** Where `_site/catalogue/` is served. */
+const CATALOGUE_URL = "https://toolblox.dev/catalogue/";
 
 const repository = process.env.GITHUB_REPOSITORY || "BakedAleska/Toolblox";
 const headers = { Accept: "application/vnd.github+json", ...(process.env.GITHUB_TOKEN && { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` }) };
@@ -82,6 +86,7 @@ writeSigned("_site/updates/stable.json", {
   expiresAt: publishedAt + MANIFEST_LIFETIME,
   platforms,
 }, manifestKey);
-writeSigned("_site/catalogue/v1.json", { schemaVersion: 1, generatedAt: now, entries: [] }, catalogueKey);
+const entries = packageWidgets("widgets", "_site/catalogue", CATALOGUE_URL);
+writeSigned("_site/catalogue/v1.json", { schemaVersion: 1, generatedAt: now, entries }, catalogueKey);
 
-console.log(`Published manifest for ${version} (${Object.keys(platforms).join(", ")}).`);
+console.log(`Published manifest for ${version} (${Object.keys(platforms).join(", ")}) and ${entries.length} catalogue widgets.`);

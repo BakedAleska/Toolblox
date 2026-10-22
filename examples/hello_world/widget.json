@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "hello_world",
+  "name": "Hello, world!",
+  "version": "1.0.0",
+  "description": "The example widget in development builds. Start a new widget from it.",
+  "module": "main.js"
+}

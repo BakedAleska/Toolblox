@@ -164,7 +164,7 @@ The object passed to `activate` has these members. Each is described in detail b
 | [`useAppState()`](#useappstate) | React hook for app state |
 | [`onStateChange(listener)`](#onstatechange) | Subscribe to changes |
 | [`navigate(route)`](#navigate) | Change the route |
-| [`notify(message)`](#notify) | Show a toast |
+| [`notify(message, kind)`](#notify) | Show a toast |
 | [`refresh()`](#refresh) | Reload app state |
 | [`join(accountIds)`](#join) | Run the Join flow |
 | [`registerPage(Component)`](#registerpage) | The widget's page |
@@ -339,14 +339,21 @@ toolblox.navigate(`/widgets/${toolblox.widget.id}/settings`);
 ### `notify`
 
 ```ts
-notify(message: string): void
+notify(message: string, kind?: "success" | "error" | "warning" | "info"): void
 ```
 
-Shows a toast at the bottom of the window for four seconds, replacing any toast already showing.
-Follow the app's voice: one short, factual sentence.
+Shows a toast in the bottom corner of the window away from the sidebar for four seconds. Up to three show at once,
+newest at the bottom. The message's first sentence becomes the toast's title and the rest its
+description. Without `kind`, a message with a question is an error, because error messages end
+with a recovery question, and any other message is a success. Each kind has its own icon.
+
+Follow the app's voice: what happened in one short sentence, then for errors a question that
+points toward a fix.
 
 ```js
 toolblox.notify("Prices updated.");
+toolblox.notify("Prices weren't updated. Is the game's site reachable?");
+toolblox.notify("A new season starts tomorrow.", "info");
 ```
 
 ### `refresh()`

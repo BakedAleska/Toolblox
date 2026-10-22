@@ -5,9 +5,13 @@ name: Pages
 # from the docs branch under /api/.
 #
 # Installed apps refuse to open once the manifest expires (seven days), so it's re-signed daily.
+# Changes to `widgets/` on main republish the catalogue without an app release.
 # Releases and docs builds call this workflow instead of deploying themselves, runs are queued
 # one at a time, and every run leaves exactly one deployment behind.
 on:
+  push:
+    branches: [main]
+    paths: ["widgets/**"]
   schedule:
     - cron: "17 6 * * *"
   workflow_call:
@@ -40,6 +44,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - run: npm ci
       - run: npm ci && npm run build
         working-directory: site
       - run: node scripts/publish-updates.mjs

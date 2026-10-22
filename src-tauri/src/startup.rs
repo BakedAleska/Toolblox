@@ -306,10 +306,15 @@ async fn run_inner(app: &AppHandle) -> Result<(), String> {
     }
 }
 
-/// Creates the widget folder.
+/// Creates the widget folder. Development builds also add the example widget.
 fn prepare_local_data(runtime: &crate::app_commands::Runtime) -> Result<(), String> {
     fs::create_dir_all(&runtime.widgets_root)
-        .map_err(|_| "Toolblox couldn't create the widget folder. Is it writable?".to_string())
+        .map_err(|_| "Toolblox couldn't create the widget folder. Is it writable?".to_string())?;
+    #[cfg(debug_assertions)]
+    if let Err(error) = crate::widgets::add_example_widget(&runtime.widgets_root) {
+        log::warn!("Example widget unavailable: {error}");
+    }
+    Ok(())
 }
 
 /// Returns the current startup phase to the startup screen.

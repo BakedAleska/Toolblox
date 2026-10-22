@@ -36,8 +36,9 @@ export function deactivate() {}
 ```
 
 Use `toolblox.React` instead of bundling React. A second copy of React breaks hooks. JSX works
-with any bundler configured to use `toolblox.React.createElement` as the JSX factory. Complete
-examples live in `src/demo-widgets/`.
+with any bundler configured to use `toolblox.React.createElement` as the JSX factory. Development
+builds add the `examples/hello_world/` widget to the widgets folder once, as a starting point.
+More complete examples live in `src/demo-widgets/`.
 
 ### Host API
 
@@ -46,7 +47,7 @@ examples live in `src/demo-widgets/`.
 | `widget` | This widget's `id`, `name`, and `version`. |
 | `React`, `ui` | The app's React instance and components: `AccountCard`, `AccountName`, `Avatar`, `Badge`, `Button`, `Checkbox`, `ChoiceRow`, `DropdownMenu*`, `EmptyState`, `IconButton`, `Input`, `Panel`, `SectionTitle`, `Spinner`, `StatTile`, `Switch`, `SwitchRow`, `Tabs*`, `ToggleGroup*`, `Tooltip*`, and `cn`. |
 | `getState()`, `useAppState()`, `onStateChange(listener)` | Current app state: accounts, settings, widgets, and recent places. |
-| `navigate(route)`, `notify(message)`, `refresh()`, `join(accountIds)` | App actions, including the Join flow with its place prompt. |
+| `navigate(route)`, `notify(message, kind)`, `refresh()`, `join(accountIds)` | App actions, including the Join flow with its place prompt. |
 | `registerPage(Component)` | The widget's page at `/widgets/<id>`. |
 | `registerSettings(Component)` | The widget's settings page at `/widgets/<id>/settings`. Toolblox Settings stays separate. |
 | `replaceScreen(screen, Component)` | Replaces `"dashboard"`, `"accounts"`, or `"widgets"`. Settings can't be replaced. |
@@ -122,6 +123,13 @@ The catalogue signs its exact JSON bytes with Ed25519. Each entry pins the packa
 lists the widget's permissions. Changing whitespace after signing invalidates the signature.
 
 ### Publishing
+
+Catalogue widgets live in `widgets/<id>/` in this repository, each with a `LICENSE` file. A
+listing or update is one pull request that changes only that folder. `node scripts/widgets.mjs`
+checks every folder, and after a merge the Pages workflow packages each one at
+`https://toolblox.dev/catalogue/<id>/<version>/package.zip` and re-signs the catalogue.
+Development builds without a catalogue URL list `widgets/` and `examples/` from the working tree
+as their catalogue instead, so installs and updates can be tested before committing.
 
 Submitting a widget to the catalogue confirms that:
 

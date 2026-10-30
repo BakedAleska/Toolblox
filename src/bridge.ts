@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { version } from "../package.json";
 import type { Account, AppState, CatalogueEntry, LogLevel, PlaceMatch, Settings, StartupStatus, WidgetSummary } from "./types";
 
 const minutesAgo = (minutes: number) => Date.now() - minutes * 60_000;
@@ -12,7 +13,7 @@ const demoEntry = (id: string, name: string, description: string, version: strin
 
 /** Sample data for the browser build and `npm run demo`. It never touches real accounts or files. */
 const demoState: AppState = {
-  version: "0.4.0-beta",
+  version,
   channel: "canary",
   platform: "windows",
   widgetsPath: "C:\\Users\\you\\AppData\\Roaming\\Toolblox\\widgets",
@@ -90,7 +91,14 @@ if (typeof window !== "undefined" && new URLSearchParams(window.location.search)
     developer(1848960, "Nikilis", 3, 60 * 5, false),
     developer(1320922, "Defaultio", 4, 60 * 24 * 3, false),
   ];
-  demoState.installedWidgets = [];
+  demoState.installedWidgets = [
+    demoWidget("hello_world", "Hello, world!", "The example widget in development builds. Start a new widget from it.", {
+      hasPageFrame: false,
+      moduleUrl: new URL("../examples/hello_world/main.js", import.meta.url).href,
+      bannerUrl: new URL("../examples/hello_world/banner.gif", import.meta.url).href,
+    }),
+  ];
+  demoState.widgetErrors = [];
   demoState.catalogue = [];
   demoState.recentPlaces = places;
   demoState.settings.placeId = places[0].placeId;
@@ -142,13 +150,13 @@ const demoStartupStatus = (): StartupStatus => {
   const elapsed = Date.now() - current.startedAt;
   if (elapsed < 2000) return { phase: "checking" };
   if (current.scenario === "failure") return { phase: "failed", message: "The update server couldn't be reached. Is the connection working?" };
-  if (elapsed < 6000) return { phase: "installing", version: "0.2.0" };
+  if (elapsed < 6000) return { phase: "installing", version };
   sessionStorage.removeItem(scenarioKey);
   return { phase: "ready" };
 };
 
 const demoLog = [
-  "2026-09-24T18:02:11.412Z INFO  toolblox: Toolblox 0.2.0-beta (debug) starting on windows x86_64",
+  `2026-09-24T18:02:11.412Z INFO  toolblox: Toolblox ${version} (debug) starting on windows x86_64`,
   "2026-09-24T18:02:11.530Z DEBUG startup: Debug build: the update check is skipped",
   "2026-09-24T18:04:37.020Z INFO  app_commands: Joining place 8737899170 as account 101",
   "2026-09-24T18:09:52.781Z INFO  auto_rejoin: Account 101 left its game",

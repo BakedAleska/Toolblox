@@ -48,6 +48,5 @@ json("package-lock.json", (value) => { value.version = version; value.packages["
 json("src-tauri/tauri.conf.json", (value) => { value.version = version; });
 replace("src-tauri/Cargo.toml", /^version = ".*"$/m, `version = "${version}"`);
 replace("src-tauri/Cargo.lock", /(name = "toolblox"\r?\nversion = )".*"/, `$1"${version}"`);
-replace("src/bridge.ts", /(\n  version: )".*",/, `$1"${version}",`);
 
 console.log(`Version set to ${version}.`);

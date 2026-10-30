@@ -51,3 +51,13 @@ export const stepSidebarWidth = (width: number, grow: boolean) => {
   const next = width + (grow ? 16 : -16);
   return next < SIDEBAR_MIN ? SIDEBAR_COLLAPSED : Math.min(SIDEBAR_MAX, next);
 };
+
+/** Reverses log records, keeping each record's indented continuation lines under it. */
+export const newestFirst = (log: string) => {
+  const records: string[] = [];
+  for (const line of log.split("\n")) {
+    if (/^\s/.test(line) && records.length) records[records.length - 1] += `\n${line}`;
+    else records.push(line);
+  }
+  return records.reverse().join("\n");
+};

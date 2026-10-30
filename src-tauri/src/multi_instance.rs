@@ -119,7 +119,7 @@ pub fn open_new_roblox_instance(uri: &str) -> Result<(), String> {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = uri;
-        Err("Starting a separate Roblox client isn't supported on this platform.".into())
+        Err("Starting a separate Roblox client isn't supported on this platform. Is this device running Windows or macOS?".into())
     }
     #[cfg(target_os = "macos")]
     {

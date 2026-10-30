@@ -29,9 +29,9 @@ and [`src-tauri/src/lib.rs`](https://github.com/BakedAleska/Toolblox/blob/main/s
 | Rotation | When a write would take the file past 1,000,000 bytes, it's renamed to `toolblox.log.1`, older files shift to `.2` and `.3`, and the oldest is deleted. |
 | Kept | The current file plus three older ones. |
 
-**Settings > Diagnostics** shows the last 300 lines, copies up to the last 2,000 lines to the
-clipboard, and opens the log folder in Explorer or Finder. The view reads across rotated files
-when the current one is shorter.
+**View** in **Settings > Diagnostics** opens the whole log, newest first, across the current and
+rotated files. **Copy** copies it to the clipboard, and **Open folder** opens the log folder in
+Explorer or Finder.
 
 ### Line format
 
@@ -161,7 +161,7 @@ Every widget contribution renders inside its own React error boundary:
 When a component throws during rendering, the boundary replaces only that contribution with:
 
 ```text
-<widget name> failed to render. (<error>)
+<widget name> failed to render. Does reinstalling it help? (<error>)
 ```
 
 The message uses `role="alert"`, so assistive technology announces it. The error and React's

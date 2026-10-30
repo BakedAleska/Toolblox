@@ -342,10 +342,10 @@ destroys the window, and sends `LoginNotice::Failed(error)`. Closing the window 
 
 | `LoginError` | Message |
 | --- | --- |
-| `AlreadyOpen` | The Roblox sign-in window is already open. Can you use it? |
+| `AlreadyOpen` | The Roblox sign-in window is already open. Can you continue in that window? |
 | `Window` | The Roblox sign-in window couldn't open. Would trying again help? |
 | `CookieRead` | The Roblox session couldn't be read. Would signing in again help? |
-| `Network` | Toolblox couldn't reach Roblox. Is your connection working? |
+| `Network` | Toolblox couldn't reach Roblox. Is the connection working? |
 | `InvalidSession` | Roblox didn't accept the session. Would signing in again help? |
 | `CredentialStore` | The Roblox session couldn't be stored securely. Is the credential store available? |
 | `Cleanup` | The temporary Roblox browsing data couldn't be cleared. Would restarting Toolblox help? |
@@ -502,7 +502,7 @@ includes a URL, header, response body, or the underlying `reqwest` error, which 
 | --- | --- |
 | `InvalidPlace` | The place ID isn't valid. Can you check the game link? |
 | `InvalidResponse` | Roblox returned an unexpected response. Can you try again? |
-| `Network` | Toolblox couldn't reach Roblox. Is your connection working? |
+| `Network` | Toolblox couldn't reach Roblox. Is the connection working? |
 | `Rejected(status)` | Roblox rejected the request (status `status`). Is the account still signed in? |
 
 As a second layer, the log writer in

@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronDown, Code, Download, ExternalLink, RotateCcw, ShieldAlert, Upload } from "lucide-react";
+import { ArrowLeft, ChevronDown, Download, ExternalLink, RotateCcw, ShieldAlert, Upload } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { bridge } from "@/bridge";
@@ -15,7 +15,7 @@ const SAVE_DELAY = 400;
 
 const colorProperties = colorGroups.flatMap(({ tokens }) => tokens.map(([token]) => `--${token}`));
 
-export function ThemesTab({ state, notify, confirm, navigate, patchSettings, themes }: ScreenProps & { themes: ThemeStore }) {
+export function ThemesTab({ state, notify, confirm, patchSettings, themes }: ScreenProps & { themes: ThemeStore }) {
   const { css, save } = themes;
   const [busy, setBusy] = useState<"import" | "export">();
   const importInput = useRef<HTMLInputElement>(null);
@@ -25,7 +25,7 @@ export function ThemesTab({ state, notify, confirm, navigate, patchSettings, the
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    if (file.size > MAX_THEME_BYTES) { notify("The file is larger than 16 MB. Can its images be smaller?"); return; }
+    if (file.size > MAX_THEME_BYTES) { notify("The theme is larger than 16 MB. Can its images be smaller?"); return; }
     const contents = await file.text();
     const run = async () => {
       setBusy("import");
@@ -38,32 +38,32 @@ export function ThemesTab({ state, notify, confirm, navigate, patchSettings, the
   };
   const exportFile = async () => {
     setBusy("export");
-    try { notify(`Exported to ${await themes.exportTheme()}.`); }
-    catch (error) { notify(failure(`The theme wasn't exported. Is the Downloads folder writable?`, error)); }
+    try { notify(`Theme exported to ${await themes.exportTheme()}.`); }
+    catch (error) { notify(failure(`The theme couldn't be exported. Is the Downloads folder writable?`, error)); }
     finally { setBusy(undefined); }
   };
 
   return <>
     {state.safeMode && <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
-      <ShieldAlert className="size-4 shrink-0 text-warning" aria-hidden="true" />The custom theme is off in safe mode.
+      <ShieldAlert className="size-4 shrink-0 text-warning" aria-hidden="true" />The custom theme is disabled in safe mode.
     </p>}
     <Group title="Theme"><Panel className="divide-y">
       <ChoiceRow title="Mode" value={state.settings.themeMode} options={[{ value: "system", label: "System" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} change={(value) => void patchSettings("themeMode", value)} />
-      <SettingRow title="Share" description="Themes are shared as .css files." control={() => <div className="flex flex-wrap gap-2">
+      <SettingRow title="Theme file" control={() => <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" disabled={!!busy} onClick={() => importInput.current?.click()}>{busy === "import" ? <Spinner /> : <Upload />}Import</Button>
         <Button variant="outline" size="sm" disabled={!!busy} onClick={() => void exportFile()}>{busy === "export" ? <Spinner /> : <Download />}Export</Button>
         <input ref={importInput} type="file" accept=".css,text/css" hidden onChange={(event) => void importFile(event)} />
       </div>} />
     </Panel></Group>
 
-    <Colors css={css} editCss={editCss} openCss={() => navigate("/settings/css")} />
+    <Colors css={css} editCss={editCss} />
     <Style editCss={editCss} />
   </>;
 }
 
 /** Shows each token's current value, including any the custom CSS sets. Picking a color writes it
  * to the custom CSS for the mode the app is showing. */
-function Colors({ css, editCss, openCss }: { css: string; editCss: (edit: (css: string) => string) => void; openCss: () => void }) {
+function Colors({ css, editCss }: { css: string; editCss: (edit: (css: string) => string) => void }) {
   const mode = useDarkMode() ? "dark" : "light";
   const declared = readBlock(css, mode);
   const values = getComputedStyle(document.documentElement);
@@ -78,7 +78,6 @@ function Colors({ css, editCss, openCss }: { css: string; editCss: (edit: (css: 
           {tokens.map(([token, label]) => <ColorField key={token} property={`--${token}`} label={label} value={values.getPropertyValue(`--${token}`).trim()} changed={`--${token}` in declared} change={(value) => set(`--${token}`, value)} />)}
         </fieldset>)}
       </div>
-      <Button variant="ghost" size="sm" className="-ml-2.5 self-start text-muted-foreground" onClick={openCss}><Code />CSS</Button>
     </Panel>
   </Group>;
 }
@@ -95,7 +94,7 @@ function Style({ editCss }: { editCss: (edit: (css: string) => string) => void }
       <DropdownMenuTrigger render={<Button variant="outline" size="sm" className="w-44 justify-between font-normal" aria-label={`Font: ${font?.label ?? "Custom"}`} />}>
         <span className="truncate">{font?.label ?? "Custom"}</span><ChevronDown className="text-muted-foreground" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-menu min-w-0">
+      <DropdownMenuContent align="start" arrow={false} className="max-h-menu min-w-0">
         <DropdownMenuRadioGroup value={font?.label ?? ""} onValueChange={(label) => set("--font", fonts.find((option) => option.label === label)?.value)}>
           {fonts.map((option) => <DropdownMenuRadioItem key={option.label} value={option.label} style={{ fontFamily: option.value ?? defaultColors.light.font }}>{option.label}</DropdownMenuRadioItem>)}
         </DropdownMenuRadioGroup>
@@ -173,14 +172,12 @@ export function CustomCssScreen({ navigate, themes }: ScreenProps & { themes: Th
     finally { setBusy(false); }
   };
   return <Screen title="Custom CSS" actions={<IconButton label="Back to settings" onClick={() => navigate("/settings")}><ArrowLeft /></IconButton>} toolbar={<>
-    <p id={`${id}-d`} className="mr-auto flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">Applied after the default styles.
-      <Button variant="link" size="sm" className="h-auto px-0 text-xs" onClick={() => void bridge.openExternal("https://toolblox.dev/docs/app/themes/")}>Documentation<ExternalLink /></Button>
-    </p>
+    <Button variant="link" size="sm" className="mr-auto h-auto px-0 text-xs" onClick={() => void bridge.openExternal("https://toolblox.dev/docs/app/themes/")}>Documentation<ExternalLink /></Button>
     <Button variant="ghost" size="sm" disabled={busy || !dirty} onClick={() => { setDraft(undefined); setError(""); }}>Revert</Button>
     <Button size="sm" disabled={busy || !dirty} onClick={() => void apply()}>{busy && <Spinner />}Apply</Button>
   </>}>
     <Textarea autoFocus value={text} onChange={(event) => { setDraft(event.target.value); setError(""); }} spellCheck={false} placeholder=":root { --radius: 12px; }"
-      className="min-h-40 flex-1 resize-none font-mono text-xs" aria-label="Custom CSS" aria-describedby={error ? `${id}-e` : `${id}-d`} aria-invalid={!!error}
+      className="min-h-40 flex-1 resize-none font-mono text-xs" aria-label="Custom CSS" aria-describedby={error ? `${id}-e` : undefined} aria-invalid={!!error}
       onBlur={() => { if (draft !== undefined) setDraft(draft.trimEnd() === shown.text ? undefined : draft.trimEnd()); }}
       onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void apply(); } }} />
     {error && <p id={`${id}-e`} className="text-xs text-destructive" role="alert">{error}</p>}

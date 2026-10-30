@@ -128,7 +128,7 @@ impl HighestSeenStore for FileHighestSeen {
     fn load(&self) -> Result<Option<Version>, String> {
         match fs::read_to_string(&self.0) {
             Ok(value) => Version::parse(value.trim()).map(Some).map_err(|_| {
-                "The saved update security state isn't valid. Reinstall Toolblox to repair it?"
+                "The saved update security state isn't valid. Would reinstalling Toolblox help?"
                     .into()
             }),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -139,16 +139,19 @@ impl HighestSeenStore for FileHighestSeen {
     }
 
     fn store(&self, version: &Version) -> Result<(), String> {
-        let parent = self
-            .0
-            .parent()
-            .ok_or_else(|| "The update security path isn't valid.".to_string())?;
-        fs::create_dir_all(parent)
-            .map_err(|_| "The update security state couldn't be saved.".to_string())?;
+        let parent = self.0.parent().ok_or_else(|| {
+            "The update security path isn't valid. Is the data folder available?".to_string()
+        })?;
+        fs::create_dir_all(parent).map_err(|_| {
+            "The update security state couldn't be saved. Is the data folder writable?".to_string()
+        })?;
         let temporary = self.0.with_extension("tmp");
         fs::write(&temporary, format!("{version}\n"))
             .and_then(|_| crate::storage::replace_file(&temporary, &self.0))
-            .map_err(|_| "The update security state couldn't be saved.".to_string())
+            .map_err(|_| {
+                "The update security state couldn't be saved. Is the data folder writable?"
+                    .to_string()
+            })
     }
 }
 
@@ -185,14 +188,14 @@ async fn run_inner(app: &AppHandle) -> Result<(), String> {
     {
         let endpoint = option_env!("TOOLBLOX_UPDATE_MANIFEST_URL")
             .filter(|value| value.starts_with("https://"))
-            .ok_or_else(|| "This build doesn't have a secure update endpoint. Reinstall Toolblox from the official release?".to_string())?;
+            .ok_or_else(|| "This build doesn't have a secure update endpoint. Would reinstalling Toolblox from the official release help?".to_string())?;
         let manifest_key = option_env!("TOOLBLOX_MANIFEST_PUBLIC_KEY")
-            .ok_or_else(|| "This build doesn't have an update manifest key. Reinstall Toolblox from the official release?".to_string())?;
+            .ok_or_else(|| "This build doesn't have an update manifest key. Would reinstalling Toolblox from the official release help?".to_string())?;
         let updater_key = option_env!("TOOLBLOX_UPDATER_PUBLIC_KEY")
-            .ok_or_else(|| "This build doesn't have an updater key. Reinstall Toolblox from the official release?".to_string())?;
+            .ok_or_else(|| "This build doesn't have an updater key. Would reinstalling Toolblox from the official release help?".to_string())?;
         let runtime = app.state::<Runtime>();
         let manifest_response = runtime.client.get(endpoint).send().await.map_err(|_| {
-            "Toolblox couldn't check for updates. Is your connection working?".to_string()
+            "Toolblox couldn't check for updates. Is the connection working?".to_string()
         })?;
         if !manifest_response.status().is_success() {
             return Err(format!(
@@ -203,7 +206,7 @@ async fn run_inner(app: &AppHandle) -> Result<(), String> {
         let manifest_bytes = crate::app_commands::read_response_limited(
             manifest_response,
             1024 * 1024,
-            "The update information is larger than 1 MB.",
+            "The update information is larger than 1 MB. Can you try again later?",
             "The update information couldn't be read. Can you try again?",
         )
         .await?;
@@ -213,7 +216,7 @@ async fn run_inner(app: &AppHandle) -> Result<(), String> {
             .send()
             .await
             .map_err(|_| {
-                "The update signature couldn't be downloaded. Is your connection working?"
+                "The update signature couldn't be downloaded. Is the connection working?"
                     .to_string()
             })?;
         if !signature_response.status().is_success() {
@@ -222,7 +225,7 @@ async fn run_inner(app: &AppHandle) -> Result<(), String> {
         let signature_bytes = crate::app_commands::read_response_limited(
             signature_response,
             8 * 1024,
-            "The update signature is too large.",
+            "The update signature is too large. Can you try again later?",
             "The update signature couldn't be read. Can you try again?",
         )
         .await?;
@@ -232,10 +235,11 @@ async fn run_inner(app: &AppHandle) -> Result<(), String> {
             &Ed25519Verifier::new(manifest_key)?,
         )
         .map_err(|error| error.to_string())?;
-        let installed = Version::parse(env!("CARGO_PKG_VERSION"))
-            .map_err(|_| "This Toolblox version isn't valid. Reinstall the app?".to_string())?;
+        let installed = Version::parse(env!("CARGO_PKG_VERSION")).map_err(|_| {
+            "This Toolblox version isn't valid. Would reinstalling Toolblox help?".to_string()
+        })?;
         let target = tauri_plugin_updater::target().ok_or_else(|| {
-            "Updates aren't supported on this platform. Use Windows or macOS?".to_string()
+            "Updates aren't supported on this platform. Is this device running Windows or macOS?".to_string()
         })?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -262,9 +266,9 @@ async fn run_inner(app: &AppHandle) -> Result<(), String> {
                 app.state::<StartupState>().set(StartupView::Installing {
                     version: version.to_string(),
                 });
-                let endpoint = endpoint
-                    .parse()
-                    .map_err(|_| "The update endpoint isn't valid.".to_string())?;
+                let endpoint = endpoint.parse().map_err(|_| {
+                    "The update endpoint isn't valid. Would reinstalling Toolblox help?".to_string()
+                })?;
                 let update = app
                     .updater_builder()
                     .pubkey(updater_key)
@@ -276,7 +280,7 @@ async fn run_inner(app: &AppHandle) -> Result<(), String> {
                     .await
                     .map_err(|error| error.to_string())?
                     .ok_or_else(|| {
-                        "The verified update wasn't offered by the installer. Can you try again?"
+                        "The installer didn't offer the verified update. Can you try again?"
                             .to_string()
                     })?;
                 if update.version != version.to_string()
@@ -292,7 +296,7 @@ async fn run_inner(app: &AppHandle) -> Result<(), String> {
                 let digest = hex::encode(Sha256::digest(&bytes));
                 if !digest.eq_ignore_ascii_case(&artifact.sha256) {
                     return Err(
-                        "The downloaded update checksum didn't match. Can you try again?".into(),
+                        "The downloaded update checksum doesn't match. Can you try again?".into(),
                     );
                 }
                 update.install(bytes).map_err(|error| error.to_string())?;

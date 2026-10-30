@@ -1,13 +1,13 @@
 ---
 title: Privacy policy
 description: What Toolblox stores, where it's stored, and every service it connects to.
-updated: October 16, 2026
+updated: October 30, 2026
 ---
 
 Toolblox is a desktop app that runs on your device. It has no accounts, servers, analytics, or
 telemetry, and the project doesn't collect, sell, or share personal information. The only data
 the project receives is what Discord sends when someone uses the
-[Toolblox Discord bot](#discord-bot).
+[Toolblox Discord bot](#discord-bot), and beta survey answers that someone chooses to send.
 
 ### Data stored on this device
 
@@ -39,6 +39,9 @@ of the request, under its own privacy policy.
   including automatic updates, and show totals only. The
   [GitHub privacy statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement)
   applies.
+- **Toolblox Discord bot** (`workers.dev`): only when **Send** is selected in the optional beta
+  survey. It receives the rating, the comment, and the Toolblox version, and sends them to the
+  developer as a Discord message. See [Discord bot](#discord-bot).
 
 ### This website
 
@@ -62,8 +65,12 @@ as the user's ID and username and the server and channel it was used in. The bot
 to reply, and doesn't store or share them. To answer `/version`, the bot asks the GitHub API for
 public release details.
 
-The bot stores one thing: total release download counts from GitHub's public statistics, which
-contain no personal information. Cloudflare receives each request under the
+Beta survey answers sent from the app are delivered to the developer as a Discord direct message
+and aren't stored by the bot. To limit spam, the bot keeps a count of answers for each IP address
+for one hour. The address is stored only as a one-way hash.
+
+The bot also stores total release download counts from GitHub's public statistics, which contain
+no personal information. Cloudflare receives each request under the
 [Cloudflare privacy policy](https://www.cloudflare.com/privacypolicy/), and Discord's
 [privacy policy](https://discord.com/privacy) applies to everything sent through Discord.
 

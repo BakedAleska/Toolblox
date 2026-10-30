@@ -439,7 +439,7 @@ the previous one finishes. Changing the interval in settings calls `schedule` to
 toolblox.notify(`Back in stock: ${restocked.map((item) => item.name).join(", ")}.`);
 ```
 
-`notify(message)` shows the app's toast, the same one Toolblox uses for "Copied." and errors, at the
+`notify(message)` shows the app's toast, the same one Toolblox uses for "Log copied." and errors, at the
 bottom of the window for four seconds. A newer message replaces the current one. It's an in-app
 message, not a system notification, so it isn't seen while the window is hidden in the tray. Keep
 messages to one short sentence, and offer an off switch for anything that repeats, as **Restock

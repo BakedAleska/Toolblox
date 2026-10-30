@@ -46,7 +46,8 @@ time.
       "archiveUrl": "https://toolblox.dev/catalogue/trade_tracker/1.2.0/package.zip",
       "sha256": "9f2c…64 hex characters…",
       "permissions": ["accounts.read.basic", "widgetData.read", "widgetData.write"],
-      "iconUrl": "https://toolblox.dev/catalogue/trade_tracker/1.2.0/icon.png"
+      "iconUrl": "https://toolblox.dev/catalogue/trade_tracker/1.2.0/icon.png",
+      "bannerUrl": "https://toolblox.dev/catalogue/trade_tracker/1.2.0/banner.png"
     }
   ]
 }
@@ -72,6 +73,7 @@ time.
 | `sha256` | string | Yes | 64 hexadecimal characters, the package's SHA-256. Compared case-insensitively. |
 | `permissions` | array | No | The package manifest's permissions, as a set. Defaults to `[]`. No duplicates. |
 | `iconUrl` | string | No | Image shown on the catalogue card. Any URL the app's image policy allows, such as `https:` or `data:`. |
+| `bannerUrl` | string | No | Image shown across the top of the catalogue card. Same URL rules as `iconUrl`. |
 
 Entry checks, each of which rejects the whole catalogue:
 
@@ -176,7 +178,7 @@ archives. Every URL must answer directly with its content.
 ## How it appears in the app
 
 The Catalogue section of the Widgets page shows every entry whose ID has no folder in the widgets
-folder, as a card with the icon from `iconUrl`, the name, `v<version>`, the description clamped to
+folder, as a card with the banner from `bannerUrl`, the icon from `iconUrl`, the name, `v<version>`, the description clamped to
 two lines, and the permission summary. **Install** opens a confirmation listing the permissions.
 When no entry is left to install, the section reads "No other widgets are available."
 
@@ -196,7 +198,7 @@ packages every folder and lists it in the signed catalogue, so a listing is one 
 
 2. **Add the folder** as `widgets/<id>/`, with `widget.json`, its files, and a `LICENSE` file with
    an [OSI-approved license](https://opensource.org/licenses). The manifest needs a `description`,
-   which becomes the catalogue description. An `icon` in the manifest becomes the `iconUrl`.
+   which becomes the catalogue description. An `icon` in the manifest becomes the `iconUrl`, and a `banner` becomes the `bannerUrl`.
 
 3. **Check it** with `node scripts/widgets.mjs`, which CI also runs. It checks the folder name,
    manifest fields, declared files, permissions, and license.

@@ -1,6 +1,7 @@
 import { respond } from "./commands.ts";
 import { syncChangelogs } from "./changelogs.ts";
 import { sendDirectMessage, verifyInteraction } from "./discord.ts";
+import { MAX_BODY_BYTES, allowSurvey, parseSurvey, surveyEmbed } from "./survey.ts";
 import {
   countDownloads,
   downloadIncrease,
@@ -32,9 +33,36 @@ const APPLICATION_COMMAND = 2;
 const PONG = 1;
 const CHANNEL_MESSAGE = 4;
 
+/**
+ * Sends beta survey answers from the app to the owner as a DM. Anyone can call this, so answers
+ * are validated and limited per address.
+ */
+async function receiveSurvey(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return new Response("Not found.", { status: 404 });
+  if (Number(request.headers.get("Content-Length")) > MAX_BODY_BYTES) return new Response("Too large.", { status: 413 });
+  const body = await request.text();
+  if (body.length > MAX_BODY_BYTES) return new Response("Too large.", { status: 413 });
+  const answers = parseSurvey(body);
+  if (!answers) return new Response("Invalid answers.", { status: 400 });
+  if (!(await allowSurvey(env.STATE, request.headers.get("CF-Connecting-IP") ?? "unknown"))) {
+    return new Response("Too many answers.", { status: 429 });
+  }
+  try {
+    await sendDirectMessage(env.DISCORD_BOT_TOKEN.trim(), env.OWNER_USER_ID.trim(), "", [surveyEmbed(answers)]);
+  } catch (error) {
+    console.warn(`Survey answers weren't sent: ${error}`);
+    return new Response("Not delivered.", { status: 502 });
+  }
+  return new Response(null, { status: 204 });
+}
+
 export default {
-  /** Answers Discord interactions. Requests without a valid Discord signature are rejected. */
+  /**
+   * Receives beta survey answers at `/survey`, and answers Discord interactions everywhere else.
+   * Interactions without a valid Discord signature are rejected.
+   */
   async fetch(request, env) {
+    if (new URL(request.url).pathname === "/survey") return receiveSurvey(request, env);
     if (request.method !== "POST") return new Response("Not found.", { status: 404 });
     const body = await request.text();
     const valid = await verifyInteraction(

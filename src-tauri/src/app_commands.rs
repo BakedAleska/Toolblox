@@ -105,7 +105,8 @@ pub struct SettingsDto {
     show_game_names: bool,
     notify_on_drop: bool,
     always_on_top: bool,
-    always_animate: bool,
+    show_animations: bool,
+    ignore_reduced_motion: bool,
 }
 
 impl From<&Settings> for SettingsDto {
@@ -125,7 +126,8 @@ impl From<&Settings> for SettingsDto {
             show_game_names: settings.show_game_names,
             notify_on_drop: settings.notify_on_drop,
             always_on_top: settings.always_on_top,
-            always_animate: settings.always_animate,
+            show_animations: settings.show_animations,
+            ignore_reduced_motion: settings.ignore_reduced_motion,
         }
     }
 }
@@ -168,6 +170,7 @@ pub struct WidgetSummary {
     description: String,
     icon: Option<String>,
     logo_url: Option<String>,
+    banner_url: Option<String>,
     enabled: bool,
     version: String,
     available_version: Option<String>,
@@ -192,6 +195,7 @@ pub struct CatalogueSummary {
     description: String,
     version: String,
     logo_url: Option<String>,
+    banner_url: Option<String>,
     permissions: Vec<crate::widgets::WidgetPermission>,
 }
 
@@ -353,6 +357,11 @@ fn widget_summary(
             .icon
             .as_deref()
             .map(|icon| widget_asset_url(&id, icon)),
+        banner_url: widget
+            .manifest
+            .banner
+            .as_deref()
+            .map(|banner| widget_asset_url(&id, banner)),
         icon: widget.manifest.icon,
         enabled: !settings.disabled_widgets.contains(&id),
         available_version: available.map(|(version, _)| version.clone()),
@@ -545,6 +554,7 @@ pub async fn get_app_state(runtime: State<'_, Runtime>) -> Result<AppStateDto, S
                     description: entry.description,
                     version: entry.version,
                     logo_url: entry.icon_url,
+                    banner_url: entry.banner_url,
                     permissions: entry.permissions,
                 })
                 .collect()
@@ -625,7 +635,8 @@ pub async fn save_settings(
     saved.show_game_names = settings.show_game_names;
     saved.notify_on_drop = settings.notify_on_drop;
     saved.always_on_top = settings.always_on_top;
-    saved.always_animate = settings.always_animate;
+    saved.show_animations = settings.show_animations;
+    saved.ignore_reduced_motion = settings.ignore_reduced_motion;
     saved
         .recent_places
         .truncate(crate::models::RECENT_PLACES_LIMIT);
@@ -651,7 +662,7 @@ pub async fn save_settings(
         log::warn!("Launch at startup couldn't be changed: {error}");
         let _ = runtime.storage.save_settings(&previous);
         return Err(
-            "The startup setting couldn't be changed. Does this account allow startup apps?".into(),
+            "The startup setting couldn't be changed. Does the operating system allow startup apps?".into(),
         );
     }
     if !saved.place_id.is_empty() && saved.place_id != previous.place_id {
@@ -711,22 +722,22 @@ pub async fn search_places(
     Ok(crate::roblox::search_places(&runtime.client, &query).await)
 }
 
-/// Google Form that receives the beta survey. Remove with the survey after the beta.
-const SURVEY_URL: &str = "https://docs.google.com/forms/d/e/FORM_ID/formResponse";
-const SURVEY_RATING_ENTRY: &str = "entry.RATING_ID";
-const SURVEY_COMMENT_ENTRY: &str = "entry.COMMENT_ID";
+/// Toolblox bot endpoint that sends beta survey answers to the developer on Discord. Remove with
+/// the survey after the beta.
+const SURVEY_URL: &str = "https://toolblox-bot.al3velazquez2007.workers.dev/survey";
 
-/// Validates survey answers and maps them to form fields.
-fn survey_fields(rating: u8, comment: &str) -> Result<[(&'static str, String); 2], String> {
+/// Validates survey answers and builds the request body, with the app version.
+fn survey_body(rating: u8, comment: &str) -> Result<serde_json::Value, String> {
     if !(1..=5).contains(&rating) || comment.chars().count() > 2000 {
         return Err(
             "The survey answers aren't valid. Is the comment under 2,000 characters?".into(),
         );
     }
-    Ok([
-        (SURVEY_RATING_ENTRY, rating.to_string()),
-        (SURVEY_COMMENT_ENTRY, comment.trim().to_string()),
-    ])
+    Ok(serde_json::json!({
+        "rating": rating,
+        "comment": comment.trim(),
+        "version": env!("CARGO_PKG_VERSION"),
+    }))
 }
 
 /// Sends the optional beta survey. Only the submitted answers are sent.
@@ -736,16 +747,21 @@ pub async fn submit_survey(
     comment: String,
     runtime: State<'_, Runtime>,
 ) -> Result<(), String> {
-    let fields = survey_fields(rating, &comment)?;
-    runtime
+    let body = survey_body(rating, &comment)?;
+    let response = runtime
         .client
         .post(SURVEY_URL)
-        .form(&fields)
+        .json(&body)
         .send()
         .await
-        .and_then(reqwest::Response::error_for_status)
-        .map(|_| ())
-        .map_err(|_| "The survey couldn't be sent. Is this device online?".into())
+        .map_err(|_| "The survey couldn't be sent. Is the connection working?".to_string())?;
+    match response.status() {
+        status if status.is_success() => Ok(()),
+        reqwest::StatusCode::TOO_MANY_REQUESTS => {
+            Err("The survey wasn't sent because answers were sent recently. Can you try again in an hour?".into())
+        }
+        _ => Err("The survey couldn't be sent. Can you try again later?".into()),
+    }
 }
 
 /// Sets or clears the place a single account joins instead of the default place.
@@ -835,7 +851,7 @@ pub fn remove_account(account_id: u64, runtime: State<'_, Runtime>) -> Result<()
         });
         return match rollback {
             Ok(()) => Err(command_error(error)),
-            Err(_) => Err("The account was removed, but its secure session couldn't be cleared. Can you restart Toolblox and try adding then removing the account again?".into()),
+            Err(_) => Err("The account was removed, but its stored session couldn't be deleted. Can you restart Toolblox, then add and remove the account again?".into()),
         };
     }
     runtime.set_session_expired(account_id, false);
@@ -1083,18 +1099,18 @@ async fn download_package(entry: &CatalogueEntry, runtime: &Runtime) -> Result<V
         .send()
         .await
         .map_err(|_| {
-            "The widget package couldn't be downloaded. Is your connection working?".to_string()
+            "The widget package couldn't be downloaded. Is the connection working?".to_string()
         })?;
     if !response.status().is_success() {
         return Err(format!(
-            "The widget package download failed with status {}. Can you try again?",
+            "The widget package download returned status {}. Can you try again?",
             response.status().as_u16()
         ));
     }
     read_response_limited(
         response,
         20 * 1024 * 1024,
-        "The widget package is larger than 20 MB.",
+        "The widget package is larger than 20 MB. Can you report this widget?",
         "The widget package couldn't be read. Can you try again?",
     )
     .await
@@ -1143,7 +1159,9 @@ pub async fn update_widget(widget_id: String, runtime: State<'_, Runtime>) -> Re
     let available_version = semver::Version::parse(&entry.version)
         .map_err(|_| "The catalogue widget version isn't valid. Can you refresh it?".to_string())?;
     if available_version <= installed_version {
-        return Err("The catalogue doesn't contain a newer widget version.".into());
+        return Err(
+            "The catalogue doesn't contain a newer widget version. Can you refresh it?".into(),
+        );
     }
     runtime
         .processes
@@ -1290,7 +1308,7 @@ async fn refresh_catalogue_data(runtime: &Runtime) -> Result<(), String> {
     }
     let result = async {
         let response = runtime.client.get(url).send().await.map_err(|_| {
-            "The widget catalogue couldn't be downloaded. Is your connection working?".to_string()
+            "The widget catalogue couldn't be downloaded. Is the connection working?".to_string()
         })?;
         if !response.status().is_success() {
             return Err(format!(
@@ -1301,7 +1319,7 @@ async fn refresh_catalogue_data(runtime: &Runtime) -> Result<(), String> {
         let bytes = read_response_limited(
             response,
             1024 * 1024,
-            "The widget catalogue is larger than 1 MB.",
+            "The widget catalogue is larger than 1 MB. Can you try again later?",
             "The widget catalogue couldn't be read. Can you try again?",
         )
         .await?;
@@ -1311,7 +1329,7 @@ async fn refresh_catalogue_data(runtime: &Runtime) -> Result<(), String> {
             .send()
             .await
             .map_err(|_| {
-                "The widget catalogue signature couldn't be downloaded. Is your connection working?"
+                "The widget catalogue signature couldn't be downloaded. Is the connection working?"
                     .to_string()
             })?;
         if !signature.status().is_success() {
@@ -1322,12 +1340,13 @@ async fn refresh_catalogue_data(runtime: &Runtime) -> Result<(), String> {
         let signature = read_response_limited(
             signature,
             8 * 1024,
-            "The widget catalogue signature is too large.",
+            "The widget catalogue signature is larger than expected. Can you try again later?",
             "The widget catalogue signature couldn't be read. Can you try again?",
         )
         .await?;
-        let signature = String::from_utf8(signature)
-            .map_err(|_| "The widget catalogue signature isn't text.".to_string())?;
+        let signature = String::from_utf8(signature).map_err(|_| {
+            "The widget catalogue signature isn't valid text. Can you try again later?".to_string()
+        })?;
         Catalogue::parse_verified(&bytes, &signature, public_key)
     }
     .await;
@@ -1542,7 +1561,7 @@ pub(crate) fn snapped_window_size(width: f64, available: (f64, f64)) -> (f64, f6
 pub fn snap_window(app: AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window(crate::lifecycle::MAIN_WINDOW_LABEL)
-        .ok_or("The Toolblox window wasn't found.")?;
+        .ok_or("The Toolblox window wasn't found. Does restarting Toolblox help?")?;
     if window.is_fullscreen().map_err(command_error)? {
         window.set_fullscreen(false).map_err(command_error)?;
     }
@@ -1583,7 +1602,7 @@ pub fn set_mini_window(
 ) -> Result<(), String> {
     let window = app
         .get_webview_window(crate::lifecycle::MAIN_WINDOW_LABEL)
-        .ok_or("The Toolblox window wasn't found.")?;
+        .ok_or("The Toolblox window wasn't found. Does restarting Toolblox help?")?;
     let mut restore = lifecycle.mini_restore.lock().map_err(command_error)?;
     let Some(height) = height else {
         let Some((position, size)) = restore.take() else {
@@ -1632,7 +1651,7 @@ pub fn set_mini_window(
 #[tauri::command]
 pub fn start_window_drag(app: AppHandle) -> Result<(), String> {
     app.get_webview_window(crate::lifecycle::MAIN_WINDOW_LABEL)
-        .ok_or("The Toolblox window wasn't found.")?
+        .ok_or("The Toolblox window wasn't found. Does restarting Toolblox help?")?
         .start_dragging()
         .map_err(command_error)
 }
@@ -1885,7 +1904,7 @@ pub(crate) async fn join_account_ids(
         let place_id = match place_id.or(account.place_id.as_deref()) {
             Some(place_id) => crate::roblox::parse_place_id(place_id).map_err(command_error)?,
             None => default_place.clone().ok_or_else(|| {
-                "No place is set to join. Can you set one on the Accounts screen?".to_string()
+                "No place is set to join. Can you set one on the Accounts page?".to_string()
             })?,
         };
         let secret = match runtime.session(*id) {
@@ -2109,18 +2128,21 @@ fn write_record(level: LogLevel, target: &str, message: &str) {
     log::log!(target: target, level.into(), "{}", &message[..end]);
 }
 
-/// Returns up to `lines` of the most recent log lines, 300 by default.
+/// Returns up to `lines` of the most recent log lines, 300 by default, or the whole log when
+/// `all` is set.
 #[tauri::command]
-pub fn read_log(lines: Option<usize>) -> Result<String, String> {
-    crate::logs::tail(lines.unwrap_or(300))
+pub fn read_log(lines: Option<usize>, all: Option<bool>) -> Result<String, String> {
+    crate::logs::tail(match all {
+        Some(true) => None,
+        _ => Some(lines.unwrap_or(300)),
+    })
 }
 
 /// Opens the log folder in Explorer or Finder.
 #[tauri::command]
 pub fn open_log_folder() -> Result<(), String> {
-    let directory = crate::logs::directory().ok_or_else(|| {
-        "Logging didn't start. Can you check that the data folder is writable?".to_string()
-    })?;
+    let directory = crate::logs::directory()
+        .ok_or_else(|| "Logging couldn't start. Is the data folder writable?".to_string())?;
     opener::open(directory)
         .map_err(|_| "The log folder couldn't be opened. Does it still exist?".to_string())
 }
@@ -2198,12 +2220,13 @@ mod tests {
 
     #[test]
     fn survey_answers_are_validated() {
-        assert!(super::survey_fields(0, "").is_err());
-        assert!(super::survey_fields(6, "").is_err());
-        assert!(super::survey_fields(3, &"a".repeat(2001)).is_err());
-        let fields = super::survey_fields(5, "  Good  ").unwrap();
-        assert_eq!(fields[0].1, "5");
-        assert_eq!(fields[1].1, "Good");
+        assert!(super::survey_body(0, "").is_err());
+        assert!(super::survey_body(6, "").is_err());
+        assert!(super::survey_body(3, &"a".repeat(2001)).is_err());
+        let body = super::survey_body(5, "  Good  ").unwrap();
+        assert_eq!(body["rating"], 5);
+        assert_eq!(body["comment"], "Good");
+        assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
     }
 
     #[test]

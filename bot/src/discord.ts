@@ -47,9 +47,9 @@ export async function discordRequest(token: string, method: string, path: string
   return response;
 }
 
-/** Sends a direct message from the bot. The bot and the user must share a server. */
-export async function sendDirectMessage(token: string, userId: string, content: string): Promise<void> {
+/** Sends a direct message from the bot, with optional embeds. The bot and the user must share a server. */
+export async function sendDirectMessage(token: string, userId: string, content: string, embeds?: unknown[]): Promise<void> {
   const channel = await discordRequest(token, "POST", "/users/@me/channels", { recipient_id: userId });
   const { id } = await channel.json<{ id: string }>();
-  await discordRequest(token, "POST", `/channels/${id}/messages`, { content, allowed_mentions: { parse: [] } });
+  await discordRequest(token, "POST", `/channels/${id}/messages`, { content, embeds, allowed_mentions: { parse: [] } });
 }

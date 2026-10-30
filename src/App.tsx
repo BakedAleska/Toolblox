@@ -13,7 +13,7 @@ import { Dashboard } from "@/screens/Dashboard";
 import { MiniWindow } from "@/screens/Mini";
 import { PlaceSearch } from "@/screens/PlaceSearch";
 import { CustomCssScreen } from "@/screens/Themes";
-import { SettingsScreen } from "@/screens/Settings";
+import { LogScreen, SettingsScreen } from "@/screens/Settings";
 import { useSurvey } from "@/screens/Survey";
 import { Widgets } from "@/screens/Widgets";
 import { EmptyState, IconButton, Modal, Panel, PlaceInput, Screen, ScreenTools, Spinner, SwitchRow, WidgetFrame, type ConfirmRequest, type PlaceRequest, type ScreenProps, failure } from "@/shared";
@@ -29,7 +29,7 @@ const coreRoutes = [
 
 const routeFromHash = (): AppRoute => {
   const value = window.location.hash.slice(1) || "/";
-  return value === "/" || value === "/accounts" || value === "/accounts/places" || value === "/widgets" || value === "/settings" || value === "/settings/css" || value.startsWith("/widgets/")
+  return value === "/" || value === "/accounts" || value === "/accounts/places" || value === "/widgets" || value === "/settings" || value === "/settings/css" || value === "/settings/log" || value.startsWith("/widgets/")
     ? (value as AppRoute) : "/";
 };
 
@@ -42,6 +42,21 @@ const readSidebarWidth = () => {
 /** The website's color scheme, which stands in for the OS one when the demo is embedded there. */
 let siteDark: boolean | undefined;
 const embedded = isDemo() && window.parent !== window;
+
+/** Sets `data-motion` to "none" when animations are off, or "reduced" when the OS asks for reduced motion and it isn't ignored. */
+function useMotion(show: boolean, ignoreReduced: boolean) {
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const apply = () => {
+      const motion = !show ? "none" : media.matches && !ignoreReduced ? "reduced" : undefined;
+      if (motion) document.documentElement.dataset.motion = motion;
+      else delete document.documentElement.dataset.motion;
+    };
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, [show, ignoreReduced]);
+}
 
 /** Applies the `dark` class from the saved mode, following the OS while the mode is "system". */
 function useTheme(mode: ThemeMode = "system") {
@@ -85,7 +100,7 @@ function App() {
   const [placeRequest, setPlaceRequest] = useState<PlaceRequest>();
   const [placeOpen, setPlaceOpen] = useState(false);
   useTheme(state?.settings.themeMode);
-  useEffect(() => { document.documentElement.toggleAttribute("data-always-animate", state?.settings.alwaysAnimate === true); }, [state?.settings.alwaysAnimate]);
+  useMotion(state?.settings.showAnimations ?? true, state?.settings.ignoreReducedMotion ?? false);
   const themes = useCustomTheme(startup?.phase === "ready", !state?.safeMode, notify);
   const registry = useWidgetRegistry();
   const host = useRef<Parameters<typeof syncWidgetHost>>(undefined);
@@ -158,7 +173,7 @@ function App() {
     if (placeId) { void launch(accountIds, placeId); return; }
     const needsPlace = !state.settings.placeId && accountIds.some((id) => !state.accounts.find((account) => account.id === id)?.placeId);
     if (!needsPlace) { void launch(accountIds); return; }
-    if (miniRef.current) { notify("Join needs a default place. Is one set on the Accounts page?"); return; }
+    if (miniRef.current) { notify("Joining requires a default place. Is one set on the Accounts page?"); return; }
     navigate("/accounts/places");
   };
   const signIn = async (accountId: number) => {
@@ -180,6 +195,7 @@ function App() {
   else if (route === "/widgets") screen = replaced("widgets") || <Widgets {...props} />;
   else if (route === "/settings") screen = <SettingsScreen {...props} themes={themes} />;
   else if (route === "/settings/css") screen = <CustomCssScreen {...props} themes={themes} />;
+  else if (route === "/settings/log") screen = <LogScreen {...props} />;
   else {
     const match = route.match(/^\/widgets\/([\w-]+)(\/settings)?$/);
     const widget = match ? state.installedWidgets.find(({ id }) => id === match[1]) : undefined;
@@ -188,13 +204,13 @@ function App() {
       : <WidgetHost widget={widget} navigate={navigate} />;
   }
 
-  return <TooltipProvider delay={400}><ScreenTools.Provider value={<HeaderTools themeMode={state.settings.themeMode} patchSettings={patchSettings} openMini={props.openMini} survey={survey.button} />}>
+  return <TooltipProvider delay={400}><ScreenTools.Provider value={(tools) => <HeaderTools themeMode={state.settings.themeMode} patchSettings={patchSettings} openMini={props.openMini} extra={(tools || survey.button) && <>{survey.button}{tools}</>} />}>
     <div className={cn("relative flex h-full", state.settings.sidebarPosition === "right" && "flex-row-reverse")}>
       <Sidebar state={state} route={route} navigate={navigate} />
       <div className="relative flex min-w-0 flex-1 flex-col">
         {state.safeMode && <div className="flex items-center gap-3 border-b bg-warning/10 px-6 py-2 text-sm" role="status">
           <ShieldAlert className="size-4 shrink-0 text-warning" aria-hidden="true" />
-          <span className="flex-1">Safe mode. Widgets and the custom theme are off for this session.</span>
+          <span className="flex-1">Safe mode is on. Widgets and the custom theme are disabled for this session.</span>
           <Button variant="outline" size="sm" onClick={() => void bridge.restartApp(false)}>Restart normally</Button>
         </div>}
         <main key={route} data-page={pageOf(route)} className="min-h-0 flex-1 animate-in duration-200 fade-in-0 slide-in-from-bottom-1" id="main-content">{screen}</main>
@@ -230,16 +246,16 @@ const themeModes: { mode: ThemeMode; label: string; icon: ReactNode }[] = [
   { mode: "dark", label: "Dark", icon: <Moon /> },
 ];
 
-/** Theme, window snap, and mini mode, at the right end of every page header. */
-function HeaderTools({ themeMode, patchSettings, openMini, survey }: Pick<ScreenProps, "patchSettings" | "openMini"> & { themeMode?: ThemeMode; survey?: ReactNode }) {
+/** Theme, window snap, and mini mode, at the right end of every page header. `extra` sits before them, past a separator. */
+function HeaderTools({ themeMode, patchSettings, openMini, extra }: Pick<ScreenProps, "patchSettings" | "openMini"> & { themeMode?: ThemeMode; extra?: ReactNode }) {
   const themeIndex = Math.max(0, themeModes.findIndex(({ mode }) => mode === themeMode));
   const theme = themeModes[themeIndex];
   const nextTheme = themeModes[(themeIndex + 1) % themeModes.length];
   return <div className="flex shrink-0 items-center">
-    {survey}
+    {extra && <>{extra}<span className="mx-1 h-4 w-px bg-border" aria-hidden="true" /></>}
     <IconButton label={`Theme: ${theme.label}`} className="text-muted-foreground" onClick={() => void patchSettings("themeMode", nextTheme.mode)}>{theme.icon}</IconButton>
-    {!isDemo() && <IconButton label="Snap to default aspect ratio" className="text-muted-foreground" onClick={() => void bridge.snapWindow()}><Proportions /></IconButton>}
-    {!isDemo() && <IconButton label="Mini mode" className="text-muted-foreground" onClick={openMini}><Minimize2 /></IconButton>}
+    {!isDemo() && <IconButton label="Resize to default aspect ratio" className="text-muted-foreground" onClick={() => void bridge.snapWindow()}><Proportions /></IconButton>}
+    {!isDemo() && <IconButton label="Open mini mode" className="text-muted-foreground" onClick={openMini}><Minimize2 /></IconButton>}
   </div>;
 }
 
@@ -263,7 +279,7 @@ function Sidebar({ state, route, navigate }: { state: AppState; route: AppRoute;
     style.cursor = "col-resize"; style.userSelect = "none";
     return () => { style.cursor = ""; style.userSelect = ""; };
   }, [dragging]);
-  const current = route === "/accounts/places" ? "/accounts" : route === "/settings/css" ? "/settings" : route;
+  const current = route === "/accounts/places" ? "/accounts" : route.startsWith("/settings/") ? "/settings" : route;
   const item = (target: AppRoute, label: string, icon: ReactNode, enabled = true) => <Tooltip key={target}>
     <TooltipTrigger render={<button className={cn(
       "flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-sm text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
@@ -355,7 +371,7 @@ function WidgetHost({ widget, navigate }: { widget: WidgetSummary; navigate: (ro
   return <Screen title={widget.name} className="h-full" actions={hasSettings && <IconButton label={`${widget.name} settings`} onClick={() => navigate(`/widgets/${widget.id}/settings`)}><SettingsIcon /></IconButton>}>
     {Page ? <WidgetBoundary widgetId={widget.id}><Page /></WidgetBoundary>
       : widget.hasPageFrame ? <WidgetFrame widget={widget} surface="main" title={widget.name} />
-      : <EmptyState icon={<Puzzle />} title="No page" text="This widget adds features to other parts of Toolblox." />}
+      : <EmptyState icon={<Puzzle />} title="No widget page" />}
   </Screen>;
 }
 
@@ -365,16 +381,16 @@ function WidgetSettings({ widget, navigate, refresh, notify }: ScreenProps & { w
   const Custom = settingsPages.get(widget.id);
   const empty = !Custom && !widget.hasSettings && !widget.canStartOnLaunch;
   return <Screen title={`${widget.name} settings`} actions={(pages.has(widget.id) || widget.hasPageFrame) && <Button variant="ghost" size="sm" onClick={() => navigate(`/widgets/${widget.id}`)}>Open widget</Button>}>
-    {widget.canStartOnLaunch && <Panel><SwitchRow title="Start with Toolblox" description={`Run ${widget.name} when Toolblox starts.`} checked={widget.startOnLaunch}
+    {widget.canStartOnLaunch && <Panel><SwitchRow title="Start with Toolblox" checked={widget.startOnLaunch}
       change={(value) => void bridge.setWidgetStartOnLaunch(widget.id, value).then(refresh).catch((error) => notify(failure(`The startup setting wasn't saved. Does retrying help?`, error)))} /></Panel>}
     {Custom && <WidgetBoundary widgetId={widget.id}><Custom /></WidgetBoundary>}
     {widget.hasSettings && <WidgetFrame widget={widget} surface="settings" title={`${widget.name} settings`} />}
-    {empty && <EmptyState icon={<SettingsIcon />} title="No settings" text="This widget has no settings." />}
+    {empty && <EmptyState icon={<SettingsIcon />} title="No settings" />}
   </Screen>;
 }
 
 function NotFound({ navigate }: { navigate: (route: AppRoute) => void }) {
-  return <EmptyState icon={<ExternalLink />} title="Page unavailable" text="This widget is disabled or uninstalled." action={<Button onClick={() => navigate("/")}>Go to Dashboard</Button>} />;
+  return <EmptyState icon={<ExternalLink />} title="Page unavailable" action={<Button onClick={() => navigate("/")}>Go to Dashboard</Button>} />;
 }
 
 function PlaceDialog({ request, recentPlaces, open, close, forget }: { request: PlaceRequest; recentPlaces: RecentPlace[]; open: boolean; close: () => void; forget: (placeId: string) => Promise<void> }) {
@@ -392,7 +408,7 @@ function PlaceDialog({ request, recentPlaces, open, close, forget }: { request: 
     if (exists) void save(placeId);
     else setError(`Place ${placeId} doesn't exist. Is the ID correct?`);
   };
-  return <Modal open={open} close={close} title={request.title} description={request.description} action={request.action} busy={busy} disabled={!value.trim()} submit={() => void submit()}>
+  return <Modal size="portrait" open={open} close={close} title={request.title} description={request.description} action={request.action} busy={busy} disabled={!value.trim()} submit={() => void submit()}>
     <div className="grid gap-2">
       <div className="relative">
         <PlaceInput autoFocus value={value} change={(next) => { setValue(next); setError(""); }} placeholder="Game name, link, or place ID"
@@ -419,7 +435,7 @@ function ConfirmDialog({ request, open, close, notify }: { request: ConfirmReque
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (open) setBusy(false); }, [open]);
   const submit = async () => { setBusy(true); try { await request.run(); close(); } catch (error) { notify(failure(`The action failed. Does retrying help?`, error)); setBusy(false); } };
-  return <Modal open={open} close={close} title={request.title} description={request.message} action={request.action} danger={request.danger} busy={busy} submit={() => void submit()} />;
+  return <Modal size="landscape" open={open} close={close} title={request.title} description={request.message} action={request.action} danger={request.danger} busy={busy} submit={() => void submit()} />;
 }
 
 export default App;

@@ -64,7 +64,7 @@ impl fmt::Display for RobloxError {
             ),
             Self::Network => write!(
                 formatter,
-                "Toolblox couldn't reach Roblox. Is your connection working?"
+                "Toolblox couldn't reach Roblox. Is the connection working?"
             ),
             Self::Rejected(status) => write!(
                 formatter,

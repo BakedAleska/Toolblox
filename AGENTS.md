@@ -47,7 +47,8 @@ and installing reviewed game-specific widgets. `PRODUCT.md` is the product autho
   `@5xl:` and wider container queries. The sidebar is user-resizable and snaps to icon-only when
   dragged narrow.
 - Menus opened from a field sit flush with that field: pass the field as `anchor` to
-  `DropdownMenuContent`, align to its start, and match its width (`className="min-w-0"`).
+  `DropdownMenuContent`, align to its start, match its width (`className="min-w-0"`), and pass
+  `arrow={false}`. Other menus keep the arrow that points at their trigger.
 - Style only through the tokens in `src/theme.css`. Never hardcode a color, radius, or shadow
   color, in class names or inline styles. A custom theme overrides these tokens, and
   `src/globals.test.ts` enforces this. Add a token when a new value is needed.
@@ -55,6 +56,8 @@ and installing reviewed game-specific widgets. `PRODUCT.md` is the product autho
   and `destructive`, and status is never conveyed by color alone.
 - Use semantic HTML, visible keyboard focus, labelled controls, reduced-motion support, and
   responsive layouts.
+- Dialogs use `Modal` with one of two fixed sizes: `portrait` for forms and lists, `landscape`
+  for short messages and confirmations. Related dialogs share a size. Don't add other sizes.
 - Use the shared spacing scale: 4, 8, 12, 16, and 24 pixels.
 - Radii: 6 pixels for controls (`rounded-lg`), 9 for panels (`rounded-xl`), 12 for the hero
   (`rounded-2xl`). Surfaces use tonal layering and hairline rings; only floating layers (menus,

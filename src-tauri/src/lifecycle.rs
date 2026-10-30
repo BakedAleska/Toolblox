@@ -155,6 +155,13 @@ pub fn install_tray(
             }
             _ => {}
         });
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .icon(tauri::include_image!("icons/tray-template.png"))
+            .icon_as_template(true);
+    }
+    #[cfg(not(target_os = "macos"))]
     if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
     }
@@ -216,14 +223,14 @@ impl fmt::Display for LifecycleError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::Tray => "The tray icon couldn't open. Would turning off background mode help?",
-            Self::Hide => "Toolblox couldn't hide safely. Would closing it again help?",
+            Self::Hide => "Toolblox couldn't hide its window. Would closing it again help?",
             Self::Restore => "Toolblox couldn't restore its window. Would reopening it help?",
             Self::MissingMainWindow => {
                 "The Toolblox window isn't ready yet. Would waiting for startup help?"
             }
             #[cfg(test)]
             Self::Autostart => {
-                "The startup setting couldn't be changed. Does this account allow startup apps?"
+                "The startup setting couldn't be changed. Does the operating system allow startup apps?"
             }
         })
     }

@@ -239,7 +239,7 @@ manifest itself. Each produces a `failed` phase with its own message:
 | `TOOLBLOX_UPDATE_MANIFEST_URL` missing or not `https://` at compile time | This build doesn't have a secure update endpoint. Reinstall Toolblox from the official release? |
 | `TOOLBLOX_MANIFEST_PUBLIC_KEY` missing | This build doesn't have an update manifest key. Reinstall Toolblox from the official release? |
 | `TOOLBLOX_UPDATER_PUBLIC_KEY` missing | This build doesn't have an updater key. Reinstall Toolblox from the official release? |
-| Manifest request fails | Toolblox couldn't check for updates. Is your connection working? |
+| Manifest request fails | Toolblox couldn't check for updates. Is the connection working? |
 | Manifest HTTP status isn't 2xx | The update service returned status N. Can you try again? |
 | Manifest over 1 MB | The update information is larger than 1 MB. |
 | Signature request fails / non-2xx / over 8 KB | The update signature couldn't be downloaded… / isn't available… / is too large. |

@@ -25,9 +25,9 @@ and each method's requirement by `permission_for_method` in
 | `widgetData.read` | [`widgetData.get`](/docs/widgets/reference/ipc/#widgetdataget) | read its own account data |
 | `widgetData.write` | [`widgetData.set`](/docs/widgets/reference/ipc/#widgetdataset) | write its own account data |
 | `roblox.status` | [`roblox.status`](/docs/widgets/reference/ipc/#robloxstatus) | read account presence |
-| `roblox.join` | [`roblox.join`](/docs/widgets/reference/ipc/#robloxjoin) | join games with your accounts |
+| `roblox.join` | [`roblox.join`](/docs/widgets/reference/ipc/#robloxjoin) | join games with accounts |
 | `network.fetch` | [`network.fetch`](/docs/widgets/reference/ipc/#networkfetch) | contact approved websites |
-| `process.spawn` | [`process.spawn`](/docs/widgets/reference/ipc/#processspawn), [`process.send`](/docs/widgets/reference/ipc/#processsend), [`process.poll`](/docs/widgets/reference/ipc/#processpoll), [`process.stop`](/docs/widgets/reference/ipc/#processstop) | run native code as your user |
+| `process.spawn` | [`process.spawn`](/docs/widgets/reference/ipc/#processspawn), [`process.send`](/docs/widgets/reference/ipc/#processsend), [`process.poll`](/docs/widgets/reference/ipc/#processpoll), [`process.stop`](/docs/widgets/reference/ipc/#processstop) | run native code as the current user |
 
 `log.write` needs no permission. Every session may call it.
 

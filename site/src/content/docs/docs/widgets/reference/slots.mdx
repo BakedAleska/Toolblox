@@ -129,7 +129,7 @@ slot.
 
 Each contribution renders inside its own error boundary, keyed by widget ID and position. If a
 contribution throws while rendering, only that contribution is replaced with an inline message,
-`<widget name> failed to render. (<error>)`, with `role="alert"`, and the error and component
+`<widget name> failed to render. Does reinstalling it help? (<error>)`, with `role="alert"`, and the error and component
 stack are logged under `widget:<id>`. Other contributions in the slot and the rest of the screen
 keep working. A slot with no contributions renders nothing at all, including its wrapper.
 

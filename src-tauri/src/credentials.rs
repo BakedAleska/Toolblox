@@ -63,11 +63,11 @@ impl fmt::Display for CredentialError {
             #[cfg(not(any(windows, target_os = "macos")))]
             Self::Unsupported => write!(
                 formatter,
-                "Secure session storage isn't supported here. Can you use Windows or macOS?"
+                "Secure session storage isn't supported on this platform. Is this device running Windows or macOS?"
             ),
             Self::Platform => write!(
                 formatter,
-                "Toolblox couldn't access secure session storage. Is it unlocked?"
+                "Toolblox couldn't access secure session storage. Is the credential store unlocked?"
             ),
         }
     }

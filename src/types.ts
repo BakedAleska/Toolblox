@@ -32,6 +32,7 @@ export interface WidgetSummary {
   description: string;
   icon?: string;
   logoUrl?: string;
+  bannerUrl?: string;
   enabled: boolean;
   version?: string;
   availableVersion?: string;
@@ -52,6 +53,7 @@ export interface CatalogueEntry {
   description: string;
   icon?: string;
   logoUrl?: string;
+  bannerUrl?: string;
   version: string;
   permissions: string[];
 }
@@ -71,7 +73,8 @@ export interface Settings {
   showGameNames: boolean;
   notifyOnDrop: boolean;
   alwaysOnTop: boolean;
-  alwaysAnimate: boolean;
+  showAnimations: boolean;
+  ignoreReducedMotion: boolean;
 }
 
 /** A game found by name, with the place a join opens. */
@@ -116,7 +119,7 @@ export interface AppState {
   safeMode: boolean;
 }
 
-export type AppRoute = "/" | "/accounts" | "/accounts/places" | "/widgets" | "/settings" | "/settings/css" | `/widgets/${string}`;
+export type AppRoute = "/" | "/accounts" | "/accounts/places" | "/widgets" | "/settings" | "/settings/css" | "/settings/log" | `/widgets/${string}`;
 
 export type StartupStatus =
   | { phase: "checking" }

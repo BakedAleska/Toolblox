@@ -27,7 +27,7 @@ const MAX_FILE_BYTES: u64 = 1_000_000;
 const BACKUPS: usize = 3;
 /// Longest message kept per record, in bytes. Longer messages are cut.
 pub const MAX_MESSAGE_BYTES: usize = 8 * 1024;
-/// Most lines [`tail`] returns.
+/// Most lines [`tail`] returns when given a count.
 pub const MAX_TAIL_LINES: usize = 2_000;
 /// Target of records logged from the crate root, shown as `toolblox`.
 const CRATE_ROOT: &str = "toolblox_lib";
@@ -189,12 +189,14 @@ pub fn directory() -> Option<&'static Path> {
 }
 
 /// Returns up to `lines` of the most recent log lines, oldest first, reading into rotated files
-/// when the current one is shorter.
-pub fn tail(lines: usize) -> Result<String, String> {
-    let directory = directory().ok_or_else(|| {
-        "Logging didn't start. Can you check that the data folder is writable?".to_string()
-    })?;
-    tail_in(directory, lines.clamp(1, MAX_TAIL_LINES))
+/// when the current one is shorter. `None` returns every line of every file.
+pub fn tail(lines: Option<usize>) -> Result<String, String> {
+    let directory = directory()
+        .ok_or_else(|| "Logging couldn't start. Is the data folder writable?".to_string())?;
+    tail_in(
+        directory,
+        lines.map_or(usize::MAX, |lines| lines.clamp(1, MAX_TAIL_LINES)),
+    )
 }
 
 fn tail_in(directory: &Path, lines: usize) -> Result<String, String> {
@@ -545,6 +547,18 @@ mod tests {
         let lines: Vec<_> = tail.lines().collect();
         assert_eq!(lines.len(), 12);
         assert_eq!(lines.last(), Some(&"last"));
+        let stored: usize = [
+            directory.path().join(FILE_NAME),
+            names(1),
+            names(2),
+            names(3),
+        ]
+        .iter()
+        .map(|path| fs::read_to_string(path).unwrap().lines().count())
+        .sum();
+        let all = tail_in(directory.path(), usize::MAX).unwrap();
+        assert_eq!(all.lines().count(), stored);
+        assert_eq!(all.lines().last(), Some("last"));
     }
 
     #[test]
@@ -555,7 +569,7 @@ mod tests {
         log::warn!(target: "widget:sample", "cookie: .ROBLOSECURITY=SECRET-COOKIE");
         log::info!(target: "tauri::noise", "dropped below warn");
         log::logger().flush();
-        let tail = tail(10).unwrap();
+        let tail = tail(Some(10)).unwrap();
         assert!(
             tail.contains("INFO  logs::tests: joined with roblox-player:[redacted]"),
             "{tail}"

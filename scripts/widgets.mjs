@@ -42,7 +42,7 @@ export function readWidget(folder) {
   if (typeof manifest.description !== "string" || !manifest.description.trim()) fail("the manifest needs a description.");
   if (!SEMVER.test(manifest.version ?? "")) fail("the version isn't valid SemVer.");
   if (!manifest.module && !manifest.entry) fail("the manifest must declare a module or an entry page.");
-  for (const key of ["module", "entry", "settingsEntry", "dashboardEntry", "icon"]) {
+  for (const key of ["module", "entry", "settingsEntry", "dashboardEntry", "icon", "banner"]) {
     if (manifest[key] && !files.includes(manifest[key])) fail(`${manifest[key]} is missing.`);
   }
   const permissions = manifest.permissions ?? [];
@@ -111,7 +111,7 @@ export function packageWidgets(widgetsRoot, outputRoot, baseUrl) {
       const path = `${id}/${manifest.version}`;
       mkdirSync(join(outputRoot, path), { recursive: true });
       writeFileSync(join(outputRoot, path, "package.zip"), archive);
-      if (manifest.icon) copyFileSync(join(folder, manifest.icon), join(outputRoot, path, manifest.icon.split("/").at(-1)));
+      for (const image of [manifest.icon, manifest.banner]) if (image) copyFileSync(join(folder, image), join(outputRoot, path, image.split("/").at(-1)));
       return {
         id,
         name: manifest.name,
@@ -121,6 +121,7 @@ export function packageWidgets(widgetsRoot, outputRoot, baseUrl) {
         sha256: createHash("sha256").update(archive).digest("hex"),
         permissions: manifest.permissions ?? [],
         ...(manifest.icon && { iconUrl: `${baseUrl}${path}/${manifest.icon.split("/").at(-1)}` }),
+        ...(manifest.banner && { bannerUrl: `${baseUrl}${path}/${manifest.banner.split("/").at(-1)}` }),
       };
     });
 }

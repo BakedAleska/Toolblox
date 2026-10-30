@@ -16,19 +16,22 @@ function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props) {
   return <MenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />
 }
 
+/** A menu popup. `arrow` points it at its trigger; menus that sit flush with a field turn it off. */
 function DropdownMenuContent({
   align = "start",
   alignOffset = 0,
   side = "bottom",
-  sideOffset = 4,
+  arrow = true,
+  sideOffset = arrow ? 10 : 4,
   anchor,
   className,
+  children,
   ...props
 }: MenuPrimitive.Popup.Props &
   Pick<
     MenuPrimitive.Positioner.Props,
     "align" | "alignOffset" | "side" | "sideOffset" | "anchor"
-  >) {
+  > & { arrow?: boolean }) {
   return (
     <MenuPrimitive.Portal>
       <MenuPrimitive.Positioner
@@ -41,9 +44,17 @@ function DropdownMenuContent({
       >
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"
-          className={cn("z-50 max-h-(--available-height) w-(--anchor-width) min-w-32 overflow-x-hidden overflow-y-auto rounded-xl bg-popover p-1 text-popover-foreground shadow-lg shadow-shadow/10 ring-1 ring-foreground/10 outline-none data-closed:overflow-hidden", anchoredMotion, className)}
+          className={cn("z-50 flex max-h-(--available-height) w-(--anchor-width) min-w-32 flex-col rounded-xl bg-popover text-popover-foreground shadow-lg shadow-shadow/10 ring-1 ring-foreground/10 outline-none", anchoredMotion, className)}
           {...props}
-        />
+        >
+          {arrow && <MenuPrimitive.Arrow className="data-[side=bottom]:-top-2 data-[side=left]:-right-3.25 data-[side=left]:rotate-90 data-[side=right]:-left-3.25 data-[side=right]:-rotate-90 data-[side=top]:-bottom-2 data-[side=top]:rotate-180">
+            <svg width="20" height="10" viewBox="0 0 20 10" fill="none" aria-hidden="true">
+              <path d="M9.66437 2.60207L4.80758 6.97318C4.07308 7.63423 3.11989 8 2.13172 8H0V10H20V8H18.5349C17.5468 8 16.5936 7.63423 15.8591 6.97318L11.0023 2.60207C10.622 2.2598 10.0447 2.25979 9.66437 2.60207Z" className="fill-popover" />
+              <path d="M8.99542 1.85876C9.75604 1.17425 10.9106 1.17422 11.6713 1.85878L16.5281 6.22989C17.0789 6.72568 17.7938 7 18.5349 7L15.89 7L11.0023 2.60207C10.622 2.2598 10.0447 2.2598 9.66436 2.60207L4.77734 7L2.13171 7C2.87284 7 3.58774 6.72568 4.13861 6.22989L8.99542 1.85876Z" className="fill-foreground/10" />
+            </svg>
+          </MenuPrimitive.Arrow>}
+          <div className="min-h-0 overflow-x-hidden overflow-y-auto rounded-xl p-1">{children}</div>
+        </MenuPrimitive.Popup>
       </MenuPrimitive.Positioner>
     </MenuPrimitive.Portal>
   )
@@ -135,7 +146,8 @@ function DropdownMenuSubContent({
   return (
     <DropdownMenuContent
       data-slot="dropdown-menu-sub-content"
-      className={cn("w-auto min-w-[96px] rounded-xl bg-popover p-1 text-popover-foreground shadow-lg shadow-shadow/10 ring-1 ring-foreground/10", anchoredMotion, className)}
+      arrow={false}
+      className={cn("w-auto min-w-[96px] rounded-xl bg-popover text-popover-foreground shadow-lg shadow-shadow/10 ring-1 ring-foreground/10", anchoredMotion, className)}
       align={align}
       alignOffset={alignOffset}
       side={side}

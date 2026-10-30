@@ -189,6 +189,13 @@ that don't resolve to a file in the package also show the generic icon. The cata
 is what appears on catalogue cards. See
 [Catalogue](/docs/widgets/publishing/catalogue/).
 
+### `banner`
+
+An optional path to an image in the package, such as `banner.png`, shown across the top of the
+widget's card. The catalogue's `bannerUrl` is what appears on catalogue cards. It's cropped to fill a wide strip, so a 7:3 image of at least 700×300
+pixels fits best. Animated GIFs play. Widgets without one, or with a path that doesn't resolve,
+show their `icon` blurred instead.
+
 ### `permissions`
 
 The permissions the widget requests, as an array of unique strings:

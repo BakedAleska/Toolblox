@@ -1,11 +1,12 @@
-import { Copy, ExternalLink, FolderOpen, RefreshCw } from "lucide-react";
+import { ArrowLeft, Code, Copy, ExternalLink, FolderOpen, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { bridge, describeError, isDemo, previewUpdater } from "@/bridge";
 import type { ThemeStore } from "@/lib/theme";
+import { newestFirst } from "@/logic";
 import { ThemesTab } from "@/screens/Themes";
-import { ChoiceRow, Group, Panel, Screen, SettingRow, Spinner, SwitchRow, type ScreenProps } from "@/shared";
+import { ChoiceRow, Group, IconButton, Panel, Screen, SettingRow, Spinner, SwitchRow, type ScreenProps } from "@/shared";
 
 type Tab = "general" | "accounts" | "themes";
 /** The last open tab, so returning from a settings subpage shows the tab it was opened from. */
@@ -16,12 +17,12 @@ const columns = "grid items-start gap-4 @5xl:grid-cols-2";
 
 
 export function SettingsScreen({ themes, ...props }: ScreenProps & { themes: ThemeStore }) {
-  const { state, notify, patchSettings } = props;
+  const { state, patchSettings } = props;
   const [tab, setTab] = useState<Tab>(lastTab);
   useEffect(() => { lastTab = tab; }, [tab]);
   const { settings } = state;
 
-  return <Screen title="Settings">
+  return <Screen title="Settings" tools={tab === "themes" && <IconButton label="Custom CSS" className="text-muted-foreground" onClick={() => props.navigate("/settings/css")}><Code /></IconButton>}>
     <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)} className="gap-4">
       <TabsList className="bg-transparent p-0">
         <TabsTrigger value="general" className="flex-none px-3">General</TabsTrigger>
@@ -31,22 +32,16 @@ export function SettingsScreen({ themes, ...props }: ScreenProps & { themes: The
 
       <TabsContent value="general" className={columns}>
         <Group title="Layout"><Panel className="divide-y">
-          <SwitchRow title="Always animate" description="Ignore the system reduced motion setting." checked={settings.alwaysAnimate} change={(value) => void patchSettings("alwaysAnimate", value)} />
+          <SwitchRow title="Show animations" checked={settings.showAnimations} change={(value) => void patchSettings("showAnimations", value)} />
+          <SwitchRow title="Ignore system reduced motion" checked={settings.ignoreReducedMotion} disabled={!settings.showAnimations} change={(value) => void patchSettings("ignoreReducedMotion", value)} />
           <ChoiceRow title="Sidebar position" value={settings.sidebarPosition} options={[{ value: "left", label: "Left" }, { value: "right", label: "Right" }]} change={(value) => void patchSettings("sidebarPosition", value)} />
         </Panel></Group>
         <Group title="Window"><Panel className="divide-y">
-          <SwitchRow title="Launch at startup" description="Open Toolblox at sign-in." checked={settings.openOnLaunch} change={(value) => void patchSettings("openOnLaunch", value)} />
-          <SwitchRow title="Run in background" description={`Keep running in the ${state.platform === "macos" ? "menu bar" : "system tray"} after the window closes.`} checked={settings.runInBackground} change={(value) => void patchSettings("runInBackground", value)} />
+          <SwitchRow title="Launch at startup" checked={settings.openOnLaunch} change={(value) => void patchSettings("openOnLaunch", value)} />
+          <SwitchRow title="Run in background" checked={settings.runInBackground} change={(value) => void patchSettings("runInBackground", value)} />
           <SwitchRow title="Always on top" checked={settings.alwaysOnTop} change={(value) => void patchSettings("alwaysOnTop", value)} />
-          {!isDemo() && <div className="flex items-center justify-between gap-4 px-4 py-3">
-            <div className="min-w-0">
-              <p className="text-sm font-medium">Mini mode</p>
-              <p className="text-xs text-muted-foreground">Shrink to a small account list that stays on top. Messages appear as system notifications.</p>
-            </div>
-            <Button variant="outline" size="sm" onClick={props.openMini}>Open</Button>
-          </div>}
         </Panel></Group>
-        <LogGroup logsPath={state.logsPath} notify={notify} />
+        <LogGroup navigate={props.navigate} />
         <Group title="About"><Panel className="divide-y">
           {isDemo() && <div className="flex items-center gap-2 px-4 py-3">
             <span className="mr-auto text-xs text-muted-foreground">Startup update previews</span>
@@ -70,16 +65,16 @@ export function SettingsScreen({ themes, ...props }: ScreenProps & { themes: The
         <Group title="List"><Panel className="divide-y">
           <ChoiceRow title="Sort order" value={settings.sortOrder} options={[{ value: "last_played", label: "Last played" }, { value: "alphabetical", label: "A–Z" }, { value: "manual", label: "Manual" }]} change={(value) => void patchSettings("sortOrder", value)} />
           <SwitchRow title="Show avatars" checked={settings.showAvatars} change={(value) => void patchSettings("showAvatars", value)} />
-          <SwitchRow title="Compact list" description="Hide notes and reduce row height." checked={settings.compactMode} change={(value) => void patchSettings("compactMode", value)} />
-          <SwitchRow title="Game details" description="Show the game for accounts in game. Uses extra requests to Roblox." checked={settings.showGameNames} change={(value) => void patchSettings("showGameNames", value)} />
+          <SwitchRow title="Compact list" checked={settings.compactMode} change={(value) => void patchSettings("compactMode", value)} />
+          <SwitchRow title="Show game names" checked={settings.showGameNames} change={(value) => void patchSettings("showGameNames", value)} />
         </Panel></Group>
         <Group title="Joining"><Panel className="divide-y">
-          <SwitchRow title="Minimize on join" description="Applies to manual joins." checked={settings.minimizeOnJoin} change={(value) => void patchSettings("minimizeOnJoin", value)} />
-          <SwitchRow title="Multiple instances" description="Run several Roblox clients at once." checked={settings.multiInstance} change={(value) => void patchSettings("multiInstance", value)} />
+          <SwitchRow title="Minimize on join" checked={settings.minimizeOnJoin} change={(value) => void patchSettings("minimizeOnJoin", value)} />
+          <SwitchRow title="Multiple instances" checked={settings.multiInstance} change={(value) => void patchSettings("multiInstance", value)} />
         </Panel></Group>
         <Group title="Disconnects"><Panel className="divide-y">
-          <SwitchRow title="Auto-rejoin" description="Pauses after repeated failures." checked={settings.autoRejoin} change={(value) => void patchSettings("autoRejoin", value)} />
-          <SwitchRow title="Disconnect notifications" description="When an account leaves a game or auto-rejoin pauses." checked={settings.notifyOnDrop} change={(value) => void patchSettings("notifyOnDrop", value)} />
+          <SwitchRow title="Auto-rejoin" checked={settings.autoRejoin} change={(value) => void patchSettings("autoRejoin", value)} />
+          <SwitchRow title="Disconnect notifications" checked={settings.notifyOnDrop} change={(value) => void patchSettings("notifyOnDrop", value)} />
         </Panel></Group>
       </TabsContent>
 
@@ -90,39 +85,37 @@ export function SettingsScreen({ themes, ...props }: ScreenProps & { themes: The
   </Screen>;
 }
 
-/** Lines shown in the log view. Copying includes up to 2,000. */
-const LOG_VIEW_LINES = 300;
+function LogGroup({ navigate }: Pick<ScreenProps, "navigate">) {
+  return <Group title="Diagnostics"><Panel className="divide-y">
+    <SettingRow title="Logs" control={() =>
+      <Button variant="outline" size="sm" aria-label="View log" onClick={() => navigate("/settings/log")}>View</Button>} />
+  </Panel></Group>;
+}
 
-function LogGroup({ logsPath, notify }: { logsPath: string; notify: (message: string) => void }) {
-  const [open, setOpen] = useState(false);
+/** The recent log on its own page, opened from Settings → General. */
+export function LogScreen({ state, notify, navigate }: ScreenProps) {
   const [log, setLog] = useState<string>();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const view = useRef<HTMLPreElement>(null);
   const load = async () => {
     setLoading(true);
-    try { setLog(await bridge.readLog(LOG_VIEW_LINES)); }
-    catch (error) { setLog(undefined); notify(`The log couldn't be read. Does reopening Settings help? (${describeError(error)})`); }
+    try { setLog(newestFirst(await bridge.readFullLog())); }
+    catch (error) { setLog(undefined); notify(`The log couldn't be read. Does refreshing help? (${describeError(error)})`); }
     finally { setLoading(false); }
   };
   const copy = async () => {
-    try { await navigator.clipboard.writeText(await bridge.readLog(2000) || "The log is empty."); notify("Copied."); }
-    catch (error) { notify(`The log wasn't copied. Does retrying help? (${describeError(error)})`); }
+    try { await navigator.clipboard.writeText(await bridge.readFullLog() || "The log is empty."); notify("Log copied."); }
+    catch (error) { notify(`The log couldn't be copied. Does retrying help? (${describeError(error)})`); }
   };
   const openFolder = () => bridge.openLogFolder().catch((error) => notify(`The log folder couldn't be opened. Does it still exist? (${describeError(error)})`));
-  useEffect(() => { if (view.current) view.current.scrollTop = view.current.scrollHeight; }, [log]);
+  useEffect(() => { void load(); }, []);
+  useEffect(() => { if (view.current) view.current.scrollTop = 0; }, [log]);
 
-  return <Group title="Diagnostics"><Panel className="divide-y">
-    <SettingRow title="Log" description="Recent activity and errors, with sign-in data removed." control={() => <div className="flex flex-wrap gap-2">
-      <Button variant="outline" size="sm" aria-label={open ? "Hide log" : "Show log"} aria-expanded={open} aria-controls="log-view" onClick={() => { setOpen(!open); if (!open) void load(); }}>{open ? "Hide" : "Show"}</Button>
-      <Button variant="outline" size="sm" aria-label="Copy log" onClick={() => void copy()}><Copy />Copy</Button>
-      <Button variant="outline" size="sm" onClick={() => void openFolder()} disabled={!logsPath} title={logsPath || undefined}><FolderOpen />Open folder</Button>
-    </div>} />
-    {open && <div id="log-view" className="flex flex-col gap-2 px-4 py-3">
-      <div className="flex items-center gap-2">
-        <p className="mr-auto text-xs text-muted-foreground" aria-live="polite">{loading ? "Loading…" : `Last ${LOG_VIEW_LINES} lines, oldest first.`}</p>
-        <Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading}>{loading ? <Spinner /> : <RefreshCw />}Refresh</Button>
-      </div>
-      <pre ref={view} tabIndex={0} aria-label="Recent log lines" className="max-h-64 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed whitespace-pre text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">{log || (loading ? "" : "The log is empty.")}</pre>
-    </div>}
-  </Panel></Group>;
+  return <Screen title="Logs" actions={<IconButton label="Back to settings" onClick={() => navigate("/settings")}><ArrowLeft /></IconButton>} toolbar={<>
+    <Button variant="ghost" size="sm" className="ml-auto" onClick={() => void load()} disabled={loading}>{loading ? <Spinner /> : <RefreshCw />}Refresh</Button>
+    <Button variant="outline" size="sm" aria-label="Copy log" onClick={() => void copy()}><Copy />Copy</Button>
+    <Button variant="outline" size="sm" onClick={() => void openFolder()} disabled={!state.logsPath} title={state.logsPath || undefined}><FolderOpen />Open folder</Button>
+  </>}>
+    <pre ref={view} tabIndex={0} aria-label="Logs, newest first" className="h-0 min-h-40 flex-1 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed whitespace-pre text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">{log || (loading ? "" : "The log is empty.")}</pre>
+  </Screen>;
 }

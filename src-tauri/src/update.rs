@@ -109,9 +109,11 @@ pub enum ReleaseError {
 impl fmt::Display for ReleaseError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
-            Self::BadSignature => "The update information couldn't be verified. Try again?".into(),
+            Self::BadSignature => {
+                "The update information couldn't be verified. Can you try again?".into()
+            }
             Self::InvalidManifest(reason) => {
-                format!("The update information is invalid ({reason}). Try again?")
+                format!("The update information isn't valid ({reason}). Can you try again?")
             }
             Self::UnsupportedSchema(version) => format!(
                 "This updater can't read update format {version}. Would reinstalling Toolblox help?"
@@ -126,16 +128,16 @@ impl fmt::Display for ReleaseError {
                 "The update information is dated in the future. Is the system clock correct?".into()
             }
             Self::Expired => {
-                "The update information has expired. Check the connection and try again?".into()
+                "The update information has expired. Is the connection working?".into()
             }
             Self::ExcessiveLifetime => {
-                "The update information is valid for too long. Try again?".into()
+                "The update information has an excessive validity period. Can you try again?".into()
             }
             Self::Rollback { .. } => {
-                "The update service offered an older release. Try again later?".into()
+                "The update service offered an older release. Can you try again later?".into()
             }
             Self::Persistence(reason) => {
-                format!("The verified version couldn't be saved ({reason}). Try again?")
+                format!("The verified version couldn't be saved ({reason}). Can you try again?")
             }
         };
         formatter.write_str(&message)

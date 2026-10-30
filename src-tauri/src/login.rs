@@ -65,10 +65,10 @@ pub enum LoginError {
 impl fmt::Display for LoginError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
-            Self::AlreadyOpen => "The Roblox sign-in window is already open. Can you use it?",
+            Self::AlreadyOpen => "The Roblox sign-in window is already open. Can you continue in that window?",
             Self::Window => "The Roblox sign-in window couldn't open. Would trying again help?",
             Self::CookieRead => "The Roblox session couldn't be read. Would signing in again help?",
-            Self::Network => "Toolblox couldn't reach Roblox. Is your connection working?",
+            Self::Network => "Toolblox couldn't reach Roblox. Is the connection working?",
             Self::InvalidSession => "Roblox didn't accept the session. Would signing in again help?",
             Self::CredentialStore => {
                 "The Roblox session couldn't be stored securely. Is the credential store available?"
@@ -77,7 +77,7 @@ impl fmt::Display for LoginError {
                 "The temporary Roblox browsing data couldn't be cleared. Would restarting Toolblox help?"
             }
             Self::WrongAccount => {
-                "That's a different Roblox account. Can you sign in as the account you chose?"
+                "The signed-in Roblox account doesn't match. Can you sign in with the selected account?"
             }
         })
     }

@@ -4,5 +4,6 @@
   "name": "Hello, world!",
   "version": "1.0.0",
   "description": "The example widget in development builds. Start a new widget from it.",
+  "banner": "banner.gif",
   "module": "main.js"
 }

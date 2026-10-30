@@ -62,8 +62,10 @@ pub struct Settings {
     /// Notify when an account leaves a game.
     pub notify_on_drop: bool,
     pub always_on_top: bool,
-    /// Play animations even when the OS asks for reduced motion.
-    pub always_animate: bool,
+    /// Animate transitions, menus, and notifications.
+    pub show_animations: bool,
+    /// Play full animations even when the OS asks for reduced motion.
+    pub ignore_reduced_motion: bool,
     /// Recently used places, newest first.
     pub recent_places: Vec<RecentPlace>,
     /// Unknown fields, kept when saving.
@@ -107,7 +109,8 @@ impl Default for Settings {
             show_game_names: true,
             notify_on_drop: false,
             always_on_top: false,
-            always_animate: false,
+            show_animations: true,
+            ignore_reduced_motion: false,
             recent_places: Vec::new(),
             extra: Map::new(),
         }
@@ -257,7 +260,7 @@ impl StoredAccount {
     /// Records a manual join at `timestamp` (Unix seconds) to `place_id`.
     pub fn record_play(&mut self, timestamp: f64, place_id: &str) -> Result<(), String> {
         if !timestamp.is_finite() || timestamp < 0.0 {
-            return Err("The play time wasn't valid. Can you try joining again?".into());
+            return Err("The play time isn't valid. Can you try joining again?".into());
         }
         self.play_count = self.play_count.saturating_add(1);
         self.last_played_at = Some(timestamp);

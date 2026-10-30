@@ -34,28 +34,31 @@ export function Widgets({ state, refresh, navigate, notify, confirm }: ScreenPro
         update={() => confirm({ title: `Update ${widget.name}?`, message: widget.availablePermissions?.length ? `Requested permissions: ${permissionSummary(widget.availablePermissions)}. No other access is granted.` : "This version requests no special permissions.", action: "Update", run: () => run(widget.id, () => bridge.updateWidget(widget.id), `${widget.name} couldn't be updated.`) })}
         error={errors.get(widget.id)}
         settings={widget.hasSettings || widget.canStartOnLaunch || settingsPages.has(widget.id) ? () => navigate(`/widgets/${widget.id}/settings`) : undefined}
-        uninstall={() => confirm({ title: `Uninstall ${widget.name}?`, message: "Removes the widget and its settings from this device.", action: "Uninstall", danger: true, run: () => run(widget.id, () => bridge.uninstallWidget(widget.id), `${widget.name} couldn't be uninstalled.`) })} />)}</div>
+        uninstall={() => confirm({ title: `Uninstall ${widget.name}?`, message: "This removes the widget and its settings from this device.", action: "Uninstall", danger: true, run: () => run(widget.id, () => bridge.uninstallWidget(widget.id), `${widget.name} couldn't be uninstalled.`) })} />)}</div>
     </section>}
 
     <section className="flex flex-col gap-2" aria-labelledby="catalogue-title">
       <SectionTitle><span id="catalogue-title">Catalogue</span>{!state.catalogueError && !state.catalogue.length && <span className="ml-2 font-normal text-muted-foreground/80">No widgets available</span>}</SectionTitle>
       {state.catalogueError ? <Panel className="flex items-center gap-3 px-4 py-3">
-        <p className="flex-1 text-sm text-destructive">The catalogue failed to load. Is the connection working? ({state.catalogueError})</p>
-        <Button variant="outline" size="sm" disabled={working.has("catalogue")} onClick={() => void run("catalogue", () => bridge.retryCatalogue(), "The catalogue failed to refresh.")}>{working.has("catalogue") ? <Spinner /> : <RefreshCw />}Retry</Button>
+        <p className="flex-1 text-sm text-destructive">The catalogue couldn't be loaded. Is the connection working? ({state.catalogueError})</p>
+        <Button variant="outline" size="sm" disabled={working.has("catalogue")} onClick={() => void run("catalogue", () => bridge.retryCatalogue(), "The catalogue couldn't be refreshed.")}>{working.has("catalogue") ? <Spinner /> : <RefreshCw />}Retry</Button>
       </Panel>
-        : state.catalogue.length ? <div className={grid}>{state.catalogue.map((entry) => <WidgetCard key={entry.id} name={entry.name} logoUrl={entry.logoUrl} meta={`v${entry.version}`} description={entry.description} permissions={entry.permissions}
+        : state.catalogue.length ? <div className={grid}>{state.catalogue.map((entry) => <WidgetCard key={entry.id} name={entry.name} logoUrl={entry.logoUrl} bannerUrl={entry.bannerUrl} meta={`v${entry.version}`} description={entry.description} permissions={entry.permissions}
           footer={<Button variant="outline" size="sm" className="ml-auto" disabled={working.has(entry.id)} onClick={() => install(entry)}>{working.has(entry.id) ? <Spinner /> : <Plus />}Install</Button>} />)}</div>
         : null}
     </section>
   </Screen>;
 }
 
-function WidgetCard({ name, logoUrl, meta, description, permissions, active = true, action, footer }: { name: string; logoUrl?: string; meta?: string; description: string; permissions: string[]; active?: boolean; action?: ReactNode; footer: ReactNode }) {
+function WidgetCard({ name, logoUrl, bannerUrl, meta, description, permissions, active = true, action, footer }: { name: string; logoUrl?: string; bannerUrl?: string; meta?: string; description: string; permissions: string[]; active?: boolean; action?: ReactNode; footer: ReactNode }) {
   const [failed, setFailed] = useState(false);
+  const [bannerFailed, setBannerFailed] = useState(false);
   const logo = logoUrl && !failed ? logoUrl : undefined;
+  const banner = bannerUrl && !bannerFailed ? bannerUrl : undefined;
   return <Panel className="flex flex-col overflow-hidden">
     <div className={cn("relative h-20 overflow-hidden bg-muted transition-[filter]", !active && "grayscale")} aria-hidden="true">
-      {logo && <img src={logo} alt="" className="absolute inset-0 size-full scale-150 object-cover opacity-60 blur-2xl" />}
+      {banner ? <img src={banner} alt="" className="absolute inset-0 size-full object-cover" onError={() => setBannerFailed(true)} />
+        : logo && <img src={logo} alt="" className="absolute inset-0 size-full scale-150 object-cover opacity-60 blur-2xl" />}
       <div className="absolute inset-0 bg-linear-to-t from-card to-transparent" />
     </div>
     <div className="flex flex-1 flex-col gap-3 px-4 pb-4">
@@ -80,7 +83,7 @@ function WidgetCard({ name, logoUrl, meta, description, permissions, active = tr
 
 function InstalledCard({ widget, busy, error, open, toggle, update, settings, uninstall }: { widget: WidgetSummary; busy: boolean; error?: string; open: () => void; toggle: (enabled: boolean) => void; update: () => void; settings?: () => void; uninstall: () => void }) {
   const updateAvailable = widget.availableVersion && widget.availableVersion !== widget.version;
-  return <WidgetCard name={widget.name} logoUrl={widget.logoUrl} meta={widget.version ? `v${widget.version}` : undefined} description={widget.description} permissions={widget.permissions} active={widget.enabled}
+  return <WidgetCard name={widget.name} logoUrl={widget.logoUrl} bannerUrl={widget.bannerUrl} meta={widget.version ? `v${widget.version}` : undefined} description={widget.description} permissions={widget.permissions} active={widget.enabled}
     action={<Switch checked={widget.enabled} disabled={busy} onCheckedChange={(value) => toggle(value)} aria-label={`Enable ${widget.name}`} />}
     footer={<>
       <Button variant="outline" size="sm" disabled={!widget.enabled} onClick={open}>Open</Button>

@@ -42,14 +42,13 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root:not([data-always-animate]) :is(*, *::before, *::after) {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-  :root:not([data-always-animate]) .animate-spin {
-    animation-duration: 2s !important;
-    animation-iteration-count: infinite !important;
-  }
+/* Set by `useMotion` in App.tsx. */
+:root[data-motion] :is(*, *::before, *::after) {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+:root[data-motion] .animate-spin {
+  animation-duration: 2s !important;
+  animation-iteration-count: infinite !important;
 }

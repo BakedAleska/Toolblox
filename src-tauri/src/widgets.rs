@@ -45,6 +45,9 @@ pub struct WidgetManifest {
     pub description: String,
     #[serde(default)]
     pub icon: Option<String>,
+    /// Image in the package shown across the top of the widget's card.
+    #[serde(default)]
+    pub banner: Option<String>,
     #[serde(default)]
     pub permissions: Vec<WidgetPermission>,
     /// Bare HTTPS origins the widget may fetch. Requires `network.fetch`.
@@ -126,6 +129,8 @@ pub struct CatalogueEntry {
     pub permissions: Vec<WidgetPermission>,
     #[serde(default)]
     pub icon_url: Option<String>,
+    #[serde(default)]
+    pub banner_url: Option<String>,
 }
 
 /// A widget installed on this device.
@@ -213,7 +218,7 @@ impl WidgetManifest {
             validate_process_id(&process.id)?;
             validate_relative_file(&process.executable, "process executable")?;
             if !process.executable.starts_with("optional-bin/") {
-                return Err("Widget processes must live under optional-bin/.".into());
+                return Err("Widget processes must be located in optional-bin/.".into());
             }
             if !process_ids.insert(&process.id) {
                 return Err("The widget manifest contains duplicate process IDs.".into());
@@ -384,18 +389,22 @@ pub fn discover_installed(widgets_root: &Path) -> Vec<Result<InstalledWidget, St
 
 /// The Hello, world! example widget, compiled into development builds only.
 #[cfg(debug_assertions)]
-const EXAMPLE_WIDGET: [(&str, &str); 3] = [
+const EXAMPLE_WIDGET: [(&str, &[u8]); 4] = [
     (
         "widget.json",
-        include_str!("../../examples/hello_world/widget.json"),
+        include_bytes!("../../examples/hello_world/widget.json"),
     ),
     (
         "main.js",
-        include_str!("../../examples/hello_world/main.js"),
+        include_bytes!("../../examples/hello_world/main.js"),
+    ),
+    (
+        "banner.gif",
+        include_bytes!("../../examples/hello_world/banner.gif"),
     ),
     (
         "LICENSE",
-        include_str!("../../examples/hello_world/LICENSE"),
+        include_bytes!("../../examples/hello_world/LICENSE"),
     ),
 ];
 
@@ -462,6 +471,8 @@ pub fn local_catalogue(roots: &[&Path]) -> Result<Catalogue, String> {
             ));
         }
         let archive = package_folder(&folder)?;
+        let icon_url = local_image_url(&folder, manifest.icon.as_deref());
+        let banner_url = local_image_url(&folder, manifest.banner.as_deref());
         entries.push(CatalogueEntry {
             id: manifest.id,
             name: manifest.name,
@@ -472,7 +483,8 @@ pub fn local_catalogue(roots: &[&Path]) -> Result<Catalogue, String> {
                 .to_string(),
             sha256: hex::encode(Sha256::digest(&archive)),
             permissions: manifest.permissions,
-            icon_url: None,
+            icon_url,
+            banner_url,
         });
     }
     Ok(Catalogue {
@@ -480,6 +492,29 @@ pub fn local_catalogue(roots: &[&Path]) -> Result<Catalogue, String> {
         generated_at: 0,
         entries,
     })
+}
+
+/// A `data:` URL for an image inside a widget folder, or `None` when the path leaves the folder,
+/// isn't a supported image type, or can't be read. Development builds only.
+#[cfg(debug_assertions)]
+fn local_image_url(folder: &Path, path: Option<&str>) -> Option<String> {
+    let path = path?;
+    validate_relative_file(path, "image").ok()?;
+    let file = folder.join(path).canonicalize().ok()?;
+    if !file.starts_with(folder.canonicalize().ok()?) {
+        return None;
+    }
+    let content_type = match file.extension()?.to_str()? {
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        _ => return None,
+    };
+    let bytes = fs::read(&file).ok()?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Some(format!("data:{content_type};base64,{encoded}"))
 }
 
 /// Packages a widget folder as a ZIP, skipping hidden files and rejecting symbolic links.
@@ -665,7 +700,7 @@ fn read_installed(root: &Path) -> Result<InstalledWidget, String> {
         .map_err(|_| format!("Widget {} is missing widget.json.", manifest.id))?;
     if hex::encode(Sha256::digest(&manifest_bytes)) != metadata.manifest_sha256 {
         return Err(format!(
-            "Widget {} has a modified manifest. Reinstall it from the Catalogue.",
+            "Widget {} has a modified manifest. Can you reinstall it from the catalogue?",
             manifest.id
         ));
     }
@@ -846,6 +881,7 @@ mod tests {
             dashboard_entry: None,
             description: String::new(),
             icon: None,
+            banner: None,
             permissions: vec![WidgetPermission::WidgetDataRead],
             network_origins: Vec::new(),
             processes: Vec::new(),
@@ -969,12 +1005,37 @@ mod tests {
 
     #[cfg(debug_assertions)]
     #[test]
+    fn local_image_url_stays_inside_the_widget_folder() {
+        let root = tempdir().unwrap();
+        let folder = root.path().join("widget");
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("banner.png"), b"png").unwrap();
+        fs::write(folder.join("notes.txt"), b"text").unwrap();
+        fs::write(root.path().join("outside.png"), b"png").unwrap();
+        assert_eq!(
+            local_image_url(&folder, Some("banner.png")).as_deref(),
+            Some("data:image/png;base64,cG5n")
+        );
+        assert_eq!(local_image_url(&folder, Some("../outside.png")), None);
+        assert_eq!(local_image_url(&folder, Some("notes.txt")), None);
+        assert_eq!(local_image_url(&folder, Some("missing.png")), None);
+        assert_eq!(local_image_url(&folder, None), None);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
     fn local_catalogue_packages_install_with_catalogue_checks() {
         let root = tempdir().unwrap();
         add_example_widget(root.path()).unwrap();
         let catalogue = local_catalogue(&[root.path()]).unwrap();
         let entry = &catalogue.entries[0];
         assert_eq!(entry.id, "hello_world");
+        assert!(
+            entry
+                .banner_url
+                .as_deref()
+                .is_some_and(|url| url.starts_with("data:image/gif;base64,"))
+        );
         let folder = Url::parse(&entry.archive_url)
             .unwrap()
             .to_file_path()

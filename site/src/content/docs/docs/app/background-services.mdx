@@ -209,8 +209,8 @@ The setting is applied in two places:
 
 - **`save_settings`** compares the new `openOnLaunch` with the stored value and enables or disables
   autostart only when it changed. If the OS change fails, the previous settings are written back
-  and the command fails with "The startup setting couldn't be changed. Does this account allow
-  startup apps?"
+  and the command fails with "The startup setting couldn't be changed. Does the operating
+  system allow startup apps?"
 - **After startup**, release builds reconcile the registration with the setting, which repairs
   drift (for example a registration removed outside the app). Debug builds skip this so a
   development build never registers itself to run at login.
@@ -439,8 +439,8 @@ deletes `toolblox.log.3`, renames `.2` to `.3` and `.1` to `.2`, renames the cur
 
 The file is opened in append mode with no write buffer, so records reach the file as they're
 logged. If `logs::init` fails (for example because the folder isn't writable), startup continues
-without a log, and reading it fails with "Logging didn't start. Can you check that the data folder
-is writable?"
+without a log, and reading it fails with "Logging couldn't start. Is the data
+folder writable?"
 
 ### Line format
 
@@ -537,13 +537,15 @@ builds use `panic = "abort"`, and the hook still runs before the abort.
 
 | Command | Bridge method | Effect |
 | --- | --- | --- |
-| `read_log` | `bridge.readLog(lines)` | Returns the last `lines` lines (default 300, clamped to 1–2000), oldest first, reading back into rotated files when the current one is shorter. |
+| `read_log` | `bridge.readLog(lines)`, `bridge.readFullLog()` | Returns the last `lines` lines (default 300, clamped to 1–2000), oldest first, reading back into rotated files when the current one is shorter. With `all`, it returns every line of the current and rotated files. |
 | `open_log_folder` | `bridge.openLogFolder()` | Opens the `logs` folder in Explorer or Finder. |
 | `write_log` | `bridge.writeLog(level, message, widgetId?)` | Writes a record as described above. |
 
-Settings → General → Diagnostics uses these: **Show** loads 300 lines into a scrolling view,
-**Copy** copies the last 2000 lines to the clipboard, and **Open folder** opens the folder. The
-folder path is also in the app state as `logsPath`.
+**View** in Settings → General → Diagnostics opens the log page (`/settings/log`), which uses
+these: it shows the whole log newest first, keeping each record's continuation lines under it,
+**Refresh** reloads it, **Copy** copies the whole log oldest first, and **Open folder** opens the
+folder. The folder path is also in
+the app state as `logsPath`.
 
 ## Widget processes
 

@@ -200,7 +200,7 @@ The pieces involved:
   commands live in `startup.rs`. Each receives the shared `Runtime` through `State<'_, Runtime>`.
 - **Errors** are plain strings. Commands map internal errors through `command_error` into
   user-facing messages that state what failed and end with a recovery question, such as
-  `"No place is set to join. Can you set one on the Accounts screen?"`.
+  `"No place is set to join. Can you set one on the Accounts page?"`.
 - **State returns by reloading.** Mutating commands mostly return `()` and the interface then
   calls `get_app_state` to fetch a fresh `AppStateDto`. The app shell also reloads on window
   focus and every 60 seconds while running. Module widgets see each new state through

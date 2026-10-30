@@ -93,7 +93,7 @@ These are defined in `startup.rs` and work before the app is ready. See
 | Command | Arguments | Returns | What it does | Bridge |
 | --- | --- | --- | --- | --- |
 | `get_app_state` | — | `AppStateDto` (async) | Builds the full interface snapshot. Loads the catalogue first if it hasn't been tried, names recent places, and fetches presence. [Details below](#how-get_app_state-builds-the-snapshot). | `getAppState()` |
-| `save_settings` | `settings: SettingsDto` | `()` (async) | Copies every DTO field onto the saved settings, re-parses `placeId` (blank clears it), saves, applies **always on top** to the main window, and enables or disables launch at login. If the login item can't change, the previous settings are restored and it fails with "The startup setting couldn't be changed. Does this account allow startup apps?". A changed place is then added to recent places only if Roblox confirms it exists; a missing place or failed lookup leaves the list unchanged. | `saveSettings(settings)` |
+| `save_settings` | `settings: SettingsDto` | `()` (async) | Copies every DTO field onto the saved settings, re-parses `placeId` (blank clears it), saves, applies **always on top** to the main window, and enables or disables launch at login. If the login item can't change, the previous settings are restored and it fails with "The startup setting couldn't be changed. Does the operating system allow startup apps?". A changed place is then added to recent places only if Roblox confirms it exists; a missing place or failed lookup leaves the list unchanged. | `saveSettings(settings)` |
 | `place_exists` | `place_id: String` | `bool` (async) | Asks Roblox whether the place has a universe. `false` only for a `400` or `404`; network failures are errors. | `placeExists(placeId)` |
 | `search_places` | `query: String` | `Vec<PlaceMatch>` (async) | Searches Roblox games by name without a session. Returns up to 24 unsponsored games with their root place, player count, votes, maturity, and an `https:` icon, plus creator, visits, favorites, last update, genre, and price from the games API. Failures return an empty list, or results without icons or details. | `searchPlaces(query)` |
 | `restart_app` | `safe_mode: bool` | `()` | Writes or removes the `safe-mode-next-launch` marker, then restarts. | `restartApp(safeMode)` |
@@ -135,7 +135,7 @@ The widget lifecycle is covered in the widget reference; this table lists the co
 
 | Command | Arguments | Returns | What it does | Bridge |
 | --- | --- | --- | --- | --- |
-| `read_log` | `lines: Option<usize>` | `String` | The most recent log lines, 300 by default. | `readLog(lines?)` |
+| `read_log` | `lines: Option<usize>`, `all: Option<bool>` | `String` | The most recent log lines, 300 by default, or the whole log with `all`. | `readLog(lines?)`, `readFullLog()` |
 | `open_log_folder` | — | `()` | Opens the log folder in Explorer or Finder. | `openLogFolder()` |
 | `get_theme` | — | `String` | Loads the custom theme CSS from `theme.css`, or an empty string when there's none. | `getTheme()` |
 | `save_theme` | `css: String` | `()` | Validates and saves the custom theme CSS. It must be under 16 MB and can't load anything except data URLs. | `saveTheme(css)` |
@@ -209,6 +209,7 @@ and adds presence.
 | `permissions` | The installed manifest's permissions. |
 | `hasSettings`, `hasDashboardTile`, `hasPageFrame` | Whether the manifest declares `settingsEntry`, `dashboardEntry`, and `entry`. |
 | `moduleUrl` | URL of the manifest's `module`, when declared. |
+| `logoUrl`, `bannerUrl` | URLs of the manifest's `icon` and `banner`, when declared. |
 | `canStartOnLaunch`, `startOnLaunch` | Whether the manifest declares processes, and whether the widget is in `widgetsStartOnLaunch`. |
 | `hostUrl` | URL of the widget's `index.html`. |
 
@@ -216,7 +217,7 @@ Widget asset URLs use `http://widget.localhost/<id>/<path>` on Windows (WebView2
 schemes over HTTP) and `widget://localhost/<id>/<path>` elsewhere.
 
 A `CatalogueEntry` carries `id`, `name`, `description`, `version`, `logoUrl` (the catalogue's
-`iconUrl`), and `permissions`. See [Manifest](/docs/widgets/reference/manifest/) and
+`iconUrl`), `bannerUrl`, and `permissions`. See [Manifest](/docs/widgets/reference/manifest/) and
 [Catalogue](/docs/widgets/publishing/catalogue/).
 
 ### `Settings`
@@ -285,10 +286,10 @@ with `Display` into its message, and every error type in the host displays as a 
 sentence followed by a recovery question:
 
 ```text
-Toolblox couldn't reach Roblox. Is your connection working?
+Toolblox couldn't reach Roblox. Is the connection working?
 The account wasn't found. Can you refresh the list?
 The widget is disabled. Can you enable it first?
-The startup setting couldn't be changed. Does this account allow startup apps?
+The startup setting couldn't be changed. Does the operating system allow startup apps?
 ```
 
 Underlying causes (I/O errors, `reqwest` errors, keyring errors, HTTP bodies) are logged where

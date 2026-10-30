@@ -66,10 +66,7 @@ export function Dashboard({ state, navigate, join, joining, signIn }: ScreenProp
           {presenceLabel(hero) || <>{relativeTime(hero.lastPlayedAt)}{place && ` · ${placeLabel(state, place)}`}</>}
         </p>
       </AccountCard> : <Panel className="flex flex-wrap items-center gap-4 rounded-2xl p-6">
-        <div className="min-w-0 flex-1">
-          <p className="font-semibold">No accounts</p>
-          <p className="text-sm text-muted-foreground">Add a Roblox account to begin.</p>
-        </div>
+        <p className="min-w-0 flex-1 font-semibold">No accounts</p>
         <Button size="lg" className="px-4" onClick={() => navigate("/accounts")}><Plus />Add account</Button>
       </Panel>}
 
@@ -91,7 +88,7 @@ export function Dashboard({ state, navigate, join, joining, signIn }: ScreenProp
 
     {accounts.length > 0 && <section aria-label="Pinned" className="flex min-h-28 flex-1 basis-0 flex-col gap-2">
         <SectionTitle action={<Button variant="ghost" size="sm" className="-mr-2.5 text-muted-foreground" onClick={() => navigate("/accounts")}>
-          See all<ChevronRight data-icon="inline-end" aria-hidden="true" />
+          View all<ChevronRight data-icon="inline-end" aria-hidden="true" />
         </Button>}>Pinned</SectionTitle>
         {pinned.length ? <div ref={pinnedGrid} className={cn("grid min-h-0 flex-1 grid-cols-[repeat(auto-fill,minmax(220px,1fr))] content-start gap-list overflow-y-auto rounded-xl border border-dashed p-2 [scrollbar-gutter:stable]", moreBelow && "mask-b-from-70%")}>
           {pinned.map((account) => <AccountCard key={account.id} account={account} showAvatar={settings.showAvatars}
@@ -103,10 +100,7 @@ export function Dashboard({ state, navigate, join, joining, signIn }: ScreenProp
           </AccountCard>)}
         </div>
           : <div className="flex min-h-0 flex-1 flex-wrap items-center justify-center gap-x-4 gap-y-2 overflow-hidden rounded-xl border border-dashed px-4 py-3 text-center">
-            <div className="min-w-0">
-              <p className="text-sm font-medium">No pinned accounts</p>
-              <p className="text-xs text-muted-foreground">Pin accounts to join them from here.</p>
-            </div>
+            <p className="min-w-0 text-sm font-medium">No pinned accounts</p>
             <Button variant="outline" size="sm" onClick={() => { showAccountMenu(); navigate("/accounts"); }}><Star />Pin accounts</Button>
           </div>}
     </section>}

@@ -29,17 +29,17 @@ const demoState: AppState = {
   ],
   installedWidgets: [
     demoWidget("trade-tracker", "Trade Tracker", "Logs trades per account and shows value changes over time.", { version: "1.2.0", permissions: ["accounts.read.basic", "widgetData.read", "widgetData.write"], hasSettings: true }),
-    demoWidget("server-hopper", "Server Hopper", "Finds a fresh server and moves selected accounts there.", { version: "2.1.0", availableVersion: "2.2.0", permissions: ["accounts.read.basic", "roblox.status"], availablePermissions: ["accounts.read.basic", "roblox.status", "roblox.join"] }),
-    demoWidget("afk-guard", "AFK Guard", "Keeps idle accounts from being kicked while you're away.", { enabled: false, version: "0.9.1", permissions: ["process.spawn"], canStartOnLaunch: true }),
+    demoWidget("server-hopper", "Server Hopper", "Finds a new server and moves selected accounts to it.", { version: "2.1.0", availableVersion: "2.2.0", permissions: ["accounts.read.basic", "roblox.status"], availablePermissions: ["accounts.read.basic", "roblox.status", "roblox.join"] }),
+    demoWidget("afk-guard", "AFK Guard", "Keeps idle accounts from being disconnected for inactivity.", { enabled: false, version: "0.9.1", permissions: ["process.spawn"], canStartOnLaunch: true }),
   ],
   widgetErrors: ["afk-guard: the package signature doesn't match the catalogue. Reinstall it?"],
   catalogue: [
-    demoEntry("quest-planner", "Quest Planner", "Tracks daily quests across all your accounts in one checklist.", "1.3.0", ["accounts.read.basic", "widgetData.read", "widgetData.write"]),
-    demoEntry("friend-finder", "Friend Finder", "Shows which of your accounts are in the same server as your friends.", "0.4.2", ["accounts.read.basic", "roblox.status"]),
-    demoEntry("launch-scheduler", "Launch Scheduler", "Joins chosen accounts at set times, like before a daily event.", "1.0.0", ["accounts.read.basic", "roblox.join"]),
+    demoEntry("quest-planner", "Quest Planner", "Tracks daily quests for every account in one checklist.", "1.3.0", ["accounts.read.basic", "widgetData.read", "widgetData.write"]),
+    demoEntry("friend-finder", "Friend Finder", "Shows which accounts share a server with their friends.", "0.4.2", ["accounts.read.basic", "roblox.status"]),
+    demoEntry("launch-scheduler", "Launch Scheduler", "Joins selected accounts at scheduled times, such as before a daily event.", "1.0.0", ["accounts.read.basic", "roblox.join"]),
     demoEntry("fps-unlocker", "FPS Unlocker", "Raises the Roblox frame rate cap using a bundled helper.", "3.0.1", ["process.spawn"]),
     demoEntry("price-checker", "Price Checker", "Looks up item values from a community price list.", "2.5.0", ["network.fetch"]),
-    demoEntry("session-notes", "Session Notes", "A scratchpad for each account that doesn't need any special access.", "1.1.0"),
+    demoEntry("session-notes", "Session Notes", "Keeps notes for each account and requires no permissions.", "1.1.0"),
   ],
   settings: {
     sidebarPosition: "left",
@@ -56,7 +56,8 @@ const demoState: AppState = {
     showGameNames: true,
     notifyOnDrop: false,
     alwaysOnTop: false,
-    alwaysAnimate: false,
+    showAnimations: true,
+    ignoreReducedMotion: false,
   },
   safeMode: false,
   recentPlaces: [
@@ -308,6 +309,8 @@ export const bridge = {
   snapWindow: () => call<void>("snap_window", {}, () => undefined),
   restartApp: (safeMode: boolean) => call<void>("restart_app", { safeMode }, () => { demoState.safeMode = safeMode; window.location.reload(); }),
   readLog: (lines?: number) => call<string>("read_log", { lines: lines ?? null }, () => demoLog.slice(-(lines ?? 300)).join("\n")),
+  /** Every line of the current and rotated log files, oldest first. */
+  readFullLog: () => call<string>("read_log", { lines: null, all: true }, () => demoLog.join("\n")),
   openLogFolder: () => call<void>("open_log_folder", {}, () => undefined),
   writeLog,
   /** The custom theme CSS. */

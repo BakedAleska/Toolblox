@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { byVersion, changelogEmbeds, parseChangelog, pendingChangelogs, syncChangelogs } from "../src/changelogs.ts";
 import { COMMANDS, respond } from "../src/commands.ts";
 import { verifyInteraction } from "../src/discord.ts";
+import { MAX_PER_WINDOW, allowSurvey, parseSurvey, rateKey, surveyEmbed } from "../src/survey.ts";
 import {
   countDownloads,
   downloadIncrease,
@@ -194,4 +195,36 @@ test("posts released changelogs once, edits changed ones, and skips unreleased o
   } finally {
     globalThis.fetch = original;
   }
+});
+
+test("accepts only valid survey answers", () => {
+  const answers = (value) => parseSurvey(JSON.stringify(value));
+  assert.deepEqual(answers({ rating: 4, comment: "  Good  ", version: "0.4.1-beta" }), { rating: 4, comment: "Good", version: "0.4.1-beta" });
+  assert.equal(answers({ rating: 0, comment: "", version: "0.4.1" }), null);
+  assert.equal(answers({ rating: 6, comment: "", version: "0.4.1" }), null);
+  assert.equal(answers({ rating: 2.5, comment: "", version: "0.4.1" }), null);
+  assert.equal(answers({ rating: "4", comment: "", version: "0.4.1" }), null);
+  assert.equal(answers({ rating: 4, comment: "a".repeat(2001), version: "0.4.1" }), null);
+  assert.equal(answers({ rating: 4, comment: "", version: "latest" }), null);
+  assert.equal(answers({ rating: 4, version: "0.4.1" }), null);
+  assert.equal(parseSurvey("not json"), null);
+  assert.equal(parseSurvey("null"), null);
+});
+
+test("formats survey answers as an embed", () => {
+  assert.deepEqual(surveyEmbed({ rating: 5, comment: "", version: "0.4.1-beta" }), {
+    title: "Beta survey: 5/5",
+    description: "*No comment.*",
+    footer: { text: "Toolblox 0.4.1-beta" },
+  });
+});
+
+test("limits survey answers per address without storing the address", async () => {
+  const stored = new Map();
+  const state = { get: async (key) => stored.get(key) ?? null, put: async (key, value) => { stored.set(key, value); } };
+  for (let count = 0; count < MAX_PER_WINDOW; count++) assert.equal(await allowSurvey(state, "203.0.113.7"), true);
+  assert.equal(await allowSurvey(state, "203.0.113.7"), false);
+  assert.equal(await allowSurvey(state, "203.0.113.8"), true);
+  assert.ok([...stored.keys()].every((key) => !key.includes("203.0.113")));
+  assert.equal(stored.get(await rateKey("203.0.113.7")), String(MAX_PER_WINDOW));
 });

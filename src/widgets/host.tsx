@@ -171,7 +171,7 @@ export class WidgetBoundary extends Component<{ widgetId: string; children: Reac
   render() {
     if (!this.state.error) return this.props.children;
     const name = appState?.installedWidgets.find(({ id }) => id === this.props.widgetId)?.name ?? this.props.widgetId;
-    return <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive" role="alert">{name} failed to render. ({this.state.error})</p>;
+    return <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive" role="alert">{name} failed to render. Does reinstalling it help? ({this.state.error})</p>;
   }
 }
 

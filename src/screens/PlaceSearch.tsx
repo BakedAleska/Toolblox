@@ -32,9 +32,9 @@ export function PlaceSearch({ state, navigate, patchSettings }: ScreenProps) {
       <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground" aria-hidden="true"><Gamepad2 className="size-5" /></span>
       <span className="min-w-0 flex-1 text-sm font-medium">Use place <span className="font-mono">{typedId}</span></span>
     </ResultButton>
-      : query.trim().length < 2 ? <EmptyState icon={<Search />} title="Search Roblox games" text="Type at least two letters of a game name." />
+      : query.trim().length < 2 ? <EmptyState icon={<Search />} title="Search Roblox games" />
       : searching && !matches.length ? <div className="grid flex-1 place-items-center text-muted-foreground"><Spinner className="size-5" /></div>
-      : !matches.length ? <EmptyState icon={<Search />} title="No games found" text="Roblox returned no games for this name." />
+      : !matches.length ? <EmptyState icon={<Search />} title="No games found" />
       : <div className="grid gap-list @5xl:grid-cols-2 @[96rem]:grid-cols-3" aria-busy={searching}>
         {matches.map((place) => {
           const votes = place.upVotes + place.downVotes;

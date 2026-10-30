@@ -13,7 +13,9 @@ import type { Account } from "@/types";
 import { WidgetSlot } from "@/widgets/host";
 
 /** Hides a row control until the row is hovered or focused. Touch screens always show it. */
-const reveal = "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100";
+const reveal = "max-w-0 overflow-hidden opacity-0 transition-[max-width,margin,opacity] motion-reduce:transition-none group-hover:max-w-7 group-hover:opacity-100 group-has-focus-visible:max-w-7 group-has-focus-visible:opacity-100 group-has-data-popup-open:max-w-7 group-has-data-popup-open:opacity-100 pointer-coarse:max-w-7 pointer-coarse:opacity-100";
+const gapWhenRevealed = "group-hover:mr-1 group-has-focus-visible:mr-1 group-has-data-popup-open:mr-1 pointer-coarse:mr-1";
+const separateWhenRevealed = "group-hover:mr-3 group-has-focus-visible:mr-3 group-has-data-popup-open:mr-3 pointer-coarse:mr-3";
 
 /** Set before navigating to Accounts to open the first account's menu, where pinning lives. */
 let openFirstMenu = false;
@@ -84,7 +86,7 @@ export function Accounts({ state, refresh, navigate, notify, confirm, join, join
       <span id="place-hint" className="sr-only">{settings.placeId ? `Joins ${placeLabel(state, settings.placeId)} unless an account has its own place.` : "Accepts a game name, Roblox game link, or place ID."} Double-click to open game search.</span>
       <DropdownMenu>
         <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" className="absolute top-1/2 right-1 -translate-y-1/2" aria-label="Place options" />}><ChevronDown /></DropdownMenuTrigger>
-        <DropdownMenuContent anchor={placeField} align="start" className="min-w-0">
+        <DropdownMenuContent anchor={placeField} align="start" arrow={false} className="min-w-0">
           <DropdownMenuItem onClick={() => navigate("/accounts/places")}><Search />Search games…</DropdownMenuItem>
           {state.recentPlaces.length > 0 && <><DropdownMenuSeparator /><DropdownMenuGroup>
             <DropdownMenuLabel>Recent places</DropdownMenuLabel>
@@ -113,8 +115,8 @@ export function Accounts({ state, refresh, navigate, notify, confirm, join, join
       <IconButton label="Clear selection" size="icon-sm" onClick={() => setSelected(new Set())}><X /></IconButton>
     </Panel>}
 
-    {state.accounts.length === 0 ? <EmptyState icon={<Users />} title="No accounts" text="Accounts sign in through the official Roblox page. Passwords never reach Toolblox." action={<Button onClick={() => void addAccount()} disabled={adding}><Plus />Add account</Button>} />
-      : visible.length === 0 ? <EmptyState icon={<Search />} title="No results" text="No account matches this search." />
+    {state.accounts.length === 0 ? <EmptyState icon={<Users />} title="No accounts" action={<Button onClick={() => void addAccount()} disabled={adding}><Plus />Add account</Button>} />
+      : visible.length === 0 ? <EmptyState icon={<Search />} title="No results" />
         : <div className="grid content-start gap-list @5xl:grid-cols-2 @[96rem]:grid-cols-3">{visible.map((account, index) => <AccountCard key={account.id} data-account-id={account.id} account={account}
           showAvatar={settings.showAvatars} avatarClassName={settings.compactMode ? "size-8" : "size-10"}
           onClick={(event) => rowClick(event, account.id)} onDoubleClick={(event) => rowClick(event, account.id)}
@@ -131,12 +133,15 @@ export function Accounts({ state, refresh, navigate, notify, confirm, join, join
             {account.placeId && <Badge variant="outline" title={`Place override: ${placeLabel(state, account.placeId)} (${account.placeId})`} className="min-w-0 shrink text-muted-foreground"><MapPin /><span className="truncate">{placeLabel(state, account.placeId)}</span></Badge>}
             {presenceLabel(account) && <Badge variant="secondary" title={presenceLabel(account)} className="min-w-0 shrink"><PresenceMark account={account} small /><span className="truncate">{presenceLabel(account)}</span></Badge>}
           </>}
-          actions={<>
+          actions={<><div className="-mr-3 flex items-center">
+            <IconButton label={account.pinned ? "Unpin from dashboard" : "Pin to dashboard"} size="icon-sm" aria-pressed={account.pinned}
+              className={cn("text-muted-foreground", gapWhenRevealed, account.pinned ? "mr-3 transition-[margin] motion-reduce:transition-none" : reveal)} onClick={() => void setAccountPinned(account, !account.pinned)}>
+              <Star className={cn(account.pinned && "fill-current")} />
+            </IconButton>
             <DropdownMenu open={menuFor === account.id} onOpenChange={(open) => setMenuFor(open ? account.id : undefined)}>
-              <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className={cn("text-muted-foreground data-popup-open:opacity-100", reveal)} aria-label={`More actions for ${accountName(account)}`} />}><MoreHorizontal /></DropdownMenuTrigger>
+              <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className={cn("text-muted-foreground", reveal, separateWhenRevealed)} aria-label={`More actions for ${accountName(account)}`} />}><MoreHorizontal /></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-48">
                 <DropdownMenuItem onClick={() => toggleSelection(account.id)}><ListChecks />{selected.has(account.id) ? "Deselect" : "Select"}</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void setAccountPinned(account, !account.pinned)}><Star className={cn(account.pinned && "fill-current")} />{account.pinned ? "Unpin from dashboard" : "Pin to dashboard"}</DropdownMenuItem>
                 <DropdownMenuSeparator />
                 {reorderable && <>
                   <DropdownMenuItem disabled={index === 0} onClick={() => move(account.id, -1)}><ArrowUp />Move up</DropdownMenuItem>
@@ -144,14 +149,14 @@ export function Accounts({ state, refresh, navigate, notify, confirm, join, join
                   <DropdownMenuSeparator />
                 </>}
                 <DropdownMenuItem onClick={() => askPlace({
-                  title: `Place for ${accountName(account)}`, description: "Overrides the default place for this account.", action: "Save",
+                  title: `Place for ${accountName(account)}`, action: "Save",
                   run: (placeId) => setAccountPlace(account, placeId)
                 })}><MapPin />{account.placeId ? "Change place…" : "Set place…"}</DropdownMenuItem>
                 {account.placeId && <DropdownMenuItem onClick={() => void setAccountPlace(account, null)}><MapPinOff />Use default place</DropdownMenuItem>}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onClick={() => confirm({ title: `Remove ${accountName(account)}?`, message: "Removes the account and its saved session from this device.", action: "Remove", danger: true, run: async () => { await bridge.removeAccount(account.id); await refresh(); } })}><Trash2 />Remove</DropdownMenuItem>
               </DropdownMenuContent>
-            </DropdownMenu>
+            </DropdownMenu></div>
             {account.sessionExpired
               ? <Button variant="outline" size="sm" onClick={() => void signIn(account.id)} aria-label={`Sign in again as ${accountName(account)}`}><KeyRound />Sign in again</Button>
               : <Button variant="outline" size="sm" disabled={joining.includes(account.id)} onClick={() => join([account.id])} aria-label={`Join as ${accountName(account)}`}>{joining.includes(account.id) ? <Spinner /> : <Play />}Join</Button>}

@@ -12,7 +12,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Account, AppRoute, AppState, PlaceMatch, Settings, WidgetSummary } from "@/types";
 
-export type PlaceRequest = { title: string; description: string; action: string; run: (placeId: string) => Promise<void> };
+export type PlaceRequest = { title: string; description?: string; action: string; run: (placeId: string) => Promise<void> };
 
 /** A place's game name when Toolblox knows it, otherwise its ID. */
 export const placeLabel = (state: AppState, placeId: string) => state.recentPlaces.find((place) => place.placeId === placeId)?.name || placeId;
@@ -51,21 +51,21 @@ const permissionLabels: Record<string, string> = {
   "widgetData.read": "read its own account data",
   "widgetData.write": "write its own account data",
   "roblox.status": "read account presence",
-  "roblox.join": "join games with your accounts",
+  "roblox.join": "join games with accounts",
   "network.fetch": "contact approved websites",
-  "process.spawn": "run native code as your user",
+  "process.spawn": "run native code as the current user",
 };
 
 export const permissionSummary = (permissions: string[]) => permissions.map((permission) => permissionLabels[permission] || permission).join(", ");
 
-/** App-wide buttons shown at the right end of every page header. */
-export const ScreenTools = createContext<ReactNode>(null);
+/** Renders the app-wide buttons at the right end of every page header, with a page's own `tools` grouped before them. */
+export const ScreenTools = createContext<(tools?: ReactNode) => ReactNode>(() => null);
 
 /** Scrolling page with a sticky header. The column is a container, so pages switch to more columns
  * with `@5xl:` and wider queries as the window grows, and caps at 120rem on very wide screens. The
  * header keeps a gap below it so scrolled content doesn't meet its edge. */
-export function Screen({ title, actions, toolbar, children, className }: { title: string; actions?: ReactNode; toolbar?: ReactNode; children: ReactNode; className?: string }) {
-  const tools = useContext(ScreenTools);
+export function Screen({ title, actions, tools: pageTools, toolbar, children, className }: { title: string; actions?: ReactNode; tools?: ReactNode; toolbar?: ReactNode; children: ReactNode; className?: string }) {
+  const tools = useContext(ScreenTools)(pageTools);
   return <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
     <div className={cn("@container mx-auto flex min-h-full max-w-[120rem] flex-col gap-2 px-6 pb-6", className)}>
       <header data-slot="screen-header" className="sticky top-0 z-10 -mx-6 shrink-0 bg-background/90 px-6 pb-2 backdrop-blur-sm">
@@ -102,9 +102,12 @@ export function IconButton({ label, children, variant = "ghost", size = "icon", 
   </Tooltip>;
 }
 
+/** The two dialog sizes. Portrait holds forms and lists, and landscape holds short messages. */
+const modalSizes = { portrait: "h-96 max-w-96", landscape: "h-60 max-w-lg" };
+
 /** Every dialog in the app: a title, an optional description, content, and Cancel beside one
  * action. It's a form, so Enter runs the action. It can't be closed while `busy`. */
-export function Modal({ open, close, title, description, action, submit, busy = false, disabled = false, danger = false, wide = false, children }: {
+export function Modal({ open, close, title, description, action, submit, busy = false, disabled = false, danger = false, size, children }: {
   open: boolean;
   close: () => void;
   title: ReactNode;
@@ -114,18 +117,18 @@ export function Modal({ open, close, title, description, action, submit, busy = 
   busy?: boolean;
   disabled?: boolean;
   danger?: boolean;
-  wide?: boolean;
+  size: keyof typeof modalSizes;
   children?: ReactNode;
 }) {
   return <AlertDialog open={open} onOpenChange={(next) => { if (!next && !busy) close(); }}>
-    <AlertDialogContent className={cn(wide && "max-w-lg")}>
+    <AlertDialogContent className={cn("flex flex-col", modalSizes[size])}>
       <form className="contents" onSubmit={(event) => { event.preventDefault(); submit(); }}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           {description && <AlertDialogDescription>{description}</AlertDialogDescription>}
         </AlertDialogHeader>
         {children}
-        <AlertDialogFooter>
+        <AlertDialogFooter className="mt-auto">
           <AlertDialogCancel type="button" disabled={busy}>Cancel</AlertDialogCancel>
           <Button type="submit" variant={danger ? "destructive" : "default"} disabled={busy || disabled}>{busy && <Spinner />}{action}</Button>
         </AlertDialogFooter>
@@ -284,8 +287,8 @@ export function SettingRow({ title, description, control }: { title: string; des
   </div>;
 }
 
-export function SwitchRow({ title, description, checked, change }: { title: string; description?: string; checked: boolean; change: (value: boolean) => void }) {
-  return <SettingRow title={title} description={description} control={(labelId, descriptionId) => <Switch checked={checked} onCheckedChange={(value) => change(value)} aria-labelledby={labelId} aria-describedby={descriptionId} />} />;
+export function SwitchRow({ title, description, checked, disabled, change }: { title: string; description?: string; checked: boolean; disabled?: boolean; change: (value: boolean) => void }) {
+  return <SettingRow title={title} description={description} control={(labelId, descriptionId) => <Switch checked={checked} disabled={disabled} onCheckedChange={(value) => change(value)} aria-labelledby={labelId} aria-describedby={descriptionId} />} />;
 }
 
 export function ChoiceRow<T extends string>({ title, description, value, options, change }: { title: string; description?: string; value: T; options: { value: T; label: string }[]; change: (value: T) => void }) {
@@ -308,10 +311,10 @@ export function StatTile({ icon, label, value, onClick }: { icon: ReactNode; lab
     : <div className={className}>{body}</div>;
 }
 
-export function EmptyState({ icon, title, text, action }: { icon: ReactNode; title: string; text: string; action?: ReactNode }) {
+export function EmptyState({ icon, title, text, action }: { icon: ReactNode; title: string; text?: string; action?: ReactNode }) {
   return <div className="flex flex-1 flex-col items-center justify-center gap-3 py-12 text-center">
     <span className="grid size-12 place-items-center rounded-full bg-muted text-muted-foreground [&_svg]:size-5">{icon}</span>
-    <div className="space-y-1"><h2 className="text-sm font-medium">{title}</h2><p className="max-w-xs text-sm text-muted-foreground">{text}</p></div>
+    <div className="space-y-1"><h2 className="text-sm font-medium">{title}</h2>{text && <p className="max-w-xs text-sm text-muted-foreground">{text}</p>}</div>
     {action}
   </div>;
 }

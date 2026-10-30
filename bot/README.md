@@ -3,7 +3,8 @@
 A Discord bot that runs as a Cloudflare Worker. It answers slash commands, and every five
 minutes it checks GitHub's release download counts and sends a DM to the owner, and only the
 owner (`OWNER_USER_ID`), when they grow.
-The Toolblox app doesn't report anything. The counts are GitHub's public release data.
+The counts are GitHub's public release data. The only thing the app sends the bot is the optional
+beta survey (see below).
 
 | Command | Reply |
 | --- | --- |
@@ -17,6 +18,15 @@ Each DM gives the total, then splits it into Windows (`Toolblox-Setup.exe`) and 
 (`Toolblox.dmg`), the same count the website shows. Updates aren't counted. Before 0.3.0, Windows
 updates also downloaded `Toolblox-Setup.exe`, so Windows installers count only from releases with
 a separate `Toolblox-Update.exe`. These are download counts, not installs or active users.
+
+## Beta survey
+
+The app posts survey answers to `POST /survey` as JSON: `rating` (1–5), `comment` (up to 2,000
+characters), and `version`. The bot DMs them to the owner as an embed. Anyone can call the
+endpoint, so it rejects invalid answers and bodies over 16 KB, and accepts three answers per IP
+address per hour. Counts are kept in KV under a hash of the address. The app's endpoint is
+`SURVEY_URL` in `src-tauri/src/app_commands.rs`; set it to the deployed `workers.dev` URL followed
+by `/survey`. Remove the route with the survey after the beta.
 
 ## Setup
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SIDEBAR_COLLAPSED, SIDEBAR_MAX, SIDEBAR_MIN, clampSidebarWidth, parsePlaceId, relativeTime, sortAccounts, stepSidebarWidth } from "./logic";
+import { SIDEBAR_COLLAPSED, SIDEBAR_MAX, SIDEBAR_MIN, clampSidebarWidth, newestFirst, parsePlaceId, relativeTime, sortAccounts, stepSidebarWidth } from "./logic";
 import type { Account } from "./types";
 
 const account = (id: number, name: string, addedAt: number, lastPlayedAt?: number): Account => ({
@@ -58,5 +58,12 @@ describe("sidebar width", () => {
     expect(stepSidebarWidth(SIDEBAR_MIN, false)).toBe(SIDEBAR_COLLAPSED);
     expect(stepSidebarWidth(SIDEBAR_MAX, true)).toBe(SIDEBAR_MAX);
     expect(stepSidebarWidth(200, true)).toBe(216);
+  });
+});
+
+describe("newestFirst", () => {
+  it("reverses records and keeps continuation lines under their record", () => {
+    expect(newestFirst("a\nb\n  b2\n  b3\nc")).toBe("c\nb\n  b2\n  b3\na");
+    expect(newestFirst("")).toBe("");
   });
 });

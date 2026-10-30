@@ -193,7 +193,7 @@ side.
 ### Safe mode banner
 
 When `state.safeMode` is true, a `role="status"` bar with a warning-coloured `ShieldAlert` icon
-reads "Safe mode. Widgets and the custom theme are off for this session." with a **Restart normally** button that calls
+reads "Safe mode is on. Widgets and the custom theme are disabled for this session." with a **Restart normally** button that calls
 `bridge.restartApp(false)`. The text carries the meaning; the colour is decorative.
 
 ### The main region
@@ -418,8 +418,10 @@ translucent, blurred background. The column is a size container, so screens add 
 Accounts and Find a place show two or three columns of cards, and Settings shows two columns of
 groups. The
 header ends with the app-wide tools from the `ScreenTools` context: **Theme**, which cycles
-System, Light, and Dark, then **Snap to default aspect ratio** and **Mini mode**, which the browser
-demo hides. A hairline separates them from the page's own actions.
+System, Light, and Dark, then **Resize to default aspect ratio** and **Open mini mode**, which the browser
+demo hides. A hairline separates them from the page's own actions. A screen can pass its own
+`tools` to `Screen`; they sit before the app-wide tools with the beta survey button, past a
+hairline of their own. Settings uses this for **Custom CSS** while the Themes tab is open.
 
 ### Slots on each screen
 
@@ -517,11 +519,11 @@ which widget IDs have an action in flight; `run()` adds the ID, runs the action,
 | --- | --- |
 | Errors | One destructive `Panel` per string in `state.widgetErrors` (widgets that failed to load in Rust). |
 | Installed | A `repeat(auto-fill, minmax(240px, 1fr))` grid of cards. Each card has the logo or a `Puzzle` icon, name, version, description, a permissions sentence from `permissionSummary`, and an enable `Switch` (`bridge.setWidgetEnabled`). The footer has **Open** (disabled when the widget is off), "Failed to load" when the module threw during import or `activate`, **Update to v`x`** when `availableVersion` differs, and a menu with **Settings** and **Uninstall**. Update and uninstall confirm first; the update dialog lists the new version's permissions. |
-| Catalogue | Cards for `state.catalogue` with **Install**, which confirms with the requested permissions and calls `bridge.installWidget`. When `state.catalogueError` is set it shows "The catalogue failed to load. Is the connection working?" with **Retry** (`bridge.retryCatalogue`). |
+| Catalogue | Cards for `state.catalogue` with **Install**, which confirms with the requested permissions and calls `bridge.installWidget`. When `state.catalogueError` is set it shows "The catalogue couldn't be loaded. Is the connection working?" with **Retry** (`bridge.retryCatalogue`). |
 | Widgets folder | On the canary channel only, the unpacked widgets folder path with a copy button. |
 
 Permission labels come from `permissionLabels` in `shared.tsx`, for example `process.spawn` reads
-"run native code as your user". See [Permissions](/docs/widgets/reference/permissions/) and
+"run native code as the current user". See [Permissions](/docs/widgets/reference/permissions/) and
 [Catalogue](/docs/widgets/publishing/catalogue/).
 
 ### Settings
@@ -536,15 +538,15 @@ slots and can't be replaced.
 | --- | --- | --- |
 | General | Appearance | Sidebar position (`left`/`right`) as a `ChoiceRow` |
 | General | Window | Launch at startup (`openOnLaunch`), Run in background (`runInBackground`, wording says menu bar on macOS and system tray on Windows), Always on top (`alwaysOnTop`) |
-| General | Diagnostics | Log: **Show**/**Hide** (reads the last 300 lines with `bridge.readLog`), **Copy** (up to 2,000 lines to the clipboard), **Open folder** (`bridge.openLogFolder`, disabled when `logsPath` is empty) |
+| General | Diagnostics | Log: **View** opens `/settings/log`, a full-page view of the whole log, newest first (`bridge.readFullLog`), with **Refresh**, **Copy** (the whole log, oldest first), and **Open folder** (`bridge.openLogFolder`, disabled when `logsPath` is empty). Returning shows the General tab |
 | General | About | A **Legal** row with the Roblox disclaimer and the MIT License notice, linking the license, privacy policy, security policy, and third-party notices through `bridge.openExternal` |
-| Accounts | List | Sort order, Show avatars, Compact list, Game details (`showGameNames`) |
+| Accounts | List | Sort order, Show avatars, Compact list, Show game names (`showGameNames`) |
 | Accounts | Joining | Minimize on join; Multiple instances (`multiInstance`) |
 | Accounts | Disconnects | Auto-rejoin, Disconnect notifications (`notifyOnDrop`) |
 | Themes | Theme | Mode (`system`/`light`/`dark`) as a `ChoiceRow`; **Import** and **Export** of the custom CSS as a `.css` file |
 | Themes | Colors | A color picker for each token, showing its current value including any the custom CSS sets. Picking a color writes the token to a `:root:not(.dark)` or `:root.dark` block in the custom CSS, for the mode the app is showing |
 | Themes | Style | Font (a menu of Geist, the system font, and fonts installed on both Windows and macOS), Text size (body text in points, 7 to 21, 10.5 by default), and Density (a `ChoiceRow`). Each writes one token to a `:root` block in the custom CSS |
-| Themes | Colors panel | A **CSS** button at its bottom left that opens `/settings/css`: a full-page editor for the theme itself, saved with **Apply**. It's also how background images are set. Returning shows the Themes tab |
+| Themes | Page header | A **Custom CSS** button in the header tools that opens `/settings/css`: a full-page editor for the theme itself, saved with **Apply**. It's also how background images are set. Returning shows the Themes tab |
 
 In the demo build, the About group also shows **Update** and **Failure** buttons that replay the
 startup screens with `previewUpdater`. The settings themselves are described in
@@ -567,7 +569,7 @@ the `ui` object that `host.tsx` passes to widgets.
 | `SwitchRow` | Settings row with title, description, and a `Switch` labelled by them | `title`, `description?`, `checked`, `change` | Yes |
 | `ChoiceRow` | Settings row with a single-choice outline `ToggleGroup` | `title`, `description?`, `value`, `options`, `change` | Yes |
 | `StatTile` | Icon, large tabular number, and label; a `<button>` when `onClick` is set | `icon`, `label`, `value`, `onClick?` | Yes |
-| `EmptyState` | Centred icon, title, text, and optional action | `icon`, `title`, `text`, `action?` | Yes |
+| `EmptyState` | Centred icon, title, optional text, and optional action | `icon`, `title`, `text?`, `action?` | Yes |
 | `WidgetFrame` | Sandboxed iframe for a legacy widget surface, with session setup and the `postMessage` bridge | `widget`, `surface` (`main`, `settings`, `dashboard`), `title` | No |
 | `placeLabel` | Game name from `recentPlaces`, or the place ID | `(state, placeId)` | No |
 | `presenceLabel` | "In game: …", "Status unavailable", or empty | `(account)` | No |
@@ -588,7 +590,7 @@ wrap [Base UI](https://base-ui.com) primitives (`@base-ui/react`) rather than Ra
 with a `render` prop instead of `asChild`:
 
 ```tsx
-<TooltipTrigger render={<Button variant="ghost" size="icon" aria-label="Mini mode" />}>…</TooltipTrigger>
+<TooltipTrigger render={<Button variant="ghost" size="icon" aria-label="Open mini mode" />}>…</TooltipTrigger>
 ```
 
 Variants are defined with `class-variance-authority`, and class names merge with `cn` from the
@@ -608,7 +610,7 @@ Variants are defined with `class-variance-authority`, and class names merge with
 | `Tabs`, `TabsList`, `TabsTrigger`, `TabsContent` | Base UI `Tabs` | `value`, `onValueChange`, `orientation`; `TabsList` `variant`: `default` or `line` | Yes |
 | `Tooltip`, `TooltipTrigger`, `TooltipContent` | Base UI `Tooltip` | `TooltipContent`: `side` (default `top`), `sideOffset`, `align`, `alignOffset` | Yes |
 | `TooltipProvider` | Base UI `Tooltip.Provider` | `delay`. The shell already provides one at 400 ms. | No |
-| `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuContent`, `DropdownMenuItem`, `DropdownMenuSeparator` | Base UI `Menu` | `DropdownMenuContent`: `align` (default `start`), `side` (default `bottom`), `sideOffset`, `anchor`. `DropdownMenuItem`: `variant` `default` or `destructive`, `inset`. | Yes |
+| `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuContent`, `DropdownMenuItem`, `DropdownMenuSeparator` | Base UI `Menu` | `DropdownMenuContent`: `align` (default `start`), `side` (default `bottom`), `sideOffset`, `anchor`, `arrow` (default `true`; points the menu at its trigger). `DropdownMenuItem`: `variant` `default` or `destructive`, `inset`. | Yes |
 | `DropdownMenuGroup`, `DropdownMenuLabel`, `DropdownMenuCheckboxItem`, `DropdownMenuRadioGroup`, `DropdownMenuRadioItem`, `DropdownMenuSub`, `DropdownMenuSubTrigger`, `DropdownMenuSubContent`, `DropdownMenuShortcut`, `DropdownMenuPortal` | Base UI `Menu` | Grouping, labels, checkable items, submenus | No |
 | `AlertDialog` and its parts (`Trigger`, `Portal`, `Overlay`, `Content`, `Header`, `Footer`, `Media`, `Title`, `Description`, `Action`, `Cancel`) | Base UI `AlertDialog` | `AlertDialogContent` `size`: `default` or `sm` | No |
 
@@ -790,7 +792,7 @@ widget:
 Every widget contribution the shell renders, whether a replaced screen, page, settings component,
 or slot item, is wrapped in `WidgetBoundary`. If it throws while rendering, the boundary logs
 "Render failed" with the component stack under the widget's ID and replaces only that contribution
-with a `role="alert"` line: "`name` failed to render. (`error`)". The rest of the screen keeps
+with a `role="alert"` line: "`name` failed to render. Does reinstalling it help? (`error`)". The rest of the screen keeps
 working. Module import or `activate` failures are caught by `syncWidgetModules`, logged, and shown
 as "Failed to load" on the widget's card. See
 [Logs and failures](/docs/widgets/reference/logs-and-failures/).

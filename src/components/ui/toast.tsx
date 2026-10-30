@@ -64,7 +64,10 @@ const offscreen = (toast: HTMLElement, side: "left" | "right") => {
     : `translateX(${(area?.left ?? 0) - rect.right - 16}px)`;
 };
 
-const reducedMotion = () => !document.documentElement.hasAttribute("data-always-animate") && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const motion = () => document.documentElement.dataset.motion;
+/** Slides the toast, fades it under reduced motion, or shows it at once when animations are off. */
+const frames = (from: Keyframe, to: Keyframe, fade: [number, number]) => motion() ? [{ opacity: fade[0] }, { opacity: fade[1] }] : [from, to];
+const timing = <T extends KeyframeAnimationOptions>(options: T) => motion() === "none" ? { ...options, duration: 0 } : options;
 
 function ToastItem({ toast, side, dismiss, remove }: { toast: Toast; side: "left" | "right"; dismiss: () => void; remove: () => void }) {
   const ring = useRef<SVGCircleElement>(null);
@@ -87,7 +90,7 @@ function ToastItem({ toast, side, dismiss, remove }: { toast: Toast; side: "left
   useLayoutEffect(() => {
     const element = card.current;
     if (!element) return;
-    const animation = element.animate(reducedMotion() ? [{ opacity: 0 }, { opacity: 1 }] : [{ transform: offscreen(element, side) }, { transform: "none" }], ENTER);
+    const animation = element.animate(frames({ transform: offscreen(element, side) }, { transform: "none" }, [0, 1]), timing(ENTER));
     return () => animation.cancel();
   }, []);
 
@@ -95,7 +98,7 @@ function ToastItem({ toast, side, dismiss, remove }: { toast: Toast; side: "left
     const element = card.current;
     if (!toast.leaving || !element) return;
     timer.current?.pause();
-    const animation = element.animate(reducedMotion() ? [{ opacity: 1 }, { opacity: 0 }] : [{ transform: "none" }, { transform: offscreen(element, side) }], EXIT);
+    const animation = element.animate(frames({ transform: "none" }, { transform: offscreen(element, side) }, [1, 0]), timing(EXIT));
     animation.onfinish = () => removed.current();
   }, [toast.leaving]);
 

@@ -42,8 +42,10 @@ and installing reviewed game-specific widgets. `PRODUCT.md` is the product autho
 - Build UI from Tailwind CSS and the shadcn/ui components in `src/components/ui` (Base UI,
   `base-nova` style). Add components with `npx shadcn@latest add <name>`. Theme tokens live in
   `src/index.css`. Don't add libraries that inject `<style>` tags at runtime; the CSP blocks them.
-- Design for the default 900×500 window first. Content caps at `max-w-5xl` for fullscreen. The
-  sidebar is user-resizable and snaps to icon-only when dragged narrow.
+- Design for the default 900×500 window first. Larger windows get more columns, not more
+  whitespace: `Screen` is a container capped at `max-w-[120rem]`, and pages switch layout with
+  `@5xl:` and wider container queries. The sidebar is user-resizable and snaps to icon-only when
+  dragged narrow.
 - Menus opened from a field sit flush with that field: pass the field as `anchor` to
   `DropdownMenuContent`, align to its start, and match its width (`className="min-w-0"`).
 - Style only through the tokens in `src/theme.css`. Never hardcode a color, radius, or shadow
@@ -67,8 +69,10 @@ and installing reviewed game-specific widgets. `PRODUCT.md` is the product autho
 - Each version has `changelogs/<version>.md`, such as `changelogs/0.4.0-beta.md`. Every
   user-facing change adds a line to the unreleased version's file, marked `*Unreleased*` until the
   release sets the date.
-- Write for players, in plain language. They're pasted into Discord as-is: use headings, bold,
-  and bullets only, no tables or HTML, and keep each file under 2,000 characters.
+- Write for players, in plain language, with enough detail to find and use each change. The bot
+  posts each file to Discord as embeds: use headings, bold, and bullets only, no tables or HTML.
+- A line with only `---` starts a new message. Separate new features, changes, and fixes this
+  way. Keep each message under 4,096 characters.
 - Describe what changed for the user, not the code. Leave out refactors, tests, and CI.
 
 ## Verification

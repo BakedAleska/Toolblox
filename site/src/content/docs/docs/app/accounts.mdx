@@ -29,7 +29,7 @@ the numeric account ID, which is an opaque handle for asking Rust to act on that
 | [`src-tauri/src/login.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/login.rs) | The isolated Roblox sign-in webview and the cookie handoff. |
 | [`src-tauri/src/roblox.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/roblox.rs) | Every Roblox HTTP call and the strict `roblox-player:` URI builder. |
 | [`src-tauri/src/multi_instance.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/multi_instance.rs) | Lets several Roblox clients run at once on Windows and macOS. |
-| [`src-tauri/src/roblox_process.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/roblox_process.rs) | Finds running clients, sets their priority and CPU cores, and tiles their windows. |
+| [`src-tauri/src/roblox_process.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/roblox_process.rs) | Finds running Roblox clients. |
 | [`src-tauri/src/app_commands.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/app_commands.rs) | The commands that tie the above together: sign-in, join, notes, places, reorder, remove. |
 | [`src/screens/Accounts.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/screens/Accounts.tsx) | The Accounts screen. |
 | [`src/logic.ts`](https://github.com/BakedAleska/Toolblox/blob/main/src/logic.ts) | Sorting, display names, relative times, and the client-side place ID parser. |
@@ -64,7 +64,7 @@ OS credential store, keyed by `id`. Field names on disk are snake_case, because 
 | `widget_data` | `BTreeMap<String, Value>` | `{}` | Per-widget JSON for this account, keyed by widget ID. |
 | `place_id` | `Option<String>` | omitted | Place this account joins instead of the default place. Omitted from the file when unset. |
 | `last_place_id` | `Option<String>` | omitted | Place of the last manual join. Omitted from the file when unset. |
-| `priority` | `Option<ClientPriority>` | omitted | Client priority instead of the default priority: `"normal"`, `"below_normal"`, or `"low"`. Omitted from the file when unset. |
+| `pinned` | `bool` | `false` | Shows the account on the dashboard. Omitted from the file when `false`. |
 | `extra` | flattened map | `{}` | Unknown fields, preserved on save. |
 
 `StoredAccount::validate` runs on every load and every save. It rejects:
@@ -104,9 +104,6 @@ file has camelCase keys. See
 | `showGameNames` | `bool` | `true` | Look up and show game names for accounts in game. |
 | `notifyOnDrop` | `bool` | `false` | Notify when an account leaves a game. |
 | `alwaysOnTop` | `bool` | `false` | Keep the main window above others. |
-| `clientPriority` | `"normal"` \| `"below_normal"` \| `"low"` | `"normal"` | Priority of launched clients, unless an account sets its own. |
-| `cpuCores` | `u32` | `0` | Logical cores each launched client may use, from 0 to 64. `0` allows every core. Windows only. |
-| `tileSize` | `"fit"` \| `"medium"` \| `"small"` | `"fit"` | Window size used when tiling clients. |
 | `recentPlaces` | `Vec<RecentPlace>` | `[]` | Recently used places, newest first, at most `RECENT_PLACES_LIMIT` (5). Longer lists saved by older versions load and are trimmed. |
 | `extra` | flattened map | `{}` | Unknown fields, preserved on save. |
 
@@ -114,8 +111,7 @@ A `RecentPlace` is `{ "placeId": String, "name": Option<String> }`. `name` is `n
 looks it up and an empty string when Roblox has no name for the place. `Settings::validate`
 requires a valid `placeId` when it's non-empty, at most `RECENT_PLACES_LIMIT` (6) recent places,
 each with a valid place ID and a name of at most 100 characters, and valid widget IDs in
-`disabledWidgets`, `widgetsStartOnLaunch`, and the keys of `widgetSettings`. It also requires
-`cpuCores` of at most 64.
+`disabledWidgets`, `widgetsStartOnLaunch`, and the keys of `widgetSettings`.
 
 `Settings::remember_place` moves a place to the front of `recentPlaces`, keeping any name already
 looked up, and truncates the list to five. It runs when the default place changes or a
@@ -552,8 +548,8 @@ that URI to the operating system, which starts the installed Roblox client.
 If none is set the join fails with "No place is set to join. Can you set one on the Accounts
 screen?". The interface usually prevents this: `join` in
 [`App.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/App.tsx) checks whether any
-selected account lacks a place while no default is set, and if so opens the "Set default place"
-dialog, saves the place, and then launches.
+selected account lacks a place while no default is set, and if so opens the place search page
+instead of launching.
 
 ### Building the ticket and URI
 
@@ -640,12 +636,17 @@ renders `state.accounts` from `AppState`. It never holds anything secret; every 
 | Control | Behavior |
 | --- | --- |
 | `accounts.toolbar` slot | Widget-contributed toolbar items. See [Slots](/docs/widgets/reference/slots/). |
-| Default place field | Accepts a place ID or game link. On blur or Enter: empty clears the default; otherwise `parsePlaceId` runs, `bridge.placeExists` confirms the place (a failed check is treated as existing), and `patchSettings("placeId", ...)` saves it. The map pin turns `text-destructive` when no default is set. |
+| Default place field | Accepts a place ID or game link, or a game name, which lists matches from `bridge.searchPlaces` to pick from. On blur or Enter: empty clears the default; otherwise `parsePlaceId` runs, `bridge.placeExists` confirms the place (a failed check is treated as existing), and `patchSettings("placeId", ...)` saves it. Text that isn't a valid place stays in the field, marked `aria-invalid`, and the saved default is kept. The known game name shows after the place ID. |
 | Recent places menu | Shown when `recentPlaces` is non-empty. Anchored to the field, it lists names (or "Unknown game") and IDs; choosing one sets the default. |
 | Search | Filters by username, display name, and notes, case-insensitively. |
-| Tile toggle | Windows only. Calls `bridge.tileRobloxWindows()` to arrange every open Roblox window at the **Tile size** setting. With no window open, a toast says so. |
-| Select toggle | Enters selection mode, showing checkboxes and a panel with **Select all**, **Clear**, and **Join selected**. |
 | **Add** | Calls `bridge.beginRobloxLogin()`, shows a spinner while the sign-in window is open, then refreshes. |
+
+### Selection
+
+Double-clicking a row selects it. While any row is selected, a single click toggles a row, each
+row shows a checkbox, and a panel shows "`n` selected", **Select all** (until every visible row is
+selected), **Join selected**, and a clear button. Clicks on a row's own controls don't select it.
+The row menu's **Select** or **Deselect** item does the same from the keyboard.
 
 ### Rows
 
@@ -655,20 +656,18 @@ Accounts are ordered by `sortAccounts` from `logic.ts`: `last_played` sorts by `
 
 - a drag handle, only in manual order with no search query. Dragging uses pointer capture and
   `document.elementFromPoint` to find the target row, then saves with `bridge.reorderAccounts`;
-- a checkbox in selection mode;
+- a checkbox while any row is selected;
 - the avatar when **Show avatars** is on (smaller in compact mode);
 - the display name, and `@username` when different;
 - a place badge when the account has an override, labelled with the recent place name when known;
-- a priority badge when the account has its own client priority;
-- a presence badge from `presenceLabel` in `shared.tsx`: "Session expired", "In game: *name*
-  (*placeId*)", or "Status unavailable". Offline shows no badge;
+- a presence badge from `presenceLabel` in `shared.tsx`: "Session expired", "In game: *name*",
+  or "Status unavailable", with a dot in the same color as the avatar's. Offline shows no badge;
 - the `accounts.row` widget slot, which receives `{ account }`;
 - an inline notes field (hidden in compact mode) that saves on blur through
   `bridge.updateAccountNotes`;
 - a **Join** button, or **Sign in again** when the session expired;
-- a menu with **Move up** and **Move down** (manual order only), **Set place…** or **Change
-  place…**, **Use default place** when an override exists, a **Priority** submenu (**Default**,
-  **Normal**, **Below normal**, **Low**) that calls `bridge.setAccountPriority`, and **Remove**.
+- a menu with **Select** or **Deselect**, **Move up** and **Move down** (manual order only), **Set place…** or **Change
+  place…**, **Use default place** when an override exists, and **Remove**.
 
 **Remove** opens a confirmation ("Removes the account and its saved session from this device.")
 and calls `bridge.removeAccount`. On the Rust side, `remove_account` deletes the account from

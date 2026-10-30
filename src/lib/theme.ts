@@ -23,7 +23,7 @@ export const defaultColors = { light: tokenBlock(":root"), dark: tokenBlock("\\.
 
 /** The page a route belongs to. Widget pages count as `widgets`. */
 export const pageOf = (route: AppRoute): ThemePage =>
-  route === "/" ? "dashboard" : route === "/accounts" ? "accounts" : route === "/settings" ? "settings" : "widgets";
+  route === "/" ? "dashboard" : route.startsWith("/accounts") ? "accounts" : route.startsWith("/settings") ? "settings" : "widgets";
 
 /** Selectors of the blocks the Settings controls write into the theme CSS: style tokens apply to
  * both modes, and colors to one mode each. */
@@ -185,17 +185,22 @@ export function useDarkMode() {
 
 let probe: CanvasRenderingContext2D | null | undefined;
 
-/** Converts any CSS color to `#rrggbb` for a color input. Transparency is dropped. */
-export const toHex = (color: string) => {
-  const hex = (channels: ArrayLike<number>) => `#${Array.from(channels).slice(0, 3).map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+/** Any CSS color as its red, green, blue, and alpha channels, each 0–255. */
+const channels = (color: string): ArrayLike<number> => {
   probe ??= document.createElement("canvas").getContext("2d", { willReadFrequently: true });
-  if (!probe) return hex([0, 0, 0]);
+  if (!probe) return [0, 0, 0, 255];
   probe.clearRect(0, 0, 1, 1);
   probe.fillStyle = "black";
   probe.fillStyle = color;
   probe.fillRect(0, 0, 1, 1);
-  return hex(probe.getImageData(0, 0, 1, 1).data);
+  return probe.getImageData(0, 0, 1, 1).data;
 };
+
+/** Converts any CSS color to `#rrggbb` for a color input. Transparency is dropped; see `alphaOf`. */
+export const toHex = (color: string) => `#${Array.from(channels(color)).slice(0, 3).map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+
+/** A CSS color's alpha, 0–255. */
+export const alphaOf = (color: string) => channels(color)[3];
 
 /** Loads, applies, and saves the custom theme CSS. Nothing is applied while `active` is false.
  * The CSS is applied before the state changes, so a render can read the resulting token values

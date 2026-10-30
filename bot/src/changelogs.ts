@@ -29,8 +29,8 @@ export interface Changelog {
   released: boolean;
 }
 
-/** The file each version was last seen at, and its message once posted. */
-export type Posted = Record<string, { sha: string; messageId?: string }>;
+/** The file each version was last seen at, and its messages once posted. `messageId` is the older single-message form. */
+export type Posted = Record<string, { sha: string; messageIds?: string[]; messageId?: string }>;
 
 /** Reads a changelog file: a `# Title` line, an italic date line, then the notes. */
 export function parseChangelog(version: string, text: string): Changelog {
@@ -40,17 +40,16 @@ export function parseChangelog(version: string, text: string): Changelog {
   return { version, title, date, body: rest.join("\n").trim(), released: date !== "" && !/unreleased/i.test(date) };
 }
 
-/** The embed for a changelog, linked to its GitHub release and cut to Discord's limit. */
-export function changelogEmbed(changelog: Changelog) {
-  const description = changelog.body.length > DESCRIPTION_LIMIT
-    ? `${changelog.body.slice(0, DESCRIPTION_LIMIT - 1).trimEnd()}…`
-    : changelog.body;
-  return {
-    title: changelog.title,
-    url: `https://github.com/BakedAleska/Toolblox/releases/tag/v${changelog.version}`,
-    description,
-    footer: { text: changelog.date },
-  };
+/** The embeds for a changelog, one per message. A `---` line starts a new message. The first links
+ * to the GitHub release, the last carries the date, and each is cut to Discord's limit. */
+export function changelogEmbeds(changelog: Changelog) {
+  const parts = changelog.body.split(/^---$/m).map((part) => part.trim()).filter(Boolean);
+  if (!parts.length) parts.push("");
+  return parts.map((part, index) => ({
+    ...(index === 0 && { title: changelog.title, url: `https://github.com/BakedAleska/Toolblox/releases/tag/v${changelog.version}` }),
+    description: part.length > DESCRIPTION_LIMIT ? `${part.slice(0, DESCRIPTION_LIMIT - 1).trimEnd()}…` : part,
+    ...(index === parts.length - 1 && { footer: { text: changelog.date } }),
+  }));
 }
 
 /** Orders versions oldest first, comparing each number in them as a number. */
@@ -90,9 +89,10 @@ async function changelogChannel(token: string, state: KVNamespace): Promise<stri
 }
 
 /**
- * Posts each released changelog that isn't in the channel yet, oldest first, and edits the embed
- * of one whose file changed. Unreleased files are skipped until their file changes. Progress is
- * saved after each message, so a failure doesn't post the same version twice.
+ * Posts each released changelog that isn't in the channel yet, oldest first, and edits the
+ * messages of one whose file changed, adding or deleting messages when its part count changed.
+ * Unreleased files are skipped until their file changes. Progress is saved after each message,
+ * so a failure doesn't post the same part twice.
  */
 export async function syncChangelogs(token: string, state: KVNamespace, githubToken?: string): Promise<void> {
   const posted = (await state.get<Posted>(POSTED_KEY, "json")) ?? {};
@@ -103,14 +103,22 @@ export async function syncChangelogs(token: string, state: KVNamespace, githubTo
     const response = await fetch(file.url, { headers: { "User-Agent": "toolblox-bot" } });
     if (!response.ok) throw new Error(`GitHub returned status ${response.status} for changelog ${file.version}.`);
     const changelog = parseChangelog(file.version, await response.text());
-    let messageId = posted[file.version]?.messageId;
+    const previous = posted[file.version];
+    const messageIds = previous?.messageIds ?? (previous?.messageId ? [previous.messageId] : []);
     if (changelog.released) {
       channel ??= await changelogChannel(token, state);
-      const body = { embeds: [changelogEmbed(changelog)], allowed_mentions: { parse: [] } };
-      const edited = messageId && (await discordRequest(token, "PATCH", `/channels/${channel}/messages/${messageId}`, body, [404])).ok;
-      if (!edited) messageId = (await (await discordRequest(token, "POST", `/channels/${channel}/messages`, body)).json<{ id: string }>()).id;
+      const embeds = changelogEmbeds(changelog);
+      for (const [index, embed] of embeds.entries()) {
+        const body = { embeds: [embed], allowed_mentions: { parse: [] } };
+        const id = messageIds[index];
+        const edited = id && (await discordRequest(token, "PATCH", `/channels/${channel}/messages/${id}`, body, [404])).ok;
+        if (!edited) messageIds[index] = (await (await discordRequest(token, "POST", `/channels/${channel}/messages`, body)).json<{ id: string }>()).id;
+        posted[file.version] = { sha: previous?.sha ?? "", messageIds };
+        await state.put(POSTED_KEY, JSON.stringify(posted));
+      }
+      for (const id of messageIds.splice(embeds.length)) await discordRequest(token, "DELETE", `/channels/${channel}/messages/${id}`, undefined, [404]);
     }
-    posted[file.version] = { sha: file.sha, messageId };
+    posted[file.version] = messageIds.length ? { sha: file.sha, messageIds } : { sha: file.sha };
     await state.put(POSTED_KEY, JSON.stringify(posted));
   }
 }

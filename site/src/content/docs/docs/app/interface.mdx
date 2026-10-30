@@ -19,7 +19,7 @@ environment a widget lives in.
 - index.html — the `#root` element and the module entry
 - vite.config.ts — dev server on port 1420, `@` alias to `/src`
 - components.json — shadcn/ui configuration (`base-nova` style)
-- public/assets/ — logo.svg, logo.png, github.svg, splash.svg
+- public/assets/ — logo.svg, logo.png, splash.svg
 - src/
   - main.tsx — global error logging and the React root
   - App.tsx — startup gate, shell, sidebar, routing, dialogs, toast
@@ -36,7 +36,6 @@ environment a widget lives in.
     - Widgets.tsx
     - Settings.tsx
   - widgets/host.tsx — module loader, registry, slots, error boundary
-  - demo-widgets/ — sample module widgets used by the demo state
 </FileTree>
 
 ## Build setup
@@ -256,8 +255,8 @@ Neither dialog is exposed to widgets. `AlertDialog` isn't in `toolblox.ui`, and 
    `bridge.joinAccounts(accountIds, placeId)` and reloads.
 2. Without one, it checks whether any selected account lacks both an account place override and a
    default place. If none does, it joins with each account's own resolution.
-3. Otherwise it opens PlaceDialog titled "Set default place". Submitting saves the place as
-   `settings.placeId` and then joins.
+3. Otherwise it opens the place search page (`/accounts/places`). Choosing a game saves it as
+   `settings.placeId`; the join is started again from there.
 
 A failed join shows "Join failed. Is Roblox installed and the account signed in?". The widget
 `toolblox.join(accountIds)` goes through the same function but can't pass a place ID. Launch
@@ -331,7 +330,7 @@ the app already ships:
 toolblox.replaceScreen("dashboard", function Home() {
   const state = toolblox.useAppState();
   return h("div", { className: "h-full overflow-y-auto [scrollbar-gutter:stable]" },
-    h("div", { className: "mx-auto flex min-h-full max-w-5xl flex-col gap-2 px-6 pb-6" },
+    h("div", { className: "@container mx-auto flex min-h-full max-w-[120rem] flex-col gap-2 px-6 pb-6" },
       h("header", { className: "sticky top-0 z-10 -mx-6 flex h-14 shrink-0 items-center gap-2 bg-background/90 px-6 backdrop-blur-sm" },
         h("h1", { className: "mr-auto shrink-0 pr-2 text-lg font-semibold tracking-tight" }, "Home")),
       h(ui.Panel, { className: "p-4" }, `${state.accounts.length} accounts`)));
@@ -372,9 +371,9 @@ The `Sidebar` component in `App.tsx` is an `<aside aria-label="Main navigation">
 - When any widget is installed, a "Widgets" heading (a divider when collapsed) followed by one item
   per installed widget, using the `Puzzle` icon and routing to `/widgets/<id>`. Disabled widgets
   appear as disabled buttons.
-- A footer row with a GitHub `Button` that opens the repository through `bridge.openExternal`, and
-  the version string `v<version>`, with `-canary` appended on the canary channel. The version's
-  `title` says whether it's a source checkout or a released build.
+- When not collapsed, the version string `v<version>`, with `-canary` appended on the canary
+  channel. It scrolls sideways when it's wider than the sidebar. Its `title` says whether it's a
+  source checkout or a released build.
 - The `sidebar.footer` [slot](#slots-on-each-screen), which receives `{ collapsed }`.
 
 Each item is a `<button>` with `aria-label`, `aria-current="page"` on the active route, a
@@ -412,8 +411,15 @@ When collapsed, labels and the version are hidden and tooltips take over. A widg
 ## Screens
 
 Every core screen wraps its content in `Screen`, which provides a full-height scroll container
-with a stable scrollbar gutter, a `max-w-5xl` centred column with 24 px side padding, and a sticky
-56 px header holding an `<h1>` and optional actions on a translucent, blurred background.
+with a stable scrollbar gutter, a centred column with 24 px side padding, capped at
+`max-w-[120rem]`, and a sticky 56 px header holding an `<h1>` and optional actions on a
+translucent, blurred background. The column is a size container, so screens add columns with
+`@5xl:` and wider container queries as the window grows: Dashboard puts the hero beside the stats,
+Accounts and Find a place show two or three columns of cards, and Settings shows two columns of
+groups. The
+header ends with the app-wide tools from the `ScreenTools` context: **Theme**, which cycles
+System, Light, and Dark, then **Snap to default aspect ratio** and **Mini mode**, which the browser
+demo hides. A hairline separates them from the page's own actions.
 
 ### Slots on each screen
 
@@ -425,7 +431,7 @@ The five slots, defined by `SlotProps` in `host.tsx` and rendered with `WidgetSl
 | `accounts.row` | Accounts | Under each account's name line, above the notes | `{ account }` | `div.mt-1.flex.flex-wrap.items-center.gap-1.5` |
 | `dashboard.stats` | Dashboard | In the stat tile grid, after the three core tiles | `{}` | None, items are grid cells |
 | `dashboard.sections` | Dashboard | After **Recently played**, before iframe dashboard tiles | `{}` | `div.flex.flex-col.gap-4` |
-| `sidebar.footer` | Shell | Below the GitHub and version row | `{ collapsed }` | None |
+| `sidebar.footer` | Shell | Below the version | `{ collapsed }` | None |
 
 `WidgetSlot` renders nothing when no widget contributes, so wrappers don't leave empty gaps.
 Contributions are sorted by their `order` option, and each one renders inside its own
@@ -445,7 +451,6 @@ uses `state`, `navigate`, and `join`. It makes no bridge calls of its own.
 | Recently played | Accounts with a `lastPlaceId`, newest first. Each row shows the place label and relative time with a **Join** button labelled "Join `place` as `name`" that calls `join([id], lastPlaceId)`. |
 | `dashboard.sections` slot | Widget sections. |
 | Iframe tiles | One section per enabled widget with `hasDashboardTile`, titled with the widget name, rendering `WidgetFrame` on the `dashboard` surface. |
-| Footer | Icons for the three core commitments (free and open source, no injection, data stays on this device), each revealing its title when pressed, and a **Details** link to Settings. |
 
 `relativeTime` in `logic.ts` produces "Never played", "Last played just now", or "Last played
 `n`m/h/d ago", accepting timestamps in seconds or milliseconds.
@@ -467,12 +472,13 @@ uses `state`, `refresh`, `notify`, `confirm`, `join`, `askPlace`, and `patchSett
    (`anchor={placeField}`, `align="start"`, `className="min-w-0"`) listing name and ID. Each item's remove button, or Delete or Backspace on the highlighted item,
    calls `bridge.forgetRecentPlace`.
 3. A search field that filters on username, display name, and notes.
-4. A select-mode `IconButton` ("Select accounts" / "Exit selection").
-5. **Add**, which calls `bridge.beginRobloxLogin()` and then refreshes. A hidden live region says
+4. **Add**, which calls `bridge.beginRobloxLogin()` and then refreshes. A hidden live region says
    "Roblox sign-in window open." while it's running.
 
-**Selection bar**: in select mode a `Panel` shows "`n` selected" (live), **Select all** (visible
-accounts), **Clear**, and **Join selected**, which calls `join([...selected])`.
+**Selection bar**: double-clicking a row selects it, and while any row is selected a click toggles a
+row. A `Panel` then shows "`n` selected" (live), **Select all** (visible accounts, hidden once all
+are selected), **Join selected**, which calls `join([...selected])`, and a "Clear selection"
+`IconButton`. The row menu's **Select** or **Deselect** item is the keyboard path.
 
 **Rows**: accounts are ordered by `sortAccounts(accounts, settings.sortOrder)`: `manual` keeps the
 stored order, `alphabetical` compares display names with `localeCompare`, and `last_played` sorts
@@ -482,11 +488,11 @@ by `lastPlayedAt`, falling back to `addedAt`. Each row is a `Panel` with:
   capture and `document.elementFromPoint` to find the target row (`data-account-id`), then calls
   `bridge.reorderAccounts` with the new ID order. The new order shows immediately as
   `pendingOrder` until the refresh completes.
-- A `Checkbox` in select mode, labelled "Select `name`".
+- A `Checkbox` while any row is selected, labelled "Select `name`".
 - An `Avatar` when `showAvatars` is on (32 px in compact mode, 40 px otherwise).
 - The display name, `@username` when different, a place override `Badge` with a `MapPin`, and a
-  presence `Badge` ("In game: `game` (`placeId`)" in success colour, or "Status unavailable" in
-  destructive colour).
+  presence `Badge` ("In game: `game`", "Session expired", or "Status unavailable") whose dot uses
+  the same `presenceTone` colour as the avatar dot.
 - The `accounts.row` slot.
 - A notes `<textarea>` (hidden in compact mode) that grows with content via `field-sizing: content`
   and saves with `bridge.updateAccountNotes` on blur when changed.
@@ -538,7 +544,7 @@ slots and can't be replaced.
 | Themes | Theme | Mode (`system`/`light`/`dark`) as a `ChoiceRow`; **Import** and **Export** of the custom CSS as a `.css` file |
 | Themes | Colors | A color picker for each token, showing its current value including any the custom CSS sets. Picking a color writes the token to a `:root:not(.dark)` or `:root.dark` block in the custom CSS, for the mode the app is showing |
 | Themes | Style | Font (a menu of Geist, the system font, and fonts installed on both Windows and macOS), Text size (body text in points, 7 to 21, 10.5 by default), and Density (a `ChoiceRow`). Each writes one token to a `:root` block in the custom CSS |
-| Themes | Custom CSS | The theme itself, saved with **Apply**. It's also how background images are set |
+| Themes | Colors panel | A **CSS** button at its bottom left that opens `/settings/css`: a full-page editor for the theme itself, saved with **Apply**. It's also how background images are set. Returning shows the Themes tab |
 
 In the demo build, the About group also shows **Update** and **Failure** buttons that replay the
 startup screens with `previewUpdater`. The settings themselves are described in
@@ -552,7 +558,7 @@ the `ui` object that `host.tsx` passes to widgets.
 
 | Export | What it is | Key props | toolblox.ui |
 | --- | --- | --- | --- |
-| `Screen` | Scrolling page with sticky header, capped at `max-w-5xl` | `title`, `actions?`, `children`, `className?` | No |
+| `Screen` | Scrolling page with sticky header, capped at `max-w-[120rem]` | `title`, `actions?`, `children`, `className?` | No |
 | `Panel` | `div` with `rounded-xl bg-card ring-1 ring-foreground/8` | Any `div` props | Yes |
 | `SectionTitle` | Muted `h2` row with an optional action on the right | `children`, `action?` | Yes |
 | `IconButton` | Icon-only `Button` with `aria-label` and a matching tooltip | `label`, `variant` (default `ghost`), `size` (default `icon`), `Button` props | Yes |
@@ -582,7 +588,7 @@ wrap [Base UI](https://base-ui.com) primitives (`@base-ui/react`) rather than Ra
 with a `render` prop instead of `asChild`:
 
 ```tsx
-<TooltipTrigger render={<Button variant="ghost" size="icon" aria-label="GitHub repository" />}>…</TooltipTrigger>
+<TooltipTrigger render={<Button variant="ghost" size="icon" aria-label="Mini mode" />}>…</TooltipTrigger>
 ```
 
 Variants are defined with `class-variance-authority`, and class names merge with `cn` from the
@@ -647,8 +653,8 @@ All colours are OKLCH. Every neutral has zero chroma; only the three status colo
 | `--success` | `oklch(0.6 0.16 150)` | `oklch(0.72 0.17 150)` | In game presence |
 | `--warning` | `oklch(0.68 0.16 65)` | `oklch(0.8 0.15 70)` | Safe mode, unavailable status |
 | `--border` | `oklch(0.92 0 0)` | `oklch(1 0 0 / 8%)` | Default border colour, dividers, scrollbars |
-| `--input` | `oklch(0.9 0 0)` | `oklch(1 0 0 / 14%)` | Input borders, unchecked switches |
-| `--ring` | `oklch(0.708 0 0)` | `oklch(0.556 0 0)` | Focus rings, outlines |
+| `--input` | `oklch(0.9 0 0)` | `oklch(1 0 0 / 14%)` | Input borders |
+| `--ring` | `oklch(0.55 0 0)` | `oklch(0.556 0 0)` | Focus rings, outlines |
 | `--sidebar` | `oklch(0.965 0 0)` | `oklch(0.14 0 0)` | Sidebar background |
 | `--sidebar-foreground` | `oklch(0.145 0 0)` | `oklch(0.975 0 0)` | Sidebar text |
 | `--sidebar-primary` | `oklch(0.205 0 0)` | `oklch(0.93 0 0)` | Mapped, unused by the app |
@@ -656,7 +662,7 @@ All colours are OKLCH. Every neutral has zero chroma; only the three status colo
 | `--sidebar-accent` | `oklch(0.92 0 0)` | `oklch(0.24 0 0)` | Active and hovered sidebar item |
 | `--sidebar-accent-foreground` | `oklch(0.145 0 0)` | `oklch(0.975 0 0)` | Text on the active item |
 | `--sidebar-border` | `oklch(0.92 0 0)` | `oklch(1 0 0 / 6%)` | Sidebar edge and divider |
-| `--sidebar-ring` | `oklch(0.708 0 0)` | `oklch(0.556 0 0)` | Mapped, unused by the app |
+| `--sidebar-ring` | `oklch(0.55 0 0)` | `oklch(0.556 0 0)` | Mapped, unused by the app |
 
 | `--overlay` | `oklch(0 0 0 / 30%)` | `oklch(0 0 0 / 50%)` | Dialog backdrop |
 | `--shadow` | `oklch(0 0 0)` | `oklch(0 0 0)` | Shadow color for floating layers |
@@ -701,9 +707,9 @@ overflow (each screen scrolls itself), and draw thin scrollbars in the `--border
 accent. Status is never conveyed by colour alone:
 
 - The avatar presence dot is decorative (`aria-hidden`); the same row shows a text badge such as
-  "In game: Pet Simulator 99 (8737899170)" or "Status unavailable".
-- The default place field turns destructive when empty, and its placeholder, `title`, and `sr-only`
-  hint all say "No default place set".
+  "In game: Pet Simulator 99" or "Status unavailable".
+- The default place field is marked `aria-invalid` only when its text isn't a valid place, and the
+  toast says why.
 - The safe mode banner's warning icon sits next to the sentence that explains it.
 - Widget load failures show the words "Failed to load" or "`name` failed to render", so the failure is not conveyed by color alone.
 
@@ -746,10 +752,8 @@ const remove = toolblox.addStyles(`
 
 Because utilities reference the variables (`@theme inline`), overriding a token on `:root`
 re-colours every component that uses it. Overrides should cover both `:root` and `:root.dark` (or
-target `.dark` separately), because the app's own `.dark` block otherwise wins in dark mode. The
-bundled Rogue Lineage demo widget
-([`src/demo-widgets/rogue_lineage/main.js`](https://github.com/BakedAleska/Toolblox/blob/main/src/demo-widgets/rogue_lineage/main.js))
-uses this pattern for an optional full-app theme it adds and removes from its settings page.
+target `.dark` separately), because the app's own `.dark` block otherwise wins in dark mode. A widget
+can use this pattern for an optional full-app theme it adds and removes from its settings page.
 Prefixing custom class names with the widget ID avoids collisions with other widgets.
 
 ### What the CSP allows
@@ -805,7 +809,7 @@ components inherit most of this; custom markup should follow the same patterns.
 | Changes are announced | Toast and safe mode banner use `role="status"`; the selection count, sign-in state, loading screens, log status, and update status use live regions; boundary failures use `role="alert"`. |
 | Navigation state is exposed | Sidebar items set `aria-current="page"`; the log toggle sets `aria-expanded` and `aria-controls`; sections on the Widgets page use `aria-labelledby`. |
 | Keyboard alternatives exist | The sidebar separator resizes with arrow keys; drag-to-reorder has **Move up** / **Move down** menu items; Enter commits the place field; the log `<pre>` is focusable for keyboard scrolling. |
-| Focus is visible | Controls use `focus-visible:ring-3 focus-visible:ring-ring/50`; the base layer sets `outline-ring/50` everywhere. |
+| Focus is visible | Controls use a solid `focus-visible:ring-2 focus-visible:ring-ring`; the base layer sets `outline-ring/50` everywhere. |
 | Targets are comfortable | `Checkbox` and `Switch` extend their hit area with an `after:` pseudo-element beyond the visible control. |
 | Motion respects preferences | The reduced-motion block in `index.css`. |
 | Headings are structured | `Screen` renders one `<h1>`; section titles and empty states use `<h2>`. |
@@ -815,7 +819,7 @@ components inherit most of this; custom markup should follow the same patterns.
 
 `bridge.ts` checks for `__TAURI_INTERNALS__`. Without it, or when Vite runs in `demo` mode
 (`npm run demo`), every bridge call returns sample data from an in-memory `demoState` with five
-accounts, five installed widgets (two of them the module widgets in `src/demo-widgets`), and six
+accounts, three installed widgets, and six
 catalogue entries. The interface can therefore be developed in a plain browser with `npm run dev`
 without touching real accounts. See [Development](/docs/start/development/).
 

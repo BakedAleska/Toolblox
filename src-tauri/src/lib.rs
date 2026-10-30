@@ -14,7 +14,7 @@
 //! - [`roblox`]: Roblox web APIs for profiles, presence, games, and join tickets.
 //! - [`auto_rejoin`]: presence monitoring for drop notifications and auto-rejoin.
 //! - [`multi_instance`]: running several Roblox clients on Windows and macOS.
-//! - [`roblox_process`]: client priority, CPU cores, and window tiling.
+//! - [`roblox_process`]: running Roblox client processes.
 //! - [`lifecycle`]: window, tray, and single-instance behavior.
 //! - [`logs`]: the rotating, redacted log file.
 //! - [`widgets`], [`widget_protocol`], [`widget_ipc`], and [`widget_process`]: signed widget
@@ -223,7 +223,6 @@ pub fn run() {
                         .join("resources/multi-instance/multi_instance_helper.exe"),
                 ),
                 cleared_roblox_pids: Mutex::new(Default::default()),
-                client_tuner: Default::default(),
                 expired_sessions: Mutex::new(Default::default()),
                 safe_mode,
             };
@@ -236,13 +235,7 @@ pub fn run() {
                     processes.stop_all();
                 }
             });
-            let safe_mode_root = data_root.clone();
-            lifecycle::install_tray(
-                app.handle(),
-                Arc::clone(&lifecycle_state),
-                before_quit,
-                Arc::new(move || set_safe_mode_marker(&safe_mode_root, true)),
-            )?;
+            lifecycle::install_tray(app.handle(), Arc::clone(&lifecycle_state), before_quit)?;
 
             if let Some(window) = app.get_webview_window(lifecycle::MAIN_WINDOW_LABEL) {
                 let close_state = Arc::clone(&lifecycle_state);
@@ -323,9 +316,10 @@ pub fn run() {
             app_commands::begin_roblox_login,
             app_commands::update_account_notes,
             app_commands::set_account_place,
-            app_commands::set_account_priority,
-            app_commands::tile_roblox_windows,
+            app_commands::set_account_pinned,
             app_commands::place_exists,
+            app_commands::search_places,
+            app_commands::submit_survey,
             app_commands::forget_recent_place,
             app_commands::get_widget_store,
             app_commands::set_widget_store,

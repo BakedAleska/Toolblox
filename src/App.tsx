@@ -1,21 +1,22 @@
 import { ExternalLink, LayoutDashboard, Minimize2, Monitor, Moon, Proportions, Puzzle, Settings as SettingsIcon, ShieldAlert, Sun, Users, X } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import "./index.css";
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Toaster, parseToast, useToasts, type ToastKind } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { bridge, isDemo } from "@/bridge";
 import { pageOf, useCustomTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MAX, clampSidebarWidth, parsePlaceId, stepSidebarWidth } from "@/logic";
+import { SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, clampSidebarWidth, parsePlaceId, stepSidebarWidth } from "@/logic";
 import { Accounts } from "@/screens/Accounts";
 import { Dashboard } from "@/screens/Dashboard";
 import { MiniWindow } from "@/screens/Mini";
+import { PlaceSearch } from "@/screens/PlaceSearch";
+import { CustomCssScreen } from "@/screens/Themes";
 import { SettingsScreen } from "@/screens/Settings";
+import { useSurvey } from "@/screens/Survey";
 import { Widgets } from "@/screens/Widgets";
-import { EmptyState, IconButton, Panel, Screen, Spinner, SwitchRow, WidgetFrame, type ConfirmRequest, type PlaceRequest, type ScreenProps } from "@/shared";
+import { EmptyState, IconButton, Modal, Panel, PlaceInput, Screen, ScreenTools, Spinner, SwitchRow, WidgetFrame, type ConfirmRequest, type PlaceRequest, type ScreenProps, failure } from "@/shared";
 import { WidgetBoundary, WidgetSlot, syncWidgetHost, syncWidgetModules, useWidgetRegistry, type CoreScreen } from "@/widgets/host";
 import type { AppRoute, AppState, RecentPlace, Settings, StartupStatus, ThemeMode, WidgetSummary } from "@/types";
 
@@ -28,7 +29,7 @@ const coreRoutes = [
 
 const routeFromHash = (): AppRoute => {
   const value = window.location.hash.slice(1) || "/";
-  return value === "/" || value === "/accounts" || value === "/widgets" || value === "/settings" || value.startsWith("/widgets/")
+  return value === "/" || value === "/accounts" || value === "/accounts/places" || value === "/widgets" || value === "/settings" || value === "/settings/css" || value.startsWith("/widgets/")
     ? (value as AppRoute) : "/";
 };
 
@@ -76,13 +77,15 @@ function App() {
   const setMiniMode = (open: boolean) => {
     miniRef.current = open;
     setMini(open);
-    if (!open) void bridge.setMiniWindow(null).catch((error) => notify(`The window wasn't restored. Does retrying help? (${String(error)})`));
+    if (!open) void bridge.setMiniWindow(null).catch((error) => notify(failure(`The window wasn't restored. Does retrying help?`, error)));
   };
+  const [joining, setJoining] = useState<number[]>([]);
   const [confirm, setConfirm] = useState<ConfirmRequest>();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [placeRequest, setPlaceRequest] = useState<PlaceRequest>();
   const [placeOpen, setPlaceOpen] = useState(false);
   useTheme(state?.settings.themeMode);
+  useEffect(() => { document.documentElement.toggleAttribute("data-always-animate", state?.settings.alwaysAnimate === true); }, [state?.settings.alwaysAnimate]);
   const themes = useCustomTheme(startup?.phase === "ready", !state?.safeMode, notify);
   const registry = useWidgetRegistry();
   const host = useRef<Parameters<typeof syncWidgetHost>>(undefined);
@@ -131,6 +134,7 @@ function App() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
+  const survey = useSurvey(notify);
   const navigate = (next: AppRoute) => { window.location.hash = next; setRoute(next); };
   if (!startup || startup.phase !== "ready") return <UpdaterGate status={startup} />;
   if (!state) return <main className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground" aria-live="polite">
@@ -141,11 +145,13 @@ function App() {
     const settings = { ...state.settings, [key]: value };
     setState((current) => current ? { ...current, settings } : current);
     try { await bridge.saveSettings(settings); }
-    catch (error) { notify(`The setting wasn't saved. Does retrying help? (${String(error)})`); void load(); }
+    catch (error) { notify(failure(`The setting wasn't saved. Does retrying help?`, error)); void load(); }
   };
   const launch = async (accountIds: number[], placeId?: string) => {
+    setJoining(accountIds);
     try { await bridge.joinAccounts(accountIds, placeId); await load(); }
-    catch (error) { notify(`Join failed. Is Roblox installed and the account signed in? (${String(error)})`); }
+    catch (error) { notify(failure(`Join failed. Is Roblox installed and the account signed in?`, error)); await load(); }
+    finally { setJoining([]); }
   };
   const askPlace = (request: PlaceRequest) => { setPlaceRequest(request); setPlaceOpen(true); };
   const join = (accountIds: number[], placeId?: string) => {
@@ -153,16 +159,15 @@ function App() {
     const needsPlace = !state.settings.placeId && accountIds.some((id) => !state.accounts.find((account) => account.id === id)?.placeId);
     if (!needsPlace) { void launch(accountIds); return; }
     if (miniRef.current) { notify("Join needs a default place. Is one set on the Accounts page?"); return; }
-    askPlace({ title: "Set default place", description: "Enter a Roblox game link or place ID.", action: "Save and join",
-      run: async (placeId) => { await patchSettings("placeId", placeId); await launch(accountIds); } });
+    navigate("/accounts/places");
   };
   const signIn = async (accountId: number) => {
     try { await bridge.beginRobloxLogin(accountId); await load(); }
-    catch (error) { notify(`Sign-in didn't complete. Was the sign-in window closed? (${String(error)})`); }
+    catch (error) { notify(failure(`Sign-in didn't complete. Was the sign-in window closed?`, error)); }
   };
-  const props: ScreenProps = { state, refresh: load, navigate, notify, confirm: (request) => { setConfirm(request); setConfirmOpen(true); }, join, signIn, askPlace, patchSettings, openMini: () => setMiniMode(true) };
+  const props: ScreenProps = { state, refresh: load, navigate, notify, confirm: (request) => { setConfirm(request); setConfirmOpen(true); }, join, joining, signIn, askPlace, patchSettings, openMini: () => setMiniMode(true) };
   host.current = [state, { navigate, notify, refresh: load, join }];
-  if (mini) return <TooltipProvider delay={400}><MiniWindow state={state} join={join} signIn={signIn} notify={notify} exit={() => setMiniMode(false)} /></TooltipProvider>;
+  if (mini) return <TooltipProvider delay={400}><MiniWindow state={state} join={join} joining={joining} signIn={signIn} notify={notify} exit={() => setMiniMode(false)} /></TooltipProvider>;
 
   const replaced = (name: CoreScreen) => {
     const entry = registry.screens.get(name);
@@ -171,8 +176,10 @@ function App() {
   let screen: ReactNode;
   if (route === "/") screen = replaced("dashboard") || <Dashboard {...props} />;
   else if (route === "/accounts") screen = replaced("accounts") || <Accounts {...props} />;
+  else if (route === "/accounts/places") screen = <PlaceSearch {...props} />;
   else if (route === "/widgets") screen = replaced("widgets") || <Widgets {...props} />;
   else if (route === "/settings") screen = <SettingsScreen {...props} themes={themes} />;
+  else if (route === "/settings/css") screen = <CustomCssScreen {...props} themes={themes} />;
   else {
     const match = route.match(/^\/widgets\/([\w-]+)(\/settings)?$/);
     const widget = match ? state.installedWidgets.find(({ id }) => id === match[1]) : undefined;
@@ -181,9 +188,9 @@ function App() {
       : <WidgetHost widget={widget} navigate={navigate} />;
   }
 
-  return <TooltipProvider delay={400}>
+  return <TooltipProvider delay={400}><ScreenTools.Provider value={<HeaderTools themeMode={state.settings.themeMode} patchSettings={patchSettings} openMini={props.openMini} survey={survey.button} />}>
     <div className={cn("relative flex h-full", state.settings.sidebarPosition === "right" && "flex-row-reverse")}>
-      <Sidebar state={state} route={route} navigate={navigate} patchSettings={patchSettings} openMini={props.openMini} />
+      <Sidebar state={state} route={route} navigate={navigate} />
       <div className="relative flex min-w-0 flex-1 flex-col">
         {state.safeMode && <div className="flex items-center gap-3 border-b bg-warning/10 px-6 py-2 text-sm" role="status">
           <ShieldAlert className="size-4 shrink-0 text-warning" aria-hidden="true" />
@@ -193,11 +200,12 @@ function App() {
         <main key={route} data-page={pageOf(route)} className="min-h-0 flex-1 animate-in duration-200 fade-in-0 slide-in-from-bottom-1" id="main-content">{screen}</main>
       </div>
       {placeRequest && <PlaceDialog request={placeRequest} recentPlaces={state.recentPlaces} open={placeOpen} close={() => setPlaceOpen(false)}
-        forget={(placeId) => bridge.forgetRecentPlace(placeId).then(load).catch((error) => notify(`The place wasn't removed. Does retrying help? (${String(error)})`))} />}
+        forget={(placeId) => bridge.forgetRecentPlace(placeId).then(load).catch((error) => notify(failure(`The place wasn't removed. Does retrying help?`, error)))} />}
       {confirm && <ConfirmDialog request={confirm} open={confirmOpen} close={() => setConfirmOpen(false)} notify={notify} />}
+      {survey.dialog}
       <Toaster {...toasts} side={state.settings.sidebarPosition === "right" ? "left" : "right"} />
     </div>
-  </TooltipProvider>;
+  </ScreenTools.Provider></TooltipProvider>;
 }
 
 function UpdaterGate({ status }: { status?: StartupStatus }) {
@@ -222,13 +230,31 @@ const themeModes: { mode: ThemeMode; label: string; icon: ReactNode }[] = [
   { mode: "dark", label: "Dark", icon: <Moon /> },
 ];
 
-function Sidebar({ state, route, navigate, patchSettings, openMini }: Pick<ScreenProps, "state" | "navigate" | "patchSettings" | "openMini"> & { route: AppRoute }) {
-  const [width, setWidth] = useState(readSidebarWidth);
-  const [dragging, setDragging] = useState(false);
-  const collapsed = width === SIDEBAR_COLLAPSED;
-  const themeIndex = Math.max(0, themeModes.findIndex(({ mode }) => mode === state.settings.themeMode));
+/** Theme, window snap, and mini mode, at the right end of every page header. */
+function HeaderTools({ themeMode, patchSettings, openMini, survey }: Pick<ScreenProps, "patchSettings" | "openMini"> & { themeMode?: ThemeMode; survey?: ReactNode }) {
+  const themeIndex = Math.max(0, themeModes.findIndex(({ mode }) => mode === themeMode));
   const theme = themeModes[themeIndex];
   const nextTheme = themeModes[(themeIndex + 1) % themeModes.length];
+  return <div className="flex shrink-0 items-center">
+    {survey}
+    <IconButton label={`Theme: ${theme.label}`} className="text-muted-foreground" onClick={() => void patchSettings("themeMode", nextTheme.mode)}>{theme.icon}</IconButton>
+    {!isDemo() && <IconButton label="Snap to default aspect ratio" className="text-muted-foreground" onClick={() => void bridge.snapWindow()}><Proportions /></IconButton>}
+    {!isDemo() && <IconButton label="Mini mode" className="text-muted-foreground" onClick={openMini}><Minimize2 /></IconButton>}
+  </div>;
+}
+
+function Sidebar({ state, route, navigate }: { state: AppState; route: AppRoute; navigate: (route: AppRoute) => void }) {
+  const [saved, setWidth] = useState(readSidebarWidth);
+  const [dragging, setDragging] = useState(false);
+  const [viewport, setViewport] = useState(window.innerWidth);
+  useEffect(() => {
+    const resize = () => setViewport(window.innerWidth);
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+  /** The saved width, narrowed so the content keeps at least 560 pixels. */
+  const width = saved === SIDEBAR_COLLAPSED ? saved : Math.min(saved, Math.max(SIDEBAR_MIN, viewport - 560));
+  const collapsed = width === SIDEBAR_COLLAPSED;
   const right = state.settings.sidebarPosition === "right";
   const persist = (next: number) => { setWidth(next); try { localStorage.setItem(sidebarWidthKey, String(next)); } catch { /* The width falls back to the default. */ } };
   useEffect(() => {
@@ -237,30 +263,16 @@ function Sidebar({ state, route, navigate, patchSettings, openMini }: Pick<Scree
     style.cursor = "col-resize"; style.userSelect = "none";
     return () => { style.cursor = ""; style.userSelect = ""; };
   }, [dragging]);
+  const current = route === "/accounts/places" ? "/accounts" : route === "/settings/css" ? "/settings" : route;
   const item = (target: AppRoute, label: string, icon: ReactNode, enabled = true) => <Tooltip key={target}>
     <TooltipTrigger render={<button className={cn(
-      "flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-sm text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
-      route === target && "bg-sidebar-accent font-medium text-foreground hover:bg-sidebar-accent",
-    )} aria-current={route === target ? "page" : undefined} disabled={!enabled} onClick={() => navigate(target)} aria-label={label} />}>
+      "flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-sm text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
+      current === target && "bg-sidebar-accent font-medium text-foreground hover:bg-sidebar-accent",
+    )} aria-current={current === target ? "page" : undefined} disabled={!enabled} onClick={() => navigate(target)} aria-label={label} />}>
       {icon}{!collapsed && <span className="truncate">{label}</span>}
     </TooltipTrigger>
     <TooltipContent side={right ? "left" : "right"} className={cn(!collapsed && "hidden")}>{enabled ? label : `${label} is disabled`}</TooltipContent>
   </Tooltip>;
-  const footerItems = (clone: boolean) => {
-    const tabIndex = clone ? -1 : undefined;
-    return <>
-      <Tooltip>
-        <TooltipTrigger render={<Button variant="ghost" size="icon" tabIndex={tabIndex} onClick={() => void bridge.openExternal("https://github.com/BakedAleska/Toolblox")} aria-label="GitHub repository" />}>
-          <img src={`${import.meta.env.BASE_URL}assets/github.svg`} alt="" width="16" height="16" className="opacity-60 dark:invert" />
-        </TooltipTrigger>
-        <TooltipContent>GitHub</TooltipContent>
-      </Tooltip>
-      <IconButton label={`Theme: ${theme.label}`} tabIndex={tabIndex} className="text-muted-foreground" onClick={() => void patchSettings("themeMode", nextTheme.mode)}>{theme.icon}</IconButton>
-      {!isDemo() && <IconButton label="Snap to default aspect ratio" tabIndex={tabIndex} className="text-muted-foreground" onClick={() => void bridge.snapWindow()}><Proportions /></IconButton>}
-      {!isDemo() && <IconButton label="Mini mode" tabIndex={tabIndex} className="text-muted-foreground" onClick={openMini}><Minimize2 /></IconButton>}
-      {!collapsed && <span className="shrink-0 px-2 text-xs whitespace-nowrap text-muted-foreground" title={state.channel === "canary" ? "Running from a source checkout." : "The installed, publicly released build."}>v{state.version}{state.channel === "canary" ? "-canary" : ""}</span>}
-    </>;
-  };
   return <aside data-slot="sidebar" style={{ width }} className={cn("relative flex shrink-0 flex-col gap-1 bg-sidebar p-2", !dragging && "transition-[width] duration-150", right ? "border-l border-sidebar-border" : "border-r border-sidebar-border")} aria-label="Main navigation">
     <Tooltip>
       <TooltipTrigger render={<button className="mb-2 flex h-10 items-center gap-2 overflow-hidden rounded-lg px-1.5 outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-3 focus-visible:ring-ring/50" onClick={() => void bridge.openExternal("https://toolblox.dev")} aria-label="Toolblox website" />}>
@@ -272,12 +284,11 @@ function Sidebar({ state, route, navigate, patchSettings, openMini }: Pick<Scree
     <nav className="flex flex-1 flex-col gap-0.5 overflow-hidden">
       {coreRoutes.map(({ route: target, label, icon: Icon }) => item(target, label, <Icon aria-hidden="true" />))}
       {state.installedWidgets.length > 0 && (collapsed ? <hr className="my-2 border-sidebar-border" /> : <p className="mt-4 mb-1 truncate px-2.5 text-xs text-muted-foreground">Widgets</p>)}
-      {state.installedWidgets.map((widget) => item(`/widgets/${widget.id}`, widget.name, <Puzzle aria-hidden="true" />, widget.enabled))}
+      {state.installedWidgets.map((widget) => item(`/widgets/${widget.id}`, widget.name, widget.logoUrl ? <img src={widget.logoUrl} alt="" className="size-4 shrink-0 rounded-sm object-cover" /> : <Puzzle aria-hidden="true" />, widget.enabled))}
     </nav>
-    {collapsed ? <div className="flex flex-col items-start gap-1 overflow-hidden px-0.5">{footerItems(false)}</div>
-      : <LoopingRow className="px-0.5">{footerItems}</LoopingRow>}
+    {!collapsed && <LoopingRow className="px-0.5">{() => <span className="shrink-0 px-2 py-1 text-xs whitespace-nowrap text-muted-foreground" title={state.channel === "canary" ? "Running from a source checkout." : "The installed, publicly released build."}>v{state.version}{state.channel === "canary" ? "-canary" : ""}</span>}</LoopingRow>}
     <WidgetSlot name="sidebar.footer" props={{ collapsed }} />
-    <div role="separator" aria-orientation="vertical" aria-label="Resize sidebar" aria-valuemin={SIDEBAR_COLLAPSED} aria-valuemax={SIDEBAR_MAX} aria-valuenow={width} tabIndex={0}
+    <div role="separator" aria-orientation="vertical" aria-label="Resize sidebar" aria-valuemin={SIDEBAR_COLLAPSED} aria-valuemax={SIDEBAR_MAX} aria-valuenow={width} aria-valuetext={collapsed ? "Icon only" : `${width} pixels`} tabIndex={0}
       className={cn("group absolute inset-y-0 z-20 w-2 cursor-col-resize touch-none outline-none", right ? "-left-1" : "-right-1")}
       onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); }}
       onPointerMove={(event) => { if (dragging) setWidth(clampSidebarWidth(right ? window.innerWidth - event.clientX : event.clientX)); }}
@@ -332,7 +343,7 @@ function LoopingRow({ className, children }: { className?: string; children: (cl
     return () => { element.removeEventListener("scroll", wrap); element.removeEventListener("wheel", wheel); };
   }, [fits]);
   const copy = (clone: boolean, key: number) => <div key={key} ref={clone ? undefined : middle} aria-hidden={clone || undefined} className="flex shrink-0 items-center gap-1 pr-1">{children(clone)}</div>;
-  return <div ref={scroller} className={cn("flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", fits ? "overflow-hidden" : "overflow-x-auto", className)}>
+  return <div ref={scroller} className={cn("flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", fits ? "justify-center overflow-hidden" : "overflow-x-auto", className)}>
     {fits ? copy(false, 1) : [copy(true, 0), copy(false, 1), copy(true, 2)]}
   </div>;
 }
@@ -355,7 +366,7 @@ function WidgetSettings({ widget, navigate, refresh, notify }: ScreenProps & { w
   const empty = !Custom && !widget.hasSettings && !widget.canStartOnLaunch;
   return <Screen title={`${widget.name} settings`} actions={(pages.has(widget.id) || widget.hasPageFrame) && <Button variant="ghost" size="sm" onClick={() => navigate(`/widgets/${widget.id}`)}>Open widget</Button>}>
     {widget.canStartOnLaunch && <Panel><SwitchRow title="Start with Toolblox" description={`Run ${widget.name} when Toolblox starts.`} checked={widget.startOnLaunch}
-      change={(value) => void bridge.setWidgetStartOnLaunch(widget.id, value).then(refresh).catch((error) => notify(`The startup setting wasn't saved. Does retrying help? (${String(error)})`))} /></Panel>}
+      change={(value) => void bridge.setWidgetStartOnLaunch(widget.id, value).then(refresh).catch((error) => notify(failure(`The startup setting wasn't saved. Does retrying help?`, error)))} /></Panel>}
     {Custom && <WidgetBoundary widgetId={widget.id}><Custom /></WidgetBoundary>}
     {widget.hasSettings && <WidgetFrame widget={widget} surface="settings" title={`${widget.name} settings`} />}
     {empty && <EmptyState icon={<SettingsIcon />} title="No settings" text="This widget has no settings." />}
@@ -372,65 +383,43 @@ function PlaceDialog({ request, recentPlaces, open, close, forget }: { request: 
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (open) { setValue(""); setError(""); setBusy(false); } }, [open]);
   const save = async (placeId: string) => { setBusy(true); await request.run(placeId); close(); };
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
+  const submit = async () => {
     const placeId = parsePlaceId(value);
-    if (!placeId) { setError("No place ID found. Is the link complete?"); return; }
+    if (!placeId) { setError("No place ID found. Is it a game from the list, a Roblox game link, or a place ID?"); return; }
     setBusy(true);
     const exists = await bridge.placeExists(placeId).catch(() => true);
     setBusy(false);
     if (exists) void save(placeId);
-    else { setValue(""); setError(`Place ${placeId} doesn't exist. Is the ID correct?`); }
+    else setError(`Place ${placeId} doesn't exist. Is the ID correct?`);
   };
-  return <AlertDialog open={open} onOpenChange={(next) => { if (!next && !busy) close(); }}>
-    <AlertDialogContent>
-      <form className="contents" onSubmit={(event) => void submit(event)}>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{request.title}</AlertDialogTitle>
-          <AlertDialogDescription>{request.description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <div className="grid gap-1.5">
-          <Input autoFocus value={value} onChange={(event) => { setValue(event.target.value); setError(""); }} placeholder="roblox.com/games/1818/… or 1818…" className="font-mono"
-            aria-label="Place ID or Roblox game link" aria-invalid={!!error} aria-describedby={error ? "place-dialog-error" : undefined} />
-          {error && <p id="place-dialog-error" className="text-xs text-destructive">{error}</p>}
-        </div>
-        {recentPlaces.length > 0 && <div className="grid gap-1.5">
-          <p className="text-xs text-muted-foreground">Recent places</p>
-          <div className="flex flex-wrap gap-1.5">
-            {recentPlaces.map((place) => <span key={place.placeId} className="inline-flex max-w-full">
-              <Button type="button" variant="outline" size="sm" disabled={busy} className="min-w-0 rounded-r-none" title={place.placeId} onClick={() => void save(place.placeId)}>
-                <span className="truncate">{place.name || place.placeId}</span>
-              </Button>
-              <Button type="button" variant="outline" size="icon-sm" disabled={busy} className="-ml-px rounded-l-none" aria-label={`Remove ${place.name || place.placeId} from recent places`} title="Remove"
-                onClick={() => void forget(place.placeId)}><X /></Button>
-            </span>)}
-          </div>
-        </div>}
-        <AlertDialogFooter>
-          <AlertDialogCancel type="button" disabled={busy}>Cancel</AlertDialogCancel>
-          <Button type="submit" disabled={busy || !value.trim()}>{busy && <Spinner />}{request.action}</Button>
-        </AlertDialogFooter>
-      </form>
-    </AlertDialogContent>
-  </AlertDialog>;
+  return <Modal open={open} close={close} title={request.title} description={request.description} action={request.action} busy={busy} disabled={!value.trim()} submit={() => void submit()}>
+    <div className="grid gap-2">
+      <div className="relative">
+        <PlaceInput autoFocus value={value} change={(next) => { setValue(next); setError(""); }} placeholder="Game name, link, or place ID"
+          aria-label="Game name, Roblox game link, or place ID" aria-invalid={!!error} aria-describedby={error ? "place-dialog-error" : undefined} />
+      </div>
+      {error && <p id="place-dialog-error" className="text-xs text-destructive">{error}</p>}
+    </div>
+    {recentPlaces.length > 0 && <section className="grid gap-1" aria-labelledby="place-dialog-recent">
+      <h3 id="place-dialog-recent" className="text-xs text-muted-foreground">Recent places</h3>
+      <ul className="-mx-2 grid">
+        {recentPlaces.map((place) => <li key={place.placeId} className="flex items-center rounded-lg pr-1 hover:bg-muted">
+          <button type="button" disabled={busy} className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" onClick={() => void save(place.placeId)}>
+            <span className="min-w-0 flex-1 truncate" title={place.name}>{place.name || "Unknown game"}</span>
+            <span className="font-mono text-xs text-muted-foreground">{place.placeId}</span>
+          </button>
+          <IconButton type="button" label={`Remove ${place.name || place.placeId} from recent places`} size="icon-xs" disabled={busy} onClick={() => void forget(place.placeId)}><X /></IconButton>
+        </li>)}
+      </ul>
+    </section>}
+  </Modal>;
 }
 
 function ConfirmDialog({ request, open, close, notify }: { request: ConfirmRequest; open: boolean; close: () => void; notify: (message: string) => void }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (open) setBusy(false); }, [open]);
-  const submit = async () => { setBusy(true); try { await request.run(); close(); } catch (error) { notify(`The action failed. Does retrying help? (${String(error)})`); setBusy(false); } };
-  return <AlertDialog open={open} onOpenChange={(next) => { if (!next && !busy) close(); }}>
-    <AlertDialogContent>
-      <AlertDialogHeader>
-        <AlertDialogTitle>{request.title}</AlertDialogTitle>
-        <AlertDialogDescription>{request.message}</AlertDialogDescription>
-      </AlertDialogHeader>
-      <AlertDialogFooter>
-        <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-        <Button variant={request.danger ? "destructive" : "default"} onClick={() => void submit()} disabled={busy}>{busy && <Spinner />}{request.action}</Button>
-      </AlertDialogFooter>
-    </AlertDialogContent>
-  </AlertDialog>;
+  const submit = async () => { setBusy(true); try { await request.run(); close(); } catch (error) { notify(failure(`The action failed. Does retrying help?`, error)); setBusy(false); } };
+  return <Modal open={open} close={close} title={request.title} description={request.message} action={request.action} danger={request.danger} busy={busy} submit={() => void submit()} />;
 }
 
 export default App;

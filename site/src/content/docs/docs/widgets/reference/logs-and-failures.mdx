@@ -195,7 +195,6 @@ Safe mode starts Toolblox for one session without loading any widget code.
 
 | Method | How |
 | --- | --- |
-| Tray menu | **Restart without widgets** writes a one-time marker and restarts the app. |
 | Command line | Start Toolblox with `--safe-mode`. |
 
 The marker is a file named `safe-mode-next-launch` in the data folder. Toolblox deletes it
@@ -216,7 +215,7 @@ The Widgets page still works in safe mode, so a user can disable, update, or uni
 widget that caused the problem, and Settings still shows the log.
 
 <Aside title="Recovering from a broken widget">
-1. Choose **Restart without widgets** from the tray menu.
+1. Quit Toolblox from the tray menu and start it again with `--safe-mode`.
 2. Open **Settings > Diagnostics** and look for `widget:<id>` errors.
 3. On the Widgets page, turn the failing widget off, update it, or uninstall it.
 4. Choose **Restart normally** on the banner.

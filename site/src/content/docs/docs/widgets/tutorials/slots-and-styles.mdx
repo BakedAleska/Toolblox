@@ -316,9 +316,7 @@ properties through the DOM rather than inline markup.
 
 Account Tags adds `WIDGET_CSS` once, with every selector prefixed by `account-tags-`. It styles the
 sidebar footer, and it sizes the tag fields on the page with `account-tags-input`, because the app
-doesn't use a Tailwind width class of that size. The rogue_lineage demo takes the same approach much further: its entire page,
-badges, and stat tile are plain elements with `rl-` classes and a stylesheet of their own, to show
-that a widget isn't limited to the app's look.
+doesn't use a Tailwind width class of that size.
 
 ### How your CSS meets the app's
 
@@ -342,15 +340,14 @@ Consequences for widget CSS:
   base layer: `@layer base { … }`. Layer names are shared by every stylesheet in the document, so
   your rules join that layer and lose to utilities.
 - Dark mode is the `dark` class on the `<html>` element, set from the user's theme setting. Write
-  dark variants as `.dark .your-class`, as rogue_lineage does with `.dark .rl-tag`.
+  dark variants as `.dark .your-class`.
 - The app's reduced-motion rule shortens every animation and transition, including yours, when the
   user asks for reduced motion. Provide a static alternative for anything that relies on motion.
 
 ### Fonts and images
 
 Relative `url()` values in an adopted stylesheet resolve against the app's address, not your
-widget's folder. Build absolute URLs from `import.meta.url` instead, as rogue_lineage does for its
-icons:
+widget's folder. Build absolute URLs from `import.meta.url` instead:
 
 ```js
 const font = new URL("./fonts/display.woff2", import.meta.url).href;
@@ -383,7 +380,7 @@ The app's colours, borders, and radii all come from custom properties defined in
 The light values sit on `:root` and the dark values on `.dark`. Both selectors have the same
 specificity, and your adopted sheet comes later, so:
 
-- `:root { … }` in your sheet overrides the token in light **and** dark mode. rogue_lineage writes
+- `:root { … }` in your sheet overrides the token in light **and** dark mode. Write
   `:root, :root.dark` for a theme that's dark in both, and adds `color-scheme: dark`.
 - `:root:not(.dark) { … }` overrides light mode only, and `:root.dark { … }` dark mode only. This is
   what `WARM_THEME_CSS` does, so the theme follows the user's light or dark setting.
@@ -396,7 +393,7 @@ inside screens can change in any release.
 
 Guidelines for a theme that doesn't hurt the app:
 
-- **Make it opt-in.** Both Account Tags and rogue_lineage add their theme only when a setting is
+- **Make it opt-in.** Account Tags adds its theme only when a setting is
   on, and remove it with the stored remover when it's turned off. A user who installs a widget for
   its tags shouldn't find the whole app restyled.
 - **Override both modes or neither.** A light-only override on a dark-mode user's screen leaves the

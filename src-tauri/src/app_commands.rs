@@ -36,8 +36,6 @@ pub struct Runtime {
     pub multi_instance_helper: Option<PathBuf>,
     /// Roblox processes the helper already handled.
     pub cleared_roblox_pids: Mutex<std::collections::HashSet<u32>>,
-    /// Sets the priority and cores of launched clients.
-    pub client_tuner: Arc<crate::roblox_process::ClientTuner>,
     /// Accounts whose session Roblox no longer accepts, or that have no stored session.
     pub expired_sessions: Mutex<std::collections::HashSet<u64>>,
     /// Widget modules and frames stay unloaded for this session.
@@ -107,9 +105,7 @@ pub struct SettingsDto {
     show_game_names: bool,
     notify_on_drop: bool,
     always_on_top: bool,
-    client_priority: crate::models::ClientPriority,
-    cpu_cores: u32,
-    tile_size: crate::models::TileSize,
+    always_animate: bool,
 }
 
 impl From<&Settings> for SettingsDto {
@@ -129,9 +125,7 @@ impl From<&Settings> for SettingsDto {
             show_game_names: settings.show_game_names,
             notify_on_drop: settings.notify_on_drop,
             always_on_top: settings.always_on_top,
-            client_priority: settings.client_priority,
-            cpu_cores: settings.cpu_cores,
-            tile_size: settings.tile_size,
+            always_animate: settings.always_animate,
         }
     }
 }
@@ -143,6 +137,9 @@ pub struct AccountView {
     #[serde(flatten)]
     account: AccountDto,
     presence: FrontendPresence,
+    /// The account is in Roblox Studio rather than a game. Its presence is still `Playing`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    in_studio: bool,
     /// Name of the game the account is in, when game details are on.
     #[serde(skip_serializing_if = "Option::is_none")]
     game_name: Option<String>,
@@ -170,6 +167,7 @@ pub struct WidgetSummary {
     name: String,
     description: String,
     icon: Option<String>,
+    logo_url: Option<String>,
     enabled: bool,
     version: String,
     available_version: Option<String>,
@@ -350,6 +348,11 @@ fn widget_summary(
     WidgetSummary {
         name: widget.manifest.name,
         description: widget.manifest.description,
+        logo_url: widget
+            .manifest
+            .icon
+            .as_deref()
+            .map(|icon| widget_asset_url(&id, icon)),
         icon: widget.manifest.icon,
         enabled: !settings.disabled_widgets.contains(&id),
         available_version: available.map(|(version, _)| version.clone()),
@@ -439,16 +442,18 @@ async fn account_views(
                     FrontendPresence::Warning
                 }
             };
+            let in_studio = detail.is_some_and(|detail| detail.state == PresenceState::InStudio);
             let detail = detail.filter(|detail| show_game_names && detail.in_game());
             AccountView {
                 account: AccountDto::from(account),
                 presence,
+                in_studio,
                 game_name: detail.and_then(|detail| {
-                    detail.location.clone().or_else(|| {
+                    detail.activity(detail.location.clone().or_else(|| {
                         detail
                             .universe_id
                             .and_then(|id| game_names.get(&id).cloned())
-                    })
+                    }))
                 }),
                 game_place_id: detail.and_then(|detail| detail.place_id),
                 session_expired: runtime.session_expired(account.id),
@@ -620,9 +625,7 @@ pub async fn save_settings(
     saved.show_game_names = settings.show_game_names;
     saved.notify_on_drop = settings.notify_on_drop;
     saved.always_on_top = settings.always_on_top;
-    saved.client_priority = settings.client_priority;
-    saved.cpu_cores = settings.cpu_cores;
-    saved.tile_size = settings.tile_size;
+    saved.always_animate = settings.always_animate;
     saved
         .recent_places
         .truncate(crate::models::RECENT_PLACES_LIMIT);
@@ -697,6 +700,52 @@ pub async fn place_exists(place_id: String, runtime: State<'_, Runtime>) -> Resu
         .await
         .map(|universe| universe.is_some())
         .map_err(command_error)
+}
+
+/// Searches Roblox for games by name, for the place fields.
+#[tauri::command]
+pub async fn search_places(
+    query: String,
+    runtime: State<'_, Runtime>,
+) -> Result<Vec<crate::roblox::PlaceMatch>, String> {
+    Ok(crate::roblox::search_places(&runtime.client, &query).await)
+}
+
+/// Google Form that receives the beta survey. Remove with the survey after the beta.
+const SURVEY_URL: &str = "https://docs.google.com/forms/d/e/FORM_ID/formResponse";
+const SURVEY_RATING_ENTRY: &str = "entry.RATING_ID";
+const SURVEY_COMMENT_ENTRY: &str = "entry.COMMENT_ID";
+
+/// Validates survey answers and maps them to form fields.
+fn survey_fields(rating: u8, comment: &str) -> Result<[(&'static str, String); 2], String> {
+    if !(1..=5).contains(&rating) || comment.chars().count() > 2000 {
+        return Err(
+            "The survey answers aren't valid. Is the comment under 2,000 characters?".into(),
+        );
+    }
+    Ok([
+        (SURVEY_RATING_ENTRY, rating.to_string()),
+        (SURVEY_COMMENT_ENTRY, comment.trim().to_string()),
+    ])
+}
+
+/// Sends the optional beta survey. Only the submitted answers are sent.
+#[tauri::command]
+pub async fn submit_survey(
+    rating: u8,
+    comment: String,
+    runtime: State<'_, Runtime>,
+) -> Result<(), String> {
+    let fields = survey_fields(rating, &comment)?;
+    runtime
+        .client
+        .post(SURVEY_URL)
+        .form(&fields)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map(|_| ())
+        .map_err(|_| "The survey couldn't be sent. Is this device online?".into())
 }
 
 /// Sets or clears the place a single account joins instead of the default place.
@@ -828,11 +877,11 @@ pub fn reorder_accounts(account_ids: Vec<u64>, runtime: State<'_, Runtime>) -> R
         .map_err(command_error)
 }
 
-/// Sets an account's client priority. `None` uses the default priority.
+/// Pins an account to the dashboard, or unpins it.
 #[tauri::command]
-pub fn set_account_priority(
+pub fn set_account_pinned(
     account_id: u64,
-    priority: Option<crate::models::ClientPriority>,
+    pinned: bool,
     runtime: State<'_, Runtime>,
 ) -> Result<(), String> {
     runtime
@@ -846,23 +895,10 @@ pub fn set_account_priority(
                         "The account wasn't found. Can you refresh the list?".into(),
                     )
                 })?;
-            account.priority = priority;
+            account.pinned = pinned;
             Ok(())
         })
         .map_err(command_error)
-}
-
-/// Tiles the open Roblox windows at the saved tile size and returns how many moved.
-#[tauri::command]
-pub async fn tile_roblox_windows(runtime: State<'_, Runtime>) -> Result<usize, String> {
-    let size = runtime
-        .storage
-        .load_settings()
-        .map_err(command_error)?
-        .tile_size;
-    tauri::async_runtime::spawn_blocking(move || crate::roblox_process::tile_windows(size))
-        .await
-        .map_err(|_| "Tiling stopped unexpectedly. Can you try again?".to_string())?
 }
 
 /// Joins each account, at `place_id` when given, then minimizes the window if that setting is on.
@@ -978,7 +1014,7 @@ pub async fn begin_roblox_login(
             widget_data: BTreeMap::new(),
             place_id: None,
             last_place_id: None,
-            priority: None,
+            pinned: false,
             extra: serde_json::Map::new(),
         };
         accounts.push(account.clone());
@@ -1012,6 +1048,7 @@ pub async fn begin_roblox_login(
     Ok(AccountView {
         account: AccountDto::from(&account),
         presence: FrontendPresence::Warning,
+        in_studio: false,
         game_name: None,
         game_place_id: None,
         session_expired: false,
@@ -1899,14 +1936,6 @@ pub(crate) async fn join_account_ids(
             )
             .inspect_err(|error| log::warn!("Multiple instances couldn't be enabled: {error}"))?;
         }
-        let tuning = crate::roblox_process::Tuning {
-            priority: account.priority.unwrap_or(settings.client_priority),
-            cpu_cores: if cfg!(windows) { settings.cpu_cores } else { 0 },
-        };
-        let before = tuning
-            .changes_process()
-            .then(crate::roblox_process::roblox_pids)
-            .and_then(Result::ok);
         if settings.multi_instance && cfg!(target_os = "macos") {
             crate::multi_instance::open_new_roblox_instance(&uri).inspect_err(|error| {
                 log::warn!("A separate Roblox client couldn't be started: {error}")
@@ -1916,13 +1945,6 @@ pub(crate) async fn join_account_ids(
                 log::error!("Roblox couldn't be opened: {error}");
                 "Roblox couldn't be opened. Is Roblox installed?".to_string()
             })?;
-        }
-        if let Some(before) = before {
-            let tuner = Arc::clone(&runtime.client_tuner);
-            let account_id = *id;
-            tauri::async_runtime::spawn(async move {
-                tuner.watch(before, tuning, account_id).await;
-            });
         }
         if record_play {
             runtime
@@ -2173,6 +2195,16 @@ pub fn export_theme(app: AppHandle, runtime: State<'_, Runtime>) -> Result<Strin
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn survey_answers_are_validated() {
+        assert!(super::survey_fields(0, "").is_err());
+        assert!(super::survey_fields(6, "").is_err());
+        assert!(super::survey_fields(3, &"a".repeat(2001)).is_err());
+        let fields = super::survey_fields(5, "  Good  ").unwrap();
+        assert_eq!(fields[0].1, "5");
+        assert_eq!(fields[1].1, "Good");
+    }
 
     #[test]
     fn the_mini_window_stays_within_its_size_range() {

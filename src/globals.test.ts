@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 /** Interface source, excluding tests and the sample widgets, which style themselves. */
-const sources = Object.entries(import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.ts", "!./demo-widgets/**"], { query: "?raw", import: "default", eager: true }));
+const sources = Object.entries(import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.ts"], { query: "?raw", import: "default", eager: true }));
 
 /** Styling that bypasses the theme tokens in `theme.css`, and so can't be changed by a theme. */
 const rules: [string, RegExp][] = [

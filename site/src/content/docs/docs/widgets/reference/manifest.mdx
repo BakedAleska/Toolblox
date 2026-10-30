@@ -183,9 +183,10 @@ description doesn't state, so the description is also a disclosure.
 
 ### `icon`
 
-An optional string, passed through to the interface as the installed widget's `icon`. The host
-doesn't validate it, and the current interface doesn't display it: installed widget cards show a
-generic icon. The catalogue's `iconUrl` is what appears on catalogue cards. See
+An optional path to an image in the package, such as `icon.svg`. Installed widget cards show it as
+the logo and blur it into the card's banner, and widgets without one show a generic icon. Paths
+that don't resolve to a file in the package also show the generic icon. The catalogue's `iconUrl`
+is what appears on catalogue cards. See
 [Catalogue](/docs/widgets/publishing/catalogue/).
 
 ### `permissions`

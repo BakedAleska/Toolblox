@@ -47,9 +47,6 @@ from the top.
     - pages/index.astro the download page
 - src/ React interface
   - components/ui/ shadcn/ui components
-  - demo-widgets/
-    - rogue_lineage/
-    - stock_notifier/
   - lib/utils.ts
   - screens/
     - Accounts.tsx
@@ -160,23 +157,10 @@ widget pages, widget settings pages, and slot contributions; builds the host API
 enabled, disabled, or removed (`syncWidgetModules`); and provides `WidgetBoundary` and
 `WidgetSlot`. Every widget-facing behavior in the interface starts here.
 
-### `src/demo-widgets`
-
-Two complete module widgets used by demo mode, where `bridge.ts` points their `moduleUrl` at
-these files on the Vite dev server:
-
-- **`stock_notifier/main.js`** contributes a `dashboard.stats` tile and a `dashboard.sections`
-  panel built from `toolblox.ui` components.
-- **`rogue_lineage/main.js`** (with SVG icons in `icons/`) uses its own markup and stylesheet
-  instead of the host components to show full visual control, and keeps per-account data in
-  widget storage.
-
-They're the best reference for real module code. They aren't shipped as installed widgets.
-
 ### Other files
 
 `src/lib/utils.ts` re-exports `cn` for class name merging. `src/assets` is empty; static assets
-the interface references by URL, such as `/assets/logo.svg` and `/assets/github.svg`, live in
+the interface references by URL, such as `/assets/logo.svg` and `/assets/splash.svg`, live in
 `public/assets` and are served at the root.
 
 ## `src-tauri`: the Rust host

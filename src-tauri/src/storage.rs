@@ -324,7 +324,7 @@ mod tests {
             widget_data: Default::default(),
             place_id: None,
             last_place_id: None,
-            priority: None,
+            pinned: false,
             extra: Map::new(),
         }
     }

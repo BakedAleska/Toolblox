@@ -16,8 +16,6 @@ pub const TRAY_ID: &str = "toolblox-tray";
 const TRAY_OPEN_ID: &str = "toolblox-open";
 /// Tray menu item that quits the app.
 const TRAY_QUIT_ID: &str = "toolblox-quit";
-/// Tray menu item that restarts without widgets.
-const TRAY_SAFE_MODE_ID: &str = "toolblox-safe-mode";
 
 /// Quit and activation requests shared between the tray, window, and single-instance handler.
 #[derive(Default)]
@@ -125,13 +123,11 @@ pub fn apply_pending_activation(
     Ok(())
 }
 
-/// Adds the tray icon with Open, Restart without widgets, and Quit items. Does nothing when
-/// the icon already exists.
+/// Adds the tray icon with Open and Quit items. Does nothing when the icon already exists.
 pub fn install_tray(
     app: &tauri::AppHandle,
     state: Arc<LifecycleState>,
     before_quit: Arc<dyn Fn() + Send + Sync>,
-    request_safe_mode: Arc<dyn Fn() + Send + Sync>,
 ) -> Result<(), LifecycleError> {
     if app.tray_by_id(TRAY_ID).is_some() {
         return Ok(());
@@ -139,18 +135,9 @@ pub fn install_tray(
 
     let open = MenuItem::with_id(app, TRAY_OPEN_ID, "Open Toolblox", true, None::<&str>)
         .map_err(|_| LifecycleError::Tray)?;
-    let safe_mode = MenuItem::with_id(
-        app,
-        TRAY_SAFE_MODE_ID,
-        "Restart without widgets",
-        true,
-        None::<&str>,
-    )
-    .map_err(|_| LifecycleError::Tray)?;
     let quit = MenuItem::with_id(app, TRAY_QUIT_ID, "Quit", true, None::<&str>)
         .map_err(|_| LifecycleError::Tray)?;
-    let menu =
-        Menu::with_items(app, &[&open, &safe_mode, &quit]).map_err(|_| LifecycleError::Tray)?;
+    let menu = Menu::with_items(app, &[&open, &quit]).map_err(|_| LifecycleError::Tray)?;
 
     let quit_state = state.clone();
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
@@ -160,10 +147,6 @@ pub fn install_tray(
         .on_menu_event(move |app, event| match event.id.as_ref() {
             TRAY_OPEN_ID => {
                 activate_or_defer(app, &quit_state);
-            }
-            TRAY_SAFE_MODE_ID => {
-                request_safe_mode();
-                app.restart();
             }
             TRAY_QUIT_ID => {
                 quit_state.mark_quit_requested();

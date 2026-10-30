@@ -105,9 +105,9 @@ What demo mode simulates:
 | Accounts | Five sample accounts covering in game (with and without a game name), a presence warning, a per-account place, and a new account. **Add account** appends a `demo_user_<n>`; notes, removal, reordering, and per-account places edit the sample list. |
 | Joining | Updates `lastPlayedAt` and `lastPlaceId`. Nothing launches. |
 | Settings | Saved in memory. Setting a place adds it to recent places (five at most). |
-| Widgets | Five installed widgets with varied permissions, an available update, a disabled widget, and a start-on-launch widget. Two are real module widgets loaded from [`src/demo-widgets`](https://github.com/BakedAleska/Toolblox/tree/main/src/demo-widgets): `rogue_lineage` and `stock_notifier`. |
+| Widgets | Three installed widgets with varied permissions, an available update, and a disabled widget. |
 | Catalogue | Six uninstalled entries. Installing moves an entry into the installed list. |
-| Widget storage | `storage.get/set` use an in-memory map. `rogue_lineage` starts with sample race and class data. |
+| Widget storage | `storage.get/set` use an in-memory map. |
 | Widget sessions and IPC | `openWidget` returns a random session and `about:blank`; `request` always resolves with `null`. Iframe surfaces render blank. |
 | Log | Six sample lines in Settings > Diagnostics. `writeLog` prints to the browser console instead. |
 | Updater | Settings > About shows **Demo previews**: **Update** replays checking (2 seconds) then installing until 6 seconds, and **Failure** replays checking then the failure screen with **Retry** and **Quit**. |
@@ -118,8 +118,8 @@ it resolves the data folder, writes logs, installs the tray, and runs background
 auto-rejoin against whatever real settings are saved. Use `TOOLBLOX_DATA_DIR` if that matters.
 </Aside>
 
-Demo mode is the fastest way to iterate on interface work and on module widget code that only
-needs host API calls, because the two demo widgets load through Vite with hot reload.
+Demo mode is the fastest way to iterate on interface work, because it loads through Vite with hot
+reload.
 
 ## Verification
 
@@ -249,12 +249,11 @@ screen shows **Failed to load** with the error as a tooltip.
 Safe mode starts Toolblox for one session without loading any widget. It exists so a widget that
 breaks the interface can always be removed.
 
-There are four ways to enter it:
+There are three ways to enter it:
 
 | Method | How |
 | --- | --- |
 | Command line | Start the executable with `--safe-mode`, for example `src-tauri/target/debug/toolblox --safe-mode` after a dev build. |
-| Tray | Choose **Restart without widgets** from the tray or menu bar icon. |
 | Command | `restart_app` with `safeMode: true`, which `bridge.restartApp(true)` calls. |
 | Marker file | Create an empty `safe-mode-next-launch` file in the data folder. |
 

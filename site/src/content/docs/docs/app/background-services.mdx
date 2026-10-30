@@ -140,7 +140,6 @@ description accordingly.
 | Item | ID | Action |
 | --- | --- | --- |
 | Open Toolblox | `toolblox-open` | `activate_or_defer`: restore and focus the main window. |
-| Restart without widgets | `toolblox-safe-mode` | Writes the safe-mode marker, then `app.restart()`. |
 | Quit | `toolblox-quit` | Sets `quit_requested`, stops every widget process, then `app.exit(0)`. |
 
 If the tray can't be created, `setup` fails with "The tray icon couldn't open. Would turning off
@@ -178,7 +177,6 @@ the window is hidden, because hiding doesn't unload the webview.
 | Closing the window when it exits | Yes, in `RunEvent::Exit` | Logs `Toolblox exited` and flushes. |
 | **Quit** on the update screen (`quit_startup`) | Yes, in `RunEvent::Exit` | — |
 | `restart_app` command | — | Sets or clears the safe-mode marker, then `app.restart()`. |
-| Tray **Restart without widgets** | — | Sets the marker, then `app.restart()`. |
 | Installing an update | — | On Windows the updater plugin ends the process directly. |
 
 The `RunEvent::Exit` handler in `lib.rs` calls `processes.stop_all()` on the widget process
@@ -193,7 +191,7 @@ one session. It applies when either:
 - the process was started with the `--safe-mode` argument.
 
 `take_safe_mode` deletes the marker as it reads it, so the following launch loads widgets again.
-The marker is written by the tray's **Restart without widgets** item and by the `restart_app`
+The marker is written by the `restart_app`
 command with `safeMode: true` (and removed by `restart_app` with `false`). The flag is exposed to
 the interface as `safeMode` in the app state. For how the interface treats it, see
 [Logs and failures](/docs/widgets/reference/logs-and-failures/).
@@ -421,45 +419,6 @@ of the same user, as it is when Roblox's own launcher starts the player. When Ro
 installer closes every running client.
 </Aside>
 
-## Client priority, cores, and tiling
-
-[`roblox_process.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/roblox_process.rs) uses operating-system process and window APIs
-only. It doesn't read from or write to a client's memory or files.
-
-### Tuning launched clients
-
-For each account, `join_account_ids` works out the client's tuning: the account's `priority`, or
-`clientPriority` when the account has none, and `cpuCores` on Windows. When the tuning isn't the default, it lists the running Roblox processes before opening the `roblox-player:` URI, then
-starts `ClientTuner::watch` in the background, so tuning never slows a launch.
-
-`watch` checks the running clients once a second for 30 seconds. It claims the first new process
-that no other launch has claimed and tunes it. If that process exits within the window, as
-Roblox's first process does while it updates, the replacement is claimed and tuned too.
-
-| Priority | Windows | macOS |
-| --- | --- | --- |
-| Normal | Unchanged | Unchanged |
-| Below normal | `BELOW_NORMAL_PRIORITY_CLASS` | Nice value 5 |
-| Low | `IDLE_PRIORITY_CLASS` | Nice value 15 |
-
-On Windows, a core limit sets the process affinity mask to that many consecutive cores. Each
-limited client starts where the previous one left off, so clients spread across the CPU.
-macOS has no public affinity API, so the setting is hidden there.
-
-<Aside type="caution" title="Known limits">
-Launches in a batch are matched to new processes in the order they appear. Two clients that start
-out of order swap tuning. Changes apply to clients started after the setting changes.
-</Aside>
-
-### Tiling
-
-`tile_windows` finds every visible, unowned top-level window that belongs to a Roblox client and
-places them on the primary screen's work area with `SetWindowPos`, restoring minimized or
-maximized windows first. **Fit screen** divides the area into a grid of
-`ceil(sqrt(count))` columns. **Medium** (960 × 540) and **Small** (640 × 360) fill the area left to
-right and top to bottom, and windows beyond one screen are layered with a 32-pixel offset. Tiling
-isn't supported on macOS yet: the button is hidden and the command fails with an explicit message.
-
 ## Logs
 
 [`logs.rs`](https://github.com/BakedAleska/Toolblox/blob/main/src-tauri/src/logs.rs) implements a
@@ -614,8 +573,5 @@ The message protocol, permissions, and limits are documented in the
 | Reactivation | Second launch through single instance | Second launch, or `RunEvent::Reopen` from the Dock |
 | Autostart | `HKCU\…\Run` value `Toolblox`, removed by the uninstaller | LaunchAgent |
 | Multiple instances | Bundled helper closes `ROBLOX_singletonEvent` handles | Not available; the call does nothing and the toggle is hidden |
-| Client priority | Priority classes | Nice values |
-| CPU cores per client | Process affinity mask | Not available; the setting is hidden and ignored |
-| Window tiling | `SetWindowPos` on the primary work area | Not available; the button is hidden and the command fails |
 | Session storage used by auto-rejoin | Windows Credential Manager | macOS login Keychain |
 | Atomic file replace | `MoveFileExW` with write-through | `rename` |

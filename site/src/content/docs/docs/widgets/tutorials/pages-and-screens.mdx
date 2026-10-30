@@ -60,7 +60,7 @@ For `/widgets/<id>/settings`, the shell renders `WidgetSettings`:
 - Then your settings component, inside an error boundary, then the sandboxed `settings.html` if the
   manifest declares one.
 
-Both bodies sit in the app's standard screen layout: a scrolling column capped at `max-w-5xl`, with
+Both bodies sit in the app's standard screen layout: a scrolling column capped at `max-w-[120rem]`, with
 24-pixel side padding and 16 pixels between direct children. Return several top-level sections from
 your component, in a fragment, and they're spaced like the core screens.
 
@@ -194,7 +194,7 @@ Disabled widgets' entries are shown but can't be selected.
 
      function SquadDashboard() {
        return h("div", { className: "h-full overflow-y-auto [scrollbar-gutter:stable]" },
-         h("div", { className: "mx-auto flex min-h-full max-w-5xl flex-col gap-4 px-6 pb-6" },
+         h("div", { className: "@container mx-auto flex min-h-full max-w-[120rem] flex-col gap-4 px-6 pb-6" },
            h("header", { className: "sticky top-0 z-10 -mx-6 flex h-14 shrink-0 items-center gap-2 bg-background/90 px-6 backdrop-blur-sm" },
              h("h1", { className: "mr-auto shrink-0 pr-2 text-lg font-semibold tracking-tight" }, "Dashboard"),
              h(ui.Button, { variant: "ghost", size: "sm", onClick: () => toolblox.navigate(pageRoute) }, "Open Squad Board")),
@@ -293,8 +293,7 @@ announce them correctly. Group related rows in one `ui.Panel` with `divide-y`, a
 does.
 
 The settings live in the widget's own store, `toolblox.storage`, and in a small in-memory store the
-components subscribe to with `React.useSyncExternalStore`. This is the same pattern as the
-rogue_lineage demo. `save` updates memory first so the interface responds immediately, then persists
+components subscribe to with `React.useSyncExternalStore`. `save` updates memory first so the interface responds immediately, then persists
 in the background and reports a failure with `notify`. Storage is covered in depth in
 [Storage and state](/docs/widgets/tutorials/storage-and-state/).
 
@@ -345,7 +344,7 @@ What a replacement receives, and what it doesn't:
   `toolblox.useAppState()`, act with `toolblox.navigate` and `toolblox.join`, and build the layout
   yourself. `SquadDashboard` reproduces the `Screen` markup from
   [`src/shared.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/shared.tsx) class for
-  class: a scrolling container, a centred `max-w-5xl` column, and a sticky header with an `h1`.
+  class: a scrolling container, a centred `max-w-[120rem]` column, and a sticky header with an `h1`.
 - **No core content.** The built-in screen isn't available to render inside yours. Replacing the
   Dashboard removes the Continue as panel, Recently played, iframe dashboard tiles, and the
   `dashboard.stats` and `dashboard.sections` slots, including other widgets' contributions to

@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
  * toast sits at the bottom and newer ones stack above it. Toasts slide in from that side's edge and
  * leave the same way, so none crosses another. Each shows an icon, a title, a description of up to
  * two lines, and a ring for the time left. Toasts widen to fit their text before they wrap.
- * Keyboard focus pauses the timer, and selecting a toast dismisses it. */
+ * Errors stay until dismissed. Keyboard focus pauses the timer, and selecting a toast dismisses it. */
 
 export type ToastKind = "success" | "error" | "warning" | "info";
 
@@ -64,7 +64,7 @@ const offscreen = (toast: HTMLElement, side: "left" | "right") => {
     : `translateX(${(area?.left ?? 0) - rect.right - 16}px)`;
 };
 
-const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const reducedMotion = () => !document.documentElement.hasAttribute("data-always-animate") && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 function ToastItem({ toast, side, dismiss, remove }: { toast: Toast; side: "left" | "right"; dismiss: () => void; remove: () => void }) {
   const ring = useRef<SVGCircleElement>(null);
@@ -77,7 +77,7 @@ function ToastItem({ toast, side, dismiss, remove }: { toast: Toast; side: "left
 
   useEffect(() => {
     const circle = ring.current;
-    if (!circle) return;
+    if (!circle || toast.kind === "error") return;
     const animation = circle.animate([{ strokeDashoffset: "0" }, { strokeDashoffset: "-1" }], { duration: DURATION, fill: "forwards" });
     animation.onfinish = () => expire.current();
     timer.current = animation;
@@ -111,10 +111,10 @@ function ToastItem({ toast, side, dismiss, remove }: { toast: Toast; side: "left
           <span className="block text-sm font-medium">{toast.title}</span>
           {toast.description && <span className="line-clamp-2 text-sm text-muted-foreground">{toast.description}</span>}
         </span>
-        <svg viewBox="0 0 16 16" className="mt-0.5 size-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true">
+        {toast.kind !== "error" && <svg viewBox="0 0 16 16" className="mt-0.5 size-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true">
           <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-25" />
           <circle ref={ring} cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" pathLength="1" strokeDasharray="1" strokeLinecap="round" />
-        </svg>
+        </svg>}
       </button>
     </div>
   </div>;

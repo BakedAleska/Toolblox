@@ -36,6 +36,12 @@ describe("parsePlaceId", () => {
     expect(parsePlaceId("words 1818")).toBeUndefined();
     expect(parsePlaceId("https://example.com/games/1818")).toBeUndefined();
     expect(parsePlaceId("https://roblox.com/users/1818")).toBeUndefined();
+    expect(parsePlaceId("roblox.com/games/1818/Classic-Crossroads")).toBe("1818");
+    expect(parsePlaceId("http://web.roblox.com/games/1818")).toBe("1818");
+    expect(parsePlaceId("https://www.roblox.com/games/start?placeId=1818")).toBe("1818");
+    expect(parsePlaceId("https://roblox.com.example.com/games/1818")).toBeUndefined();
+    expect(parsePlaceId("https://evilroblox.com/games/1818")).toBeUndefined();
+    expect(parsePlaceId("javascript:alert(1818)")).toBeUndefined();
   });
 });
 

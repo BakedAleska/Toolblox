@@ -7,9 +7,7 @@ sidebar:
 
 import { Aside, Steps, FileTree } from '@astrojs/starlight/components';
 
-The stock_notifier demo shows a fixed list of shop items on the Dashboard, and its first line says
-what a real version would do: refresh the list with `network.fetch`. This tutorial builds that real
-version, **Restock Watch**. It polls a stock feed, remembers what was in stock between sessions,
+This tutorial builds **Restock Watch**, a widget that lists a game's shop stock on the Dashboard. It polls a stock feed, remembers what was in stock between sessions,
 lets each account keep a list of wanted items, marks accounts whose wanted items are back, and joins
 them with one button.
 
@@ -344,7 +342,7 @@ the moment a store changes, wherever they are on screen.
 
 Restock Watch keeps three stores because the data has three lifetimes: `saved` mirrors the widget
 store, `feed` holds the last feed result in memory only, and `wanted` caches account data loaded
-over IPC. The rogue_lineage demo uses the same pattern with a single object.
+over IPC.
 
 ## Account data
 

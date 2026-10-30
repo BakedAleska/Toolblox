@@ -19,15 +19,18 @@ export const sortAccounts = (accounts: Account[], order: SortOrder) =>
       ? [...accounts].sort((a, b) => accountName(a).localeCompare(accountName(b)))
       : [...accounts].sort((a, b) => (b.lastPlayedAt || b.addedAt) - (a.lastPlayedAt || a.addedAt));
 
+/** A place ID from a bare ID or a roblox.com link, with or without its scheme: `/games/<id>` paths
+ * and `placeId=` query parameters. */
 export const parsePlaceId = (input: string) => {
   const value = input.trim();
   if (/^\d+$/.test(value)) return value;
   try {
-    const url = new URL(value);
+    const url = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`);
     const host = url.hostname.toLowerCase();
-    if (url.protocol !== "https:" || (host !== "roblox.com" && host !== "www.roblox.com")) return undefined;
-    const match = url.pathname.match(/^\/games\/(\d+)(?:\/|$)/);
-    return match?.[1];
+    if ((url.protocol !== "https:" && url.protocol !== "http:") || (host !== "roblox.com" && !host.endsWith(".roblox.com"))) return undefined;
+    const query = url.searchParams.get("placeId") ?? url.searchParams.get("placeid");
+    if (query && /^\d+$/.test(query)) return query;
+    return url.pathname.match(/^\/games\/(\d+)(?:\/|$)/)?.[1];
   } catch {
     return undefined;
   }

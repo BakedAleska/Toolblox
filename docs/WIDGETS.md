@@ -38,7 +38,6 @@ export function deactivate() {}
 Use `toolblox.React` instead of bundling React. A second copy of React breaks hooks. JSX works
 with any bundler configured to use `toolblox.React.createElement` as the JSX factory. Development
 builds add the `examples/hello_world/` widget to the widgets folder once, as a starting point.
-More complete examples live in `src/demo-widgets/`.
 
 ### Host API
 
@@ -74,8 +73,8 @@ available. Ship other styles with `addStyles`.
 ### Failure handling
 
 Each contribution renders inside an error boundary, so a failing widget shows an inline error
-instead of breaking the screen. A widget that makes the app unusable can be bypassed with
-**Restart without widgets** in the tray menu, or by starting Toolblox with `--safe-mode`. Safe
+instead of breaking the screen. A widget that makes the app unusable can be bypassed by
+starting Toolblox with `--safe-mode`. Safe
 mode lasts for one session.
 
 ## Iframe widgets

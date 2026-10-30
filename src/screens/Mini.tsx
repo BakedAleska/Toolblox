@@ -1,9 +1,9 @@
-import { ChevronDown, KeyRound, Maximize2, Play } from "lucide-react";
+import { ChevronDown, KeyRound, Maximize2, Play, Star } from "lucide-react";
 import { useEffect, useState, type PointerEvent } from "react";
 import { bridge } from "@/bridge";
 import { cn } from "@/lib/utils";
 import { accountName, relativeTime, sortAccounts } from "@/logic";
-import { Avatar, IconButton, placeLabel, type ScreenProps } from "@/shared";
+import { Avatar, IconButton, Spinner, placeLabel, type ScreenProps } from "@/shared";
 
 /** Heights in logical pixels: the bar, each account row, the list's padding, and the most rows
  * shown before the list scrolls. */
@@ -14,9 +14,9 @@ const MAX_ROWS = 8;
 
 /** The mini window: a small bar, always on top, that drops down into the account list. The window
  * resizes to fit, and dragging the bar moves it. */
-export function MiniWindow({ state, join, signIn, exit, notify }: Pick<ScreenProps, "state" | "join" | "signIn" | "notify"> & { exit: () => void }) {
+export function MiniWindow({ state, join, joining, signIn, exit, notify }: Pick<ScreenProps, "state" | "join" | "joining" | "signIn" | "notify"> & { exit: () => void }) {
   const [open, setOpen] = useState(false);
-  const accounts = sortAccounts(state.accounts, "last_played");
+  const accounts = sortAccounts(state.accounts, "last_played").sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
   const playing = accounts.filter(({ presence }) => presence === "playing").length;
   const height = BAR + (open && accounts.length ? Math.min(accounts.length, MAX_ROWS) * ROW + LIST_PADDING : 0);
 
@@ -46,12 +46,15 @@ export function MiniWindow({ state, join, signIn, exit, notify }: Pick<ScreenPro
         return <li key={account.id} className="flex h-10 items-center gap-2 rounded-lg px-1.5 hover:bg-muted/50">
           {state.settings.showAvatars && <Avatar account={account} className="size-6" />}
           <span className="min-w-0 flex-1 leading-tight">
-            <span className="block truncate text-sm">{accountName(account)}</span>
+            <span className="flex items-center gap-1 text-sm">
+              <span className="truncate">{accountName(account)}</span>
+              {account.pinned && <><Star className="size-3 shrink-0 fill-current text-muted-foreground" aria-hidden="true" /><span className="sr-only">Pinned</span></>}
+            </span>
             <span className="block truncate text-xs text-muted-foreground">{detail}</span>
           </span>
           {account.sessionExpired
             ? <IconButton label={`Sign in again as ${accountName(account)}`} size="icon-sm" onClick={() => void signIn(account.id)}><KeyRound /></IconButton>
-            : <IconButton label={`Join as ${accountName(account)}`} size="icon-sm" onClick={() => join([account.id])}><Play /></IconButton>}
+            : <IconButton label={`Join as ${accountName(account)}`} size="icon-sm" disabled={joining.includes(account.id)} onClick={() => join([account.id])}>{joining.includes(account.id) ? <Spinner /> : <Play />}</IconButton>}
         </li>;
       })}
     </ul>}

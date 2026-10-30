@@ -426,7 +426,7 @@ owns it.
 ```js
 toolblox.replaceScreen("dashboard", function Dashboard() {
   const state = toolblox.useAppState();
-  return h("div", { className: "mx-auto flex max-w-5xl flex-col gap-4 px-6 pb-6" },
+  return h("div", { className: "mx-auto flex max-w-[120rem] flex-col gap-4 px-6 pb-6" },
     h("h1", { className: "flex h-14 items-center text-lg font-semibold tracking-tight" }, "Dashboard"),
     h(ui.StatTile, { icon: null, label: "Accounts", value: state.accounts.length }));
 });
@@ -568,8 +568,6 @@ try {
 ## Development without the desktop host
 
 `npm run dev` serves the interface in a browser with sample data instead of the Rust host, and
-`npm run demo` runs the desktop shell on that sample data. In both, the two example modules in
-[`src/demo-widgets/`](https://github.com/BakedAleska/Toolblox/tree/main/src/demo-widgets) load
-through this same host API, storage is kept in memory, logs go to the browser console with the
+`npm run demo` runs the desktop shell on that sample data. In both, storage is kept in memory, logs go to the browser console with the
 widget ID as a prefix, and every `request` resolves with `null`. Test IPC behaviour in a
 development build of the desktop app.

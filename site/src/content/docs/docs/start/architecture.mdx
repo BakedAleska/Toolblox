@@ -239,8 +239,7 @@ The main interface never renders until the update gate says it can. The order, f
    startup line records the version, build type, platform, and safe mode.
 3. **Runtime.** `Storage`, `OsCredentialStore`, the HTTP client, and the process manager are
    built into `Runtime`, which Tauri manages alongside `LifecycleState` and `StartupState`.
-4. **Tray and window.** The tray is installed with **Open Toolblox**, **Restart without widgets**,
-   and **Quit**. A close handler decides whether closing hides to the tray or exits. The main
+4. **Tray and window.** The tray is installed with **Open Toolblox** and **Quit**. A close handler decides whether closing hides to the tray or exits. The main
    window (created hidden in `tauri.conf.json`) is shown.
 5. **Update gate.** `startup::run` is spawned. In release builds it downloads the signed update
    manifest, verifies it, and either marks startup `Ready` or installs the required update and

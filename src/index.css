@@ -43,12 +43,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  :root:not([data-always-animate]) :is(*, *::before, *::after) {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-  .animate-spin {
+  :root:not([data-always-animate]) .animate-spin {
     animation-duration: 2s !important;
     animation-iteration-count: infinite !important;
   }

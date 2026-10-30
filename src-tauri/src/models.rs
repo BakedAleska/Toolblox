@@ -5,8 +5,6 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-pub use crate::roblox_process::{ClientPriority, MAX_CPU_CORES, TileSize};
-
 /// Which side of the window the sidebar is on.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -64,14 +62,10 @@ pub struct Settings {
     /// Notify when an account leaves a game.
     pub notify_on_drop: bool,
     pub always_on_top: bool,
+    /// Play animations even when the OS asks for reduced motion.
+    pub always_animate: bool,
     /// Recently used places, newest first.
     pub recent_places: Vec<RecentPlace>,
-    /// Priority of launched clients, unless an account sets its own.
-    pub client_priority: ClientPriority,
-    /// Logical cores each launched client may use. `0` allows every core (Windows only).
-    pub cpu_cores: u32,
-    /// Window size used when tiling clients.
-    pub tile_size: TileSize,
     /// Unknown fields, kept when saving.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -113,10 +107,8 @@ impl Default for Settings {
             show_game_names: true,
             notify_on_drop: false,
             always_on_top: false,
+            always_animate: false,
             recent_places: Vec::new(),
-            client_priority: ClientPriority::Normal,
-            cpu_cores: 0,
-            tile_size: TileSize::Fit,
             extra: Map::new(),
         }
     }
@@ -126,9 +118,6 @@ impl Settings {
     /// Checks the place IDs, recent places, widget IDs, and core limit. Returns a
     /// user-facing message on failure.
     pub fn validate(&self) -> Result<(), String> {
-        if self.cpu_cores > MAX_CPU_CORES {
-            return Err("The core limit isn't valid. Can you choose it again?".into());
-        }
         if !self.place_id.is_empty() && !is_place_id(&self.place_id) {
             return Err("The saved place ID isn't valid. Can you enter it again?".into());
         }
@@ -215,9 +204,9 @@ pub struct StoredAccount {
     /// Place of the last manual join.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_place_id: Option<String>,
-    /// Client priority instead of the default priority.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub priority: Option<ClientPriority>,
+    /// Shown on the dashboard.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
     /// Unknown fields, kept when saving.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -291,7 +280,7 @@ pub struct AccountDto {
     pub play_count: u64,
     pub place_id: Option<String>,
     pub last_place_id: Option<String>,
-    pub priority: Option<ClientPriority>,
+    pub pinned: bool,
 }
 
 impl From<&StoredAccount> for AccountDto {
@@ -307,7 +296,7 @@ impl From<&StoredAccount> for AccountDto {
             play_count: account.play_count,
             place_id: account.place_id.clone(),
             last_place_id: account.last_place_id.clone(),
-            priority: account.priority,
+            pinned: account.pinned,
         }
     }
 }
@@ -411,12 +400,27 @@ mod tests {
             widget_data: BTreeMap::new(),
             place_id: None,
             last_place_id: None,
-            priority: None,
+            pinned: false,
             extra: Map::new(),
         };
         let json = serde_json::to_string(&AccountDto::from(&account)).unwrap();
         assert!(!json.contains("cookie"));
         assert!(!json.contains("secret"));
         assert!(!json.contains("widget_data"));
+    }
+
+    #[test]
+    fn pinned_defaults_to_false_and_round_trips() {
+        let mut account: StoredAccount = serde_json::from_str(
+            r#"{"id":1,"name":"a","display_name":"a","avatar_url":null,"added_at":1}"#,
+        )
+        .unwrap();
+        assert!(!account.pinned);
+        assert!(!serde_json::to_string(&account).unwrap().contains("pinned"));
+        account.pinned = true;
+        let saved: StoredAccount =
+            serde_json::from_str(&serde_json::to_string(&account).unwrap()).unwrap();
+        assert!(saved.pinned);
+        assert!(saved.extra.is_empty());
     }
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { byVersion, changelogEmbed, parseChangelog, pendingChangelogs, syncChangelogs } from "../src/changelogs.ts";
+import { byVersion, changelogEmbeds, parseChangelog, pendingChangelogs, syncChangelogs } from "../src/changelogs.ts";
 import { COMMANDS, respond } from "../src/commands.ts";
 import { verifyInteraction } from "../src/discord.ts";
 import {
@@ -99,12 +99,20 @@ test("reads released and unreleased changelogs", () => {
   assert.equal(parseChangelog("0.4.0", "# Toolblox 0.4.0").released, false);
 });
 
-test("builds an embed linked to the release and within Discord's limit", () => {
-  const embed = changelogEmbed({ version: "0.3.1-beta", title: "Toolblox 0.3.1 beta", date: "October 16, 2026", body: "x".repeat(5000), released: true });
+test("builds embeds linked to the release, one per part, within Discord's limit", () => {
+  const changelog = { version: "0.3.1-beta", title: "Toolblox 0.3.1 beta", date: "October 16, 2026", body: "x".repeat(5000), released: true };
+  const [embed] = changelogEmbeds(changelog);
   assert.equal(embed.url, "https://github.com/BakedAleska/Toolblox/releases/tag/v0.3.1-beta");
   assert.equal(embed.description.length, 4096);
   assert.ok(embed.description.endsWith("…"));
   assert.equal(embed.footer.text, "October 16, 2026");
+
+  const parts = changelogEmbeds({ ...changelog, body: "## New\n- One.\n\n---\n\n## Fixed\n- Two.\n---\n" });
+  assert.deepEqual(parts.map(({ description }) => description), ["## New\n- One.", "## Fixed\n- Two."]);
+  assert.equal(parts[0].title, "Toolblox 0.3.1 beta");
+  assert.equal(parts[0].footer, undefined);
+  assert.equal(parts[1].title, undefined);
+  assert.equal(parts[1].footer.text, "October 16, 2026");
 });
 
 test("lists new and changed changelogs, oldest version first", () => {
@@ -150,8 +158,8 @@ test("posts released changelogs once, edits changed ones, and skips unreleased o
     const posts = calls.filter((call) => call.startsWith("POST"));
     assert.equal(posts.length, 2);
     const saved = JSON.parse(store.get("changelogs"));
-    assert.deepEqual(saved["0.2.0-beta"], { sha: "a", messageId: "100" });
-    assert.deepEqual(saved["0.3.0-beta"], { sha: "b", messageId: "101" });
+    assert.deepEqual(saved["0.2.0-beta"], { sha: "a", messageIds: ["100"] });
+    assert.deepEqual(saved["0.3.0-beta"], { sha: "b", messageIds: ["101"] });
     assert.deepEqual(saved["0.3.2-beta"], { sha: "d" });
 
     calls.length = 0;
@@ -164,7 +172,25 @@ test("posts released changelogs once, edits changed ones, and skips unreleased o
     await syncChangelogs("token", state);
     assert.ok(calls.includes("PATCH https://discord.com/api/v10/channels/c1/messages/101"));
     assert.equal(calls.filter((call) => call.startsWith("POST")).length, 1);
-    assert.equal(JSON.parse(store.get("changelogs"))["0.3.2-beta"].messageId, "102");
+    assert.deepEqual(JSON.parse(store.get("changelogs"))["0.3.2-beta"].messageIds, ["102"]);
+
+    files["0.3.0-beta"] = { sha: "b3", text: "# Toolblox 0.3.0 beta\n*October 1, 2026*\n\n- New.\n\n---\n\n- Fixed." };
+    calls.length = 0;
+    await syncChangelogs("token", state);
+    assert.ok(calls.includes("PATCH https://discord.com/api/v10/channels/c1/messages/101"));
+    assert.deepEqual(JSON.parse(store.get("changelogs"))["0.3.0-beta"], { sha: "b3", messageIds: ["101", "103"] });
+
+    files["0.3.0-beta"] = { sha: "b4", text: "# Toolblox 0.3.0 beta\n*October 1, 2026*\n\n- All." };
+    calls.length = 0;
+    await syncChangelogs("token", state);
+    assert.ok(calls.includes("DELETE https://discord.com/api/v10/channels/c1/messages/103"));
+    assert.deepEqual(JSON.parse(store.get("changelogs"))["0.3.0-beta"], { sha: "b4", messageIds: ["101"] });
+
+    store.set("changelogs", JSON.stringify({ ...JSON.parse(store.get("changelogs")), "0.2.0-beta": { sha: "old", messageId: "100" } }));
+    calls.length = 0;
+    await syncChangelogs("token", state);
+    assert.ok(calls.includes("PATCH https://discord.com/api/v10/channels/c1/messages/100"));
+    assert.equal(calls.filter((call) => call.startsWith("POST")).length, 0);
   } finally {
     globalThis.fetch = original;
   }

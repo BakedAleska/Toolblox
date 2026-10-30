@@ -5,19 +5,21 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { bridge, describeError, isDemo, previewUpdater } from "@/bridge";
 import type { ThemeStore } from "@/lib/theme";
 import { ThemesTab } from "@/screens/Themes";
-import { ChoiceRow, Group, Panel, Screen, Spinner, SwitchRow, priorityLabels, type ScreenProps } from "@/shared";
-import type { ClientPriority, TileSize } from "@/types";
+import { ChoiceRow, Group, Panel, Screen, SettingRow, Spinner, SwitchRow, type ScreenProps } from "@/shared";
 
 type Tab = "general" | "accounts" | "themes";
+/** The last open tab, so returning from a settings subpage shows the tab it was opened from. */
+let lastTab: Tab = "general";
 
-const priorityOptions = (Object.keys(priorityLabels) as ClientPriority[]).map((value) => ({ value, label: priorityLabels[value] }));
-const tileOptions: { value: TileSize; label: string }[] = [{ value: "fit", label: "Fit screen" }, { value: "medium", label: "Medium" }, { value: "small", label: "Small" }];
+/** Groups stack in one column, and sit in two once the page is wide. */
+const columns = "grid items-start gap-4 @5xl:grid-cols-2";
+
 
 export function SettingsScreen({ themes, ...props }: ScreenProps & { themes: ThemeStore }) {
   const { state, notify, patchSettings } = props;
-  const [tab, setTab] = useState<Tab>("general");
+  const [tab, setTab] = useState<Tab>(lastTab);
+  useEffect(() => { lastTab = tab; }, [tab]);
   const { settings } = state;
-  const windows = state.platform === "windows";
 
   return <Screen title="Settings">
     <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)} className="gap-4">
@@ -27,8 +29,9 @@ export function SettingsScreen({ themes, ...props }: ScreenProps & { themes: The
         <TabsTrigger value="themes" className="flex-none px-3">Themes</TabsTrigger>
       </TabsList>
 
-      <TabsContent value="general" className="flex flex-col gap-4">
-        <Group title="Appearance"><Panel className="divide-y">
+      <TabsContent value="general" className={columns}>
+        <Group title="Layout"><Panel className="divide-y">
+          <SwitchRow title="Always animate" description="Ignore the system reduced motion setting." checked={settings.alwaysAnimate} change={(value) => void patchSettings("alwaysAnimate", value)} />
           <ChoiceRow title="Sidebar position" value={settings.sidebarPosition} options={[{ value: "left", label: "Left" }, { value: "right", label: "Right" }]} change={(value) => void patchSettings("sidebarPosition", value)} />
         </Panel></Group>
         <Group title="Window"><Panel className="divide-y">
@@ -63,7 +66,7 @@ export function SettingsScreen({ themes, ...props }: ScreenProps & { themes: The
         </Panel></Group>
       </TabsContent>
 
-      <TabsContent value="accounts" className="flex flex-col gap-4">
+      <TabsContent value="accounts" className={columns}>
         <Group title="List"><Panel className="divide-y">
           <ChoiceRow title="Sort order" value={settings.sortOrder} options={[{ value: "last_played", label: "Last played" }, { value: "alphabetical", label: "A–Z" }, { value: "manual", label: "Manual" }]} change={(value) => void patchSettings("sortOrder", value)} />
           <SwitchRow title="Show avatars" checked={settings.showAvatars} change={(value) => void patchSettings("showAvatars", value)} />
@@ -73,12 +76,6 @@ export function SettingsScreen({ themes, ...props }: ScreenProps & { themes: The
         <Group title="Joining"><Panel className="divide-y">
           <SwitchRow title="Minimize on join" description="Applies to manual joins." checked={settings.minimizeOnJoin} change={(value) => void patchSettings("minimizeOnJoin", value)} />
           <SwitchRow title="Multiple instances" description="Run several Roblox clients at once." checked={settings.multiInstance} change={(value) => void patchSettings("multiInstance", value)} />
-        </Panel></Group>
-        <Group title="Clients"><Panel className="divide-y">
-          <ChoiceRow title="Priority" description="Applies to new clients. Accounts can override it." value={settings.clientPriority} options={priorityOptions} change={(value) => void patchSettings("clientPriority", value)} />
-          {windows && <ChoiceRow title="CPU cores per client" description="Spreads new clients across the cores." value={String(settings.cpuCores)}
-            options={[{ value: "0", label: "All" }, { value: "1", label: "1" }, { value: "2", label: "2" }, { value: "4", label: "4" }]} change={(value) => void patchSettings("cpuCores", Number(value))} />}
-          {windows && <ChoiceRow title="Tile size" description="Smaller windows render fewer pixels." value={settings.tileSize} options={tileOptions} change={(value) => void patchSettings("tileSize", value)} />}
         </Panel></Group>
         <Group title="Disconnects"><Panel className="divide-y">
           <SwitchRow title="Auto-rejoin" description="Pauses after repeated failures." checked={settings.autoRejoin} change={(value) => void patchSettings("autoRejoin", value)} />
@@ -115,23 +112,17 @@ function LogGroup({ logsPath, notify }: { logsPath: string; notify: (message: st
   useEffect(() => { if (view.current) view.current.scrollTop = view.current.scrollHeight; }, [log]);
 
   return <Group title="Diagnostics"><Panel className="divide-y">
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-      <div className="min-w-48 flex-1">
-        <p className="text-sm font-medium">Log</p>
-        <p className="text-xs text-muted-foreground">Recent activity and errors, with sign-in data removed.</p>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" aria-expanded={open} aria-controls="log-view" onClick={() => { setOpen(!open); if (!open) void load(); }}>{open ? "Hide" : "Show"}</Button>
-        <Button variant="outline" size="sm" onClick={() => void copy()}><Copy />Copy</Button>
-        <Button variant="outline" size="sm" onClick={() => void openFolder()} disabled={!logsPath} title={logsPath || undefined}><FolderOpen />Open folder</Button>
-      </div>
-    </div>
+    <SettingRow title="Log" description="Recent activity and errors, with sign-in data removed." control={() => <div className="flex flex-wrap gap-2">
+      <Button variant="outline" size="sm" aria-label={open ? "Hide log" : "Show log"} aria-expanded={open} aria-controls="log-view" onClick={() => { setOpen(!open); if (!open) void load(); }}>{open ? "Hide" : "Show"}</Button>
+      <Button variant="outline" size="sm" aria-label="Copy log" onClick={() => void copy()}><Copy />Copy</Button>
+      <Button variant="outline" size="sm" onClick={() => void openFolder()} disabled={!logsPath} title={logsPath || undefined}><FolderOpen />Open folder</Button>
+    </div>} />
     {open && <div id="log-view" className="flex flex-col gap-2 px-4 py-3">
       <div className="flex items-center gap-2">
         <p className="mr-auto text-xs text-muted-foreground" aria-live="polite">{loading ? "Loading…" : `Last ${LOG_VIEW_LINES} lines, oldest first.`}</p>
         <Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading}>{loading ? <Spinner /> : <RefreshCw />}Refresh</Button>
       </div>
-      <pre ref={view} tabIndex={0} aria-label="Recent log lines" className="max-h-64 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed whitespace-pre text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50">{log || (loading ? "" : "The log is empty.")}</pre>
+      <pre ref={view} tabIndex={0} aria-label="Recent log lines" className="max-h-64 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed whitespace-pre text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">{log || (loading ? "" : "The log is empty.")}</pre>
     </div>}
   </Panel></Group>;
 }

@@ -46,9 +46,7 @@ keep each description to what the linked evidence shows.
    `multi_instance.rs`, and `roblox_process.rs`. On Windows, the multi-instance
    helper closes Roblox's single-instance handle so several clients can run at once. On macOS,
    Toolblox removes the name of Roblox's single-instance semaphore and starts the player with the
-   same link. Toolblox can also lower a client's priority, limit its CPU cores, and move its
-   windows through operating-system APIs. Don't describe Toolblox as never touching the Roblox
-   process.
+   same link. Don't describe Toolblox as never touching the Roblox process.
 
    "No injection" means no exploits: no code in Roblox's process and no access to its memory.
    Keep it unconditional. Never qualify it with "unless", "except", or "only when", because
@@ -89,8 +87,6 @@ changes before they are merged or released.
 - Installation and updates should use per-user scope where practical so routine operation
   doesn't require administrator access.
 - Users can add, remove, annotate, sort, reorder, select, and launch Roblox accounts.
-- Users can set a default and per-account client priority, limit each client's CPU cores
-  (Windows), and tile Roblox windows (Windows; macOS shows tiling as unsupported).
 - Users can install, enable, disable, configure, update, and uninstall extensible widgets.
 - Users can theme the app with custom CSS, which is also how themes are imported and exported.
   Setting a token in the CSS changes it across the app, and the color pickers in Settings show

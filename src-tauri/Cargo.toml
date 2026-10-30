@@ -33,11 +33,11 @@ zip = { version = "7.2", default-features = false, features = ["deflate"] }
 zeroize = "1"
 opener = "0.8"
 log = "0.4"
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["macros", "time"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6", default-features = false, features = ["windows-native"] }
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3.6", default-features = false, features = ["apple-native"] }

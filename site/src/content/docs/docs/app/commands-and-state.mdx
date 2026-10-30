@@ -95,6 +95,7 @@ These are defined in `startup.rs` and work before the app is ready. See
 | `get_app_state` | — | `AppStateDto` (async) | Builds the full interface snapshot. Loads the catalogue first if it hasn't been tried, names recent places, and fetches presence. [Details below](#how-get_app_state-builds-the-snapshot). | `getAppState()` |
 | `save_settings` | `settings: SettingsDto` | `()` (async) | Copies every DTO field onto the saved settings, re-parses `placeId` (blank clears it), saves, applies **always on top** to the main window, and enables or disables launch at login. If the login item can't change, the previous settings are restored and it fails with "The startup setting couldn't be changed. Does this account allow startup apps?". A changed place is then added to recent places only if Roblox confirms it exists; a missing place or failed lookup leaves the list unchanged. | `saveSettings(settings)` |
 | `place_exists` | `place_id: String` | `bool` (async) | Asks Roblox whether the place has a universe. `false` only for a `400` or `404`; network failures are errors. | `placeExists(placeId)` |
+| `search_places` | `query: String` | `Vec<PlaceMatch>` (async) | Searches Roblox games by name without a session. Returns up to 24 unsponsored games with their root place, player count, votes, maturity, and an `https:` icon, plus creator, visits, favorites, last update, genre, and price from the games API. Failures return an empty list, or results without icons or details. | `searchPlaces(query)` |
 | `restart_app` | `safe_mode: bool` | `()` | Writes or removes the `safe-mode-next-launch` marker, then restarts. | `restartApp(safeMode)` |
 
 ### Accounts
@@ -109,8 +110,7 @@ The account flows are explained in depth on [Accounts](/docs/app/accounts/).
 | `forget_recent_place` | `place_id: String` | `()` | Removes the place from recent places. | `forgetRecentPlace(placeId)` |
 | `remove_account` | `account_id: u64` | `()` | Removes the account, then deletes its session. Puts the account back if the session can't be deleted. | `removeAccount(accountId)` |
 | `reorder_accounts` | `account_ids: Vec<u64>` | `()` | Saves a manual order. The list must contain every saved account exactly once. | `reorderAccounts(accountIds)` |
-| `set_account_priority` | `account_id: u64`, `priority: Option<ClientPriority>` | `()` | Sets the account's client priority, or clears it for `null` so the default applies. | `setAccountPriority(accountId, priority)` |
-| `tile_roblox_windows` | — | `usize` (async) | Tiles every visible Roblox window on the primary screen at the saved tile size and returns how many moved. Fails on macOS with "Tiling windows isn't supported on macOS yet." | `tileRobloxWindows()` |
+| `set_account_pinned` | `account_id: u64`, `pinned: bool` | `()` | Pins the account to the dashboard, or unpins it. | `setAccountPinned(accountId, pinned)` |
 | `join_accounts` | `account_ids: Vec<u64>`, `place_id: Option<String>` | `()` (async) | Launches each account in order, at `place_id` when given, otherwise at its override or the default place. Records each join and minimizes the window afterwards when **minimize on join** is on. Rejects an empty list. | `joinAccounts(accountIds, placeId?)` |
 
 ### Widgets
@@ -192,9 +192,10 @@ and adds presence.
 | `playCount` | `number` | Manual joins. Sent by Rust but not declared in `types.ts`. |
 | `placeId` | `string \| null` | Place override. |
 | `lastPlaceId` | `string \| null` | Place of the last manual join. |
-| `priority` | `ClientPriority \| null` | The account's own client priority, or `null` for the default. |
+| `pinned` | `boolean` | Whether the account shows on the dashboard. |
 | `presence` | `"offline"` \| `"playing"` \| `"warning"` | `playing` covers in game and in Studio. `warning` covers online-but-not-in-game, unknown, and "presence couldn't be fetched". |
-| `gameName` | `string?` | Game name, when **show game names** is on and the account is in game. Omitted otherwise. |
+| `inStudio` | `boolean?` | `true` while the account is in Roblox Studio. The interface shows a hammer instead of the green dot. Omitted otherwise. |
+| `gameName` | `string?` | Game name, when **show game names** is on and the account is in game. In Studio it's `Studio - <place>`, as on roblox.com. Omitted otherwise. |
 | `gamePlaceId` | `number?` | Place the account is in, when Roblox reveals it. Omitted otherwise. |
 | `sessionExpired` | `boolean` | Roblox no longer accepts the saved session, or none is stored. See [Expired sessions](/docs/app/accounts/#expired-sessions). |
 
@@ -231,9 +232,6 @@ read and write through `save_settings`.
 | `sortOrder` | `"last_played"` \| `"alphabetical"` \| `"manual"` |
 | `placeId` | `string` |
 | `multiInstance`, `autoRejoin`, `openOnLaunch`, `runInBackground`, `minimizeOnJoin`, `showGameNames`, `notifyOnDrop`, `alwaysOnTop` | `boolean` |
-| `clientPriority` | `"normal"` \| `"below_normal"` \| `"low"` |
-| `cpuCores` | `number` |
-| `tileSize` | `"fit"` \| `"medium"` \| `"small"` |
 
 Widget-related settings (`disabledWidgets`, `widgetsStartOnLaunch`, `widgetSettings`) and
 `recentPlaces` are deliberately absent. They change only through their dedicated commands, so a
@@ -328,8 +326,7 @@ Each `bridge` method passes a demo function to `call`. In demo mode `call` retur
 functions operate on an in-memory `demoState`:
 
 - five sample accounts with mixed presence, notes, and place overrides;
-- five installed widgets and six catalogue entries, including two module widgets loaded from
-  `src/demo-widgets/`;
+- three installed widgets and six catalogue entries;
 - a `demoStores` map for `getWidgetStore` and `setWidgetStore`;
 - a fixed `demoLog` for `readLog`.
 

@@ -24,6 +24,12 @@ const PRESENCE_URL: &str = "https://presence.roblox.com/v1/presence/users";
 const GAMES_URL: &str = "https://games.roblox.com/v1/games";
 /// The universe a place belongs to.
 const PLACE_UNIVERSE_URL: &str = "https://apis.roblox.com/universes/v1/places";
+/// Game search, as used by roblox.com. Undocumented, so failures return no results.
+const SEARCH_URL: &str = "https://apis.roblox.com/search-api/omni-search";
+/// Most games a place search returns.
+const SEARCH_LIMIT: usize = 24;
+/// Game icon images, by universe ID.
+const GAME_ICONS_URL: &str = "https://thumbnails.roblox.com/v1/games/icons";
 /// Issues one-time authentication tickets for launching the Roblox client.
 const TICKET_URL: &str = "https://auth.roblox.com/v1/authentication-ticket";
 /// Roblox place launcher, passed to the client in the launch URI.
@@ -95,9 +101,11 @@ struct ThumbnailEnvelope {
     data: Vec<ThumbnailResponse>,
 }
 
-/// One avatar image.
+/// One avatar or game icon image.
 #[derive(Deserialize)]
 struct ThumbnailResponse {
+    #[serde(rename = "targetId", default)]
+    target_id: u64,
     #[serde(rename = "imageUrl")]
     image_url: Option<String>,
 }
@@ -140,6 +148,19 @@ impl PresenceDetail {
     pub fn in_game(&self) -> bool {
         matches!(self.state, PresenceState::InGame | PresenceState::InStudio)
     }
+
+    /// The activity as roblox.com shows it: the game name, or `Studio - <place>` in Roblox Studio.
+    /// Roblox already adds the prefix for some Studio sessions, so it isn't repeated.
+    pub fn activity(&self, name: Option<String>) -> Option<String> {
+        if self.state != PresenceState::InStudio {
+            return name;
+        }
+        let place = name
+            .as_deref()
+            .map(|name| name.strip_prefix("Studio - ").unwrap_or(name).trim())
+            .filter(|name| !name.is_empty());
+        Some(place.map_or_else(|| "Studio".to_string(), |place| format!("Studio - {place}")))
+    }
 }
 
 /// The place universe API response.
@@ -156,11 +177,114 @@ struct GamesEnvelope {
     data: Vec<GameResponse>,
 }
 
-/// One game's details.
+/// One game's details. Fields other than `id` and `name` are only used by place search.
 #[derive(Deserialize)]
 struct GameResponse {
     id: u64,
     name: String,
+    #[serde(default)]
+    creator: Option<GameCreator>,
+    #[serde(default)]
+    price: Option<u64>,
+    #[serde(default)]
+    visits: Option<u64>,
+    #[serde(default, rename = "favoritedCount")]
+    favorited_count: Option<u64>,
+    #[serde(default)]
+    updated: Option<String>,
+    #[serde(default)]
+    genre_l1: Option<String>,
+    #[serde(default)]
+    genre_l2: Option<String>,
+}
+
+/// The user or group that owns a game.
+#[derive(Deserialize)]
+struct GameCreator {
+    #[serde(default)]
+    name: String,
+    #[serde(default, rename = "hasVerifiedBadge")]
+    has_verified_badge: bool,
+}
+
+/// The game search response.
+#[derive(Deserialize)]
+struct SearchEnvelope {
+    #[serde(default, rename = "searchResults")]
+    search_results: Vec<SearchGroup>,
+}
+
+/// One group of search results. Only `Game` groups are used.
+#[derive(Deserialize)]
+struct SearchGroup {
+    #[serde(default, rename = "contentGroupType")]
+    content_group_type: String,
+    #[serde(default)]
+    contents: Vec<SearchGame>,
+}
+
+/// One game in the search results.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchGame {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    root_place_id: u64,
+    #[serde(default)]
+    universe_id: u64,
+    #[serde(default)]
+    is_sponsored: bool,
+    #[serde(default)]
+    player_count: u64,
+    #[serde(default)]
+    total_up_votes: u64,
+    #[serde(default)]
+    total_down_votes: u64,
+    #[serde(default)]
+    content_maturity: String,
+}
+
+/// A game found by name, with the place a join opens.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaceMatch {
+    pub place_id: String,
+    pub name: String,
+    pub player_count: u64,
+    pub up_votes: u64,
+    pub down_votes: u64,
+    /// An `https:` icon image. `None` when Roblox has none or the lookup failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
+    /// Roblox's maturity label, such as `minimal` or `moderate`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maturity: Option<String>,
+    /// The fields below come from a second lookup and are `None` when it fails.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub creator_name: Option<String>,
+    pub creator_verified: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visits: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub favorites: Option<u64>,
+    /// When the game was last updated, as an RFC 3339 timestamp.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub genre: Option<String>,
+    /// Robux needed to join. `None` for free games.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub price: Option<u64>,
+    #[serde(skip)]
+    universe_id: u64,
+}
+
+/// Trims Roblox-supplied text and caps its length. Blank text is `None`.
+fn clean_text(text: Option<String>, max: usize) -> Option<String> {
+    let text = text?;
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.chars().take(max).collect())
 }
 
 /// Extracts a place ID from digits or an `https://www.roblox.com/games/<id>/â€¦` link.
@@ -416,6 +540,174 @@ pub async fn fetch_place_universe(
     Ok(universe.universe_id.filter(|id| *id > 0))
 }
 
+/// Searches Roblox for games by name. Failures return no results because search is optional.
+pub async fn search_places(client: &reqwest::Client, query: &str) -> Vec<PlaceMatch> {
+    let query: String = query.trim().chars().take(100).collect();
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let Ok(response) = search_request(client, &query).send().await else {
+        return Vec::new();
+    };
+    if !response.status().is_success() {
+        return Vec::new();
+    }
+    let Ok(body) = response.text().await else {
+        return Vec::new();
+    };
+    let mut matches = parse_search_response(&body);
+    let (icons, details) = tokio::join!(
+        fetch_game_icons(client, &matches),
+        fetch_game_details(client, &matches)
+    );
+    for place in &mut matches {
+        place.icon_url = icons.get(&place.universe_id).cloned();
+    }
+    if let Some(body) = details {
+        apply_game_details(&mut matches, &body);
+    }
+    matches
+}
+
+/// Fetches the games API response for the matches' universes. Failures return `None`.
+async fn fetch_game_details(client: &reqwest::Client, matches: &[PlaceMatch]) -> Option<String> {
+    let ids = matches
+        .iter()
+        .filter(|place| place.universe_id > 0)
+        .map(|place| place.universe_id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    if ids.is_empty() {
+        return None;
+    }
+    let response = client
+        .get(GAMES_URL)
+        .query(&[("universeIds", ids)])
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    response.text().await.ok()
+}
+
+/// Copies visits, creator, and other details onto the matching places.
+fn apply_game_details(matches: &mut [PlaceMatch], body: &str) {
+    let games = serde_json::from_str::<GamesEnvelope>(body)
+        .map(|envelope| envelope.data)
+        .unwrap_or_default();
+    for game in games {
+        let Some(place) = matches
+            .iter_mut()
+            .find(|place| place.universe_id == game.id)
+        else {
+            continue;
+        };
+        if let Some(creator) = game.creator {
+            place.creator_name = clean_text(Some(creator.name), 50);
+            place.creator_verified = creator.has_verified_badge;
+        }
+        place.visits = game.visits;
+        place.favorites = game.favorited_count;
+        place.updated = clean_text(game.updated, 40);
+        place.genre = clean_text(game.genre_l2, 40).or_else(|| clean_text(game.genre_l1, 40));
+        place.price = game.price.filter(|price| *price > 0);
+    }
+}
+
+/// Roblox returns no results without a `sessionId`. Any value works, so a fixed one keeps
+/// searches unlinkable.
+fn search_request(client: &reqwest::Client, query: &str) -> reqwest::RequestBuilder {
+    client.get(SEARCH_URL).query(&[
+        ("searchQuery", query),
+        ("sessionId", "00000000-0000-0000-0000-000000000000"),
+        ("pageType", "all"),
+    ])
+}
+
+/// Looks up icons for the matches' universes. Failures return no icons because they're display-only.
+async fn fetch_game_icons(
+    client: &reqwest::Client,
+    matches: &[PlaceMatch],
+) -> BTreeMap<u64, String> {
+    let ids = matches
+        .iter()
+        .filter(|place| place.universe_id > 0)
+        .map(|place| place.universe_id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    if ids.is_empty() {
+        return BTreeMap::new();
+    }
+    let response = client
+        .get(GAME_ICONS_URL)
+        .query(&[
+            ("universeIds", ids.as_str()),
+            ("size", "150x150"),
+            ("format", "Png"),
+            ("isCircular", "false"),
+        ])
+        .send()
+        .await;
+    let Ok(response) = response else {
+        return BTreeMap::new();
+    };
+    match response.text().await {
+        Ok(body) => parse_icon_response(&body),
+        Err(_) => BTreeMap::new(),
+    }
+}
+
+/// Keeps `https:` icon URLs, by universe ID.
+fn parse_icon_response(body: &str) -> BTreeMap<u64, String> {
+    serde_json::from_str::<ThumbnailEnvelope>(body)
+        .map(|envelope| envelope.data)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|icon| {
+            Some((
+                icon.target_id,
+                icon.image_url.filter(|url| url.starts_with("https://"))?,
+            ))
+        })
+        .collect()
+}
+
+/// Keeps unsponsored games with a place and a name, without repeats, up to `SEARCH_LIMIT`.
+fn parse_search_response(body: &str) -> Vec<PlaceMatch> {
+    let mut seen = BTreeSet::new();
+    serde_json::from_str::<SearchEnvelope>(body)
+        .map(|envelope| envelope.search_results)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|group| group.content_group_type == "Game")
+        .flat_map(|group| group.contents)
+        .filter(|game| !game.is_sponsored && game.root_place_id > 0)
+        .filter(|game| seen.insert(game.root_place_id))
+        .filter_map(|game| {
+            clean_game_name(game.name).map(|name| PlaceMatch {
+                place_id: game.root_place_id.to_string(),
+                name,
+                player_count: game.player_count,
+                up_votes: game.total_up_votes,
+                down_votes: game.total_down_votes,
+                icon_url: None,
+                maturity: clean_text(Some(game.content_maturity), 20),
+                creator_name: None,
+                creator_verified: false,
+                visits: None,
+                favorites: None,
+                updated: None,
+                genre: None,
+                price: None,
+                universe_id: game.universe_id,
+            })
+        })
+        .take(SEARCH_LIMIT)
+        .collect()
+}
+
 /// Keeps names for requested universes only.
 fn parse_games_response(body: &str, requested: &BTreeSet<u64>) -> BTreeMap<u64, String> {
     serde_json::from_str::<GamesEnvelope>(body)
@@ -553,6 +845,35 @@ mod tests {
     }
 
     #[test]
+    fn studio_activity_uses_the_roblox_studio_format_once() {
+        let detail = |state| PresenceDetail {
+            state,
+            place_id: None,
+            universe_id: None,
+            location: None,
+        };
+        let studio = detail(PresenceState::InStudio);
+        assert_eq!(
+            studio.activity(Some("Crossroads".into())).as_deref(),
+            Some("Studio - Crossroads")
+        );
+        assert_eq!(
+            studio
+                .activity(Some("Studio - terrain replacement".into()))
+                .as_deref(),
+            Some("Studio - terrain replacement")
+        );
+        assert_eq!(studio.activity(None).as_deref(), Some("Studio"));
+        assert_eq!(
+            detail(PresenceState::InGame)
+                .activity(Some("Studio - Tycoon".into()))
+                .as_deref(),
+            Some("Studio - Tycoon")
+        );
+        assert_eq!(detail(PresenceState::InGame).activity(None), None);
+    }
+
+    #[test]
     fn game_names_ignore_unrequested_blank_and_malformed_entries() {
         let requested = BTreeSet::from([9, 10]);
         let names = parse_games_response(
@@ -562,6 +883,105 @@ mod tests {
         assert_eq!(names, BTreeMap::from([(9, "Crossroads".to_string())]));
         assert!(parse_games_response("not json", &requested).is_empty());
         assert_eq!(clean_game_name("x".repeat(150)).unwrap().len(), 100);
+    }
+
+    #[test]
+    fn place_search_details_fill_matching_places_only() {
+        let mut matches = parse_search_response(
+            r#"{"searchResults":[{"contentGroupType":"Game","contents":[
+                {"name":"Bloodlines","rootPlaceId":5571328985,"universeId":7,"contentMaturity":"moderate"},
+                {"name":"Other","rootPlaceId":2,"universeId":8}]}]}"#,
+        );
+        apply_game_details(
+            &mut matches,
+            r#"{"data":[{"id":7,"name":"x","creator":{"name":"-Bloodlines-","hasVerifiedBadge":true},
+                "price":799,"visits":68648562,"favoritedCount":172633,"updated":"2026-10-28T23:44:26.973Z",
+                "genre_l1":"RPG","genre_l2":"Action RPG"},
+                {"id":9,"name":"Unrequested","visits":1}]}"#,
+        );
+        let [first, second] = matches.as_slice() else {
+            panic!("two matches expected")
+        };
+        assert_eq!(first.maturity.as_deref(), Some("moderate"));
+        assert_eq!(first.creator_name.as_deref(), Some("-Bloodlines-"));
+        assert!(first.creator_verified);
+        assert_eq!(
+            (first.visits, first.favorites, first.price),
+            (Some(68648562), Some(172633), Some(799))
+        );
+        assert_eq!(first.genre.as_deref(), Some("Action RPG"));
+        assert_eq!(first.updated.as_deref(), Some("2026-10-28T23:44:26.973Z"));
+        assert_eq!(
+            (second.visits, second.creator_name.as_deref()),
+            (None, None)
+        );
+        assert!(
+            serde_json::to_value(second)
+                .unwrap()
+                .get("visits")
+                .is_none()
+        );
+        apply_game_details(&mut matches, "not json");
+        assert_eq!(matches[0].visits, Some(68648562));
+    }
+
+    #[test]
+    fn place_search_sends_a_fixed_session_id() {
+        let request = search_request(&reqwest::Client::new(), "rogue lineage")
+            .build()
+            .unwrap();
+        let query = request.url().query().unwrap();
+        assert!(query.contains("searchQuery=rogue+lineage"));
+        assert!(query.contains("sessionId=00000000-0000-0000-0000-000000000000"));
+    }
+
+    #[test]
+    fn place_search_keeps_unsponsored_named_games_once() {
+        let matches = parse_search_response(
+            r#"{"searchResults":[
+                {"contentGroupType":"Game","contents":[{"name":"[x] Bloodlines","rootPlaceId":5571328985,
+                    "universeId":7,"playerCount":5978,"totalUpVotes":90,"totalDownVotes":10}]},
+                {"contentGroupType":"Game","contents":[{"name":"Ad","rootPlaceId":1,"isSponsored":true}]},
+                {"contentGroupType":"User","contents":[{"name":"Player","rootPlaceId":2}]},
+                {"contentGroupType":"Game","contents":[{"name":" ","rootPlaceId":3},{"name":"No place"},
+                    {"name":"Again","rootPlaceId":5571328985}]}]}"#,
+        );
+        assert_eq!(
+            matches,
+            vec![PlaceMatch {
+                place_id: "5571328985".into(),
+                name: "[x] Bloodlines".into(),
+                player_count: 5978,
+                up_votes: 90,
+                down_votes: 10,
+                icon_url: None,
+                maturity: None,
+                creator_name: None,
+                creator_verified: false,
+                visits: None,
+                favorites: None,
+                updated: None,
+                genre: None,
+                price: None,
+                universe_id: 7,
+            }]
+        );
+        assert_eq!(
+            parse_icon_response(
+                r#"{"data":[{"targetId":7,"imageUrl":"https://tr.rbxcdn.com/a.png"},
+                    {"targetId":8,"imageUrl":"http://tr.rbxcdn.com/b.png"},{"targetId":9,"imageUrl":null}]}"#
+            ),
+            BTreeMap::from([(7, "https://tr.rbxcdn.com/a.png".to_string())])
+        );
+        assert!(parse_icon_response("not json").is_empty());
+        assert!(parse_search_response("not json").is_empty());
+        let many = (1..=30)
+            .map(|id| format!(r#"{{"name":"G{id}","rootPlaceId":{id}}}"#))
+            .collect::<Vec<_>>()
+            .join(",");
+        let body =
+            format!(r#"{{"searchResults":[{{"contentGroupType":"Game","contents":[{many}]}}]}}"#);
+        assert_eq!(parse_search_response(&body).len(), SEARCH_LIMIT);
     }
 
     #[test]

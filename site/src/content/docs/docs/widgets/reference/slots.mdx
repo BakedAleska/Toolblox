@@ -161,7 +161,7 @@ Rules:
 - Settings can't be replaced, so users can always reach Diagnostics and the controls that turn
   widgets off.
 
-To match the app's layout, cap content at `max-w-5xl` with 24 px side padding, and follow the
+To match the app's layout, cap content at `max-w-[120rem]` with 24 px side padding, and follow the
 [interface conventions](/docs/app/interface/).
 
 <Aside type="caution">
@@ -184,7 +184,7 @@ while the widget is disabled. The page renders, in order of precedence:
 3. Otherwise, an empty state: **No page**, "This widget adds features to other parts of Toolblox."
 
 The host wraps the page in the standard screen layout: a sticky 56 px header with the widget's
-name, a settings button when the widget has a settings page, and content capped at `max-w-5xl`.
+name, a settings button when the widget has a settings page, and content capped at `max-w-[120rem]`.
 The widget page's screen container is a flex column with `h-full`, which lets an `index.html`
 frame grow to fill the window height. A registered page is a child of that column.
 

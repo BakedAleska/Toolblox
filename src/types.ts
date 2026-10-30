@@ -12,18 +12,19 @@ export interface Account {
   addedAt: number;
   lastPlayedAt?: number;
   presence: Presence;
+  /** In Roblox Studio rather than a game. `presence` is still "playing". */
+  inStudio?: boolean;
+  /** The game name, or `Studio - <place>` in Roblox Studio. */
   gameName?: string;
   gamePlaceId?: number;
   placeId?: string;
   lastPlaceId?: string;
   /** Roblox no longer accepts the saved session, or none is stored. */
   sessionExpired?: boolean;
-  /** Overrides the default client priority. */
-  priority?: ClientPriority | null;
+  /** Shown on the dashboard. */
+  pinned?: boolean;
 }
 
-export type ClientPriority = "normal" | "below_normal" | "low";
-export type TileSize = "fit" | "medium" | "small";
 
 export interface WidgetSummary {
   id: string;
@@ -70,10 +71,27 @@ export interface Settings {
   showGameNames: boolean;
   notifyOnDrop: boolean;
   alwaysOnTop: boolean;
-  clientPriority: ClientPriority;
-  /** Logical cores each client may use. `0` allows every core. Windows only. */
-  cpuCores: number;
-  tileSize: TileSize;
+  alwaysAnimate: boolean;
+}
+
+/** A game found by name, with the place a join opens. */
+export interface PlaceMatch {
+  placeId: string;
+  name: string;
+  playerCount: number;
+  upVotes: number;
+  downVotes: number;
+  iconUrl?: string;
+  maturity?: string;
+  creatorName?: string;
+  creatorVerified: boolean;
+  visits?: number;
+  favorites?: number;
+  /** RFC 3339 timestamp of the last update. */
+  updated?: string;
+  genre?: string;
+  /** Robux needed to join. Absent for free games. */
+  price?: number;
 }
 
 export interface RecentPlace {
@@ -98,7 +116,7 @@ export interface AppState {
   safeMode: boolean;
 }
 
-export type AppRoute = "/" | "/accounts" | "/widgets" | "/settings" | `/widgets/${string}`;
+export type AppRoute = "/" | "/accounts" | "/accounts/places" | "/widgets" | "/settings" | "/settings/css" | `/widgets/${string}`;
 
 export type StartupStatus =
   | { phase: "checking" }

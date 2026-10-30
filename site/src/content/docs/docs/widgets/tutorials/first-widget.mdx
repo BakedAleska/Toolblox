@@ -36,14 +36,6 @@ Roblox session cookie; those stay in Rust for widgets and for the Toolblox inter
 
 Hello, world! lives in
 [`examples/hello_world/`](https://github.com/BakedAleska/Toolblox/tree/main/examples/hello_world).
-The two demo widgets in the repository use the same shape and are worth keeping open while you
-work:
-
-- [`src/demo-widgets/stock_notifier/main.js`](https://github.com/BakedAleska/Toolblox/blob/main/src/demo-widgets/stock_notifier/main.js)
-  adds a stat tile and a Dashboard section with the host components.
-- [`src/demo-widgets/rogue_lineage/main.js`](https://github.com/BakedAleska/Toolblox/blob/main/src/demo-widgets/rogue_lineage/main.js)
-  adds a page, a settings page, slot contributions, its own stylesheet, and an opt-in theme for the
-  whole app.
 
 <Aside>
 Widgets can instead, or also, ship sandboxed iframe pages. Those receive only the permissions their
@@ -73,8 +65,7 @@ interface. Debug builds differ from release builds in three ways that matter her
 
 <Aside type="caution">
 `npm run dev` starts only the web interface in a browser, and `npm run demo` runs the app on sample
-data. Neither loads widgets from the widgets folder. The demo build only loads the two widgets in
-`src/demo-widgets/`, and `request` returns `null` there because no Rust host answers it.
+data. Neither loads widgets from the widgets folder. In both, `request` returns `null` because no Rust host answers it.
 </Aside>
 
 ## Find the widgets folder
@@ -117,8 +108,8 @@ TOOLBLOX_DATA_DIR="$HOME/toolblox-dev-data" npm run tauri dev
 
 The first time a development build starts, it adds Hello, world! to the widgets folder. It
 appears in the **Installed** section of the Widgets page, enabled, and in the sidebar under
-**Widgets**. Select it to open its page, then select **Say hello**: the counter goes up and a toast
-reads "Hello, world!"
+**Widgets**. Select it to open its page, titled "Hello, world!" The title is the `name` in
+`widget.json`; the page itself is empty.
 
 Toolblox adds it only once, and records that in a hidden `.example-added` file in the widgets
 folder. Uninstalling it sticks. To get it back, install it from the **Catalogue** section, which in
@@ -166,39 +157,9 @@ does, and the install dialog shows it to the user. The
 The module, `main.js`:
 
 ```js title="hello_world/main.js"
-const svg = (h, ...paths) => h("svg", {
-  viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
-  strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round",
-}, ...paths.map((d) => h("path", { key: d, d })));
-
-export async function activate(toolblox) {
-  const { React, ui } = toolblox;
-  const h = React.createElement;
-  const usersIcon = svg(h, "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8");
-  const playIcon = svg(h, "M6 3v18l15-9Z");
-
-  void toolblox.log.info(`Activated version ${toolblox.widget.version}`);
-
+export function activate(toolblox) {
   toolblox.registerPage(function HelloPage() {
-    const state = toolblox.useAppState();
-    const [greetings, setGreetings] = React.useState(0);
-    const inGame = state.accounts.filter((account) => account.presence === "playing").length;
-
-    const greet = () => {
-      setGreetings((count) => count + 1);
-      toolblox.notify("Hello, world!");
-      void toolblox.log.debug("Greeted");
-    };
-
-    return h(React.Fragment, null,
-      h("div", { className: "grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3" },
-        h(ui.StatTile, { icon: usersIcon, label: "Accounts", value: state.accounts.length, onClick: () => toolblox.navigate("/accounts") }),
-        h(ui.StatTile, { icon: playIcon, label: "In game", value: inGame })),
-      h("section", { className: "flex flex-col gap-2" },
-        h(ui.SectionTitle, null, "Greeting"),
-        h(ui.Panel, { className: "flex items-center gap-3 px-4 py-3" },
-          h("p", { className: "min-w-0 flex-1 text-sm" }, greetings ? `Greeted ${greetings} times.` : "No greetings yet."),
-          h(ui.Button, { variant: "outline", size: "sm", onClick: greet }, "Say hello"))));
+    return null;
   });
 }
 
@@ -207,20 +168,19 @@ export function deactivate() {}
 
 A few things in this file are deliberate:
 
-- **`h` is `toolblox.React.createElement`.** The widget doesn't import or bundle React. It uses
-  the app's own React instance, which is what makes hooks such as `React.useState` work inside
+- **Content comes from `toolblox.React`.** To render something, use
+  `toolblox.React.createElement`, often shortened to `h`. The widget doesn't import or bundle
+  React. It uses the app's own React instance, which is what makes hooks such as `React.useState` work inside
   the app's component tree. A second copy of React breaks hooks with "Invalid hook call".
-- **Hooks run inside components, never in `activate`.** `activate` is a plain function that runs
-  once. `HelloPage` is a React component that Toolblox renders whenever the page is open, so
-  `toolblox.useAppState()` and `React.useState` belong there.
+- **`activate` registers, components render.** `activate` is a plain function that runs once.
+  `HelloPage` is a React component that Toolblox renders whenever the page is open, so hooks such
+  as `toolblox.useAppState()` and `React.useState` belong in it, never in `activate`.
 - **The component is a named function.** React shows `HelloPage` in error messages and in the
   component stack that Toolblox writes to the log when a render fails.
-- **The icons are inline SVG elements**, as in the stock_notifier demo. Icon libraries import
-  `react` themselves, so bundling one pulls in a second copy.
-- **Every class name is one the app already uses.** Tailwind CSS is compiled into the app ahead
-  of time, so only classes that appear somewhere in the Toolblox source exist. The grid class
-  is copied from the Dashboard's stat row, and `flex-1`, `px-4`, and the rest appear throughout
-  the app. A class that doesn't exist does nothing, silently. See
+- **`toolblox.ui` has the app's own components.** Use them, such as `toolblox.ui.Button`, so a
+  widget matches the app and follows custom themes without its own styles. When you add class
+  names, use ones the app already uses: Tailwind CSS is compiled into the app ahead of time, and a
+  class that doesn't exist does nothing, silently. See
   [Slots and styles](/docs/widgets/tutorials/slots-and-styles/) for shipping your own CSS.
 - **`deactivate` is optional.** Toolblox removes every page, settings page, slot contribution,
   stylesheet, and state listener a widget registered when it unloads the widget, so `deactivate`
@@ -244,14 +204,19 @@ A few things in this file are deliberate:
    enabled ones. Turning the switch on a widget's card off adds it to that list, unloads the
    module, and stops any processes it started.
 
-4. **Change the page.** Edit the copy's `main.js`, for example change the toast text, then
-   [reload the window](#change-the-code-and-reload).
+4. **Change the page.** In the copy's `main.js`, make `HelloPage` return content, then
+   [reload the window](#change-the-code-and-reload):
+
+   ```js
+   return toolblox.React.createElement("p", null, "Hello, world!");
+   ```
 
 5. **Add to the app outside your page.** Widgets can add to existing screens through slots. Add
    this to `activate` to put a badge under every account's name on the Accounts page:
 
    ```js
-   toolblox.addToSlot("accounts.row", () => h(ui.Badge, { variant: "outline" }, "Hello"));
+   const h = toolblox.React.createElement;
+   toolblox.addToSlot("accounts.row", () => h(toolblox.ui.Badge, { variant: "outline" }, "Hello"));
    ```
 
    The [slots and styles](/docs/widgets/tutorials/slots-and-styles/) tutorial covers every slot.
@@ -304,7 +269,7 @@ tooltip. Contributions registered before the throw stay registered.
 
 ## Change the code and reload
 
-Edit `main.js`, for example change the toast to "Hello again." Then:
+Edit `main.js`, for example make `HelloPage` return `toolblox.React.createElement("p", null, "Hello again.")`. Then:
 
 <Steps>
 
@@ -336,11 +301,16 @@ rotated at 1 MB with three older files kept. To read it, open **Settings**, find
 and select **Show** next to **Log**. The view shows the last 300 lines; **Copy** copies up to 2,000
 and **Open folder** opens the log folder.
 
-The widget's records use the target `widget:<id>`:
+The widget's records use the target `widget:<id>`. Add a log line to `activate`:
+
+```js
+void toolblox.log.info("Activated");
+```
+
+After a reload, the log reads:
 
 ```text
-2026-10-14T09:12:03.512Z INFO  widget:hello_world: Activated version 1.0.0
-2026-10-14T09:12:09.880Z DEBUG widget:hello_world: Greeted
+2026-10-14T09:12:09.880Z INFO  widget:hello_world: Activated
 ```
 
 `toolblox.log` has `debug`, `info`, `warn`, and `error`. Each returns a promise that never rejects.
@@ -377,7 +347,6 @@ Error boundaries can't help with everything a full-trust module can do. An infin
 `activate`, a stylesheet that hides the sidebar, or a replaced screen with no way back can make the
 app unusable. Safe mode starts Toolblox with every widget off for one session:
 
-- **From the tray**, select **Restart without widgets**.
 - **From a terminal**, start Toolblox with `--safe-mode`. For a development build, arguments after
   a second `--` reach the app:
 
@@ -429,29 +398,14 @@ export function bind(api) {
 }
 ```
 
-Each JSX file imports `React` from `host.js`, which puts it in scope for the JSX factory:
+A file that contains JSX imports `React` from `host.js`, which puts it in scope for the JSX
+factory:
 
 ```jsx title="src/HelloPage.jsx"
-import { React, toolblox, ui } from "./host.js";
-
-const playIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M6 3v18l15-9Z" /></svg>;
+import { React } from "./host.js";
 
 export function HelloPage() {
-  const state = toolblox.useAppState();
-  const [greetings, setGreetings] = React.useState(0);
-  const inGame = state.accounts.filter((account) => account.presence === "playing").length;
-  return <>
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
-      <ui.StatTile icon={playIcon()} label="In game" value={inGame} />
-    </div>
-    <section className="flex flex-col gap-2">
-      <ui.SectionTitle>Greeting</ui.SectionTitle>
-      <ui.Panel className="flex items-center gap-3 px-4 py-3">
-        <p className="min-w-0 flex-1 text-sm">{greetings ? `Greeted ${greetings} times.` : "No greetings yet."}</p>
-        <ui.Button variant="outline" size="sm" onClick={() => { setGreetings((count) => count + 1); toolblox.notify("Hello, world!"); }}>Say hello</ui.Button>
-      </ui.Panel>
-    </section>
-  </>;
+  return <></>;
 }
 ```
 
@@ -459,9 +413,8 @@ export function HelloPage() {
 import { bind, toolblox } from "./host.js";
 import { HelloPage } from "./HelloPage.jsx";
 
-export async function activate(api) {
+export function activate(api) {
   bind(api);
-  void toolblox.log.info(`Activated version ${toolblox.widget.version}`);
   toolblox.registerPage(HelloPage);
 }
 
@@ -492,7 +445,8 @@ Notes on this setup:
   `bind`, `React` is always set by then.
 - Don't `import React from "react"` anywhere, and don't depend on packages that do. The bundle
   would then contain a second React, and hooks would fail with "Invalid hook call".
-- `<ui.StatTile>` works because JSX treats a dotted name as a component reference.
+- App components work in JSX as `<ui.Button>`, because JSX treats a dotted name as a component
+  reference.
 - TypeScript works the same way: esbuild compiles `.tsx` files with the same flags. Toolblox
   doesn't publish a types package; the API's shape is `createApi` in
   [`src/widgets/host.tsx`](https://github.com/BakedAleska/Toolblox/blob/main/src/widgets/host.tsx),

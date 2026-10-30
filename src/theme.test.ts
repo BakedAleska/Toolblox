@@ -51,6 +51,7 @@ describe("theme pages", () => {
     expect(pageOf("/")).toBe("dashboard");
     expect(pageOf("/accounts")).toBe("accounts");
     expect(pageOf("/settings")).toBe("settings");
+    expect(pageOf("/settings/css")).toBe("settings");
     expect(pageOf("/widgets")).toBe("widgets");
     expect(pageOf("/widgets/trade-tracker/settings")).toBe("widgets");
   });

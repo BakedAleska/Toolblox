@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Account, AppState, CatalogueEntry, ClientPriority, LogLevel, Settings, StartupStatus, WidgetSummary } from "./types";
+import type { Account, AppState, CatalogueEntry, LogLevel, PlaceMatch, Settings, StartupStatus, WidgetSummary } from "./types";
 
 const minutesAgo = (minutes: number) => Date.now() - minutes * 60_000;
 const demoAccount = (id: number, name: string, displayName: string, extra: Partial<Account> = {}): Account =>
@@ -22,16 +22,17 @@ const demoState: AppState = {
     demoAccount(102, "crossroads_fan", "Crossroads Fan", { presence: "playing", gamePlaceId: 1818, lastPlayedAt: minutesAgo(38), lastPlaceId: "1818" }),
     demoAccount(103, "tradebot_03", "tradebot_03", { presence: "warning", sessionExpired: true, lastPlayedAt: minutesAgo(60 * 5), notes: "Trading alt" }),
     demoAccount(104, "weekend_player", "Weekend Player", { lastPlayedAt: minutesAgo(60 * 24 * 3), placeId: "606849621", lastPlaceId: "606849621" }),
-    demoAccount(105, "new_account_2026", "Fresh Start"),
+    demoAccount(105, "new_account_2026", "Fresh Start", { presence: "playing", inStudio: true, gameName: "Studio - Obby Prototype", gamePlaceId: 76234588566463 }),
+    demoAccount(106, "grinder_alt_7", "Grinder", { presence: "warning", lastPlayedAt: minutesAgo(60 * 9) }),
+    demoAccount(107, "event_runner", "Event Runner", { lastPlayedAt: minutesAgo(60 * 24 * 6) }),
+    demoAccount(108, "quiet_collector", "Collector", { lastPlayedAt: minutesAgo(60 * 24 * 12) }),
   ],
   installedWidgets: [
-    demoWidget("rogue_lineage", "Rogue Lineage", "Tracks each account's race and class and shows them on the Accounts page.", { version: "0.3.0", permissions: ["accounts.read.basic"], hasPageFrame: false, moduleUrl: "/src/demo-widgets/rogue_lineage/main.js" }),
     demoWidget("trade-tracker", "Trade Tracker", "Logs trades per account and shows value changes over time.", { version: "1.2.0", permissions: ["accounts.read.basic", "widgetData.read", "widgetData.write"], hasSettings: true }),
     demoWidget("server-hopper", "Server Hopper", "Finds a fresh server and moves selected accounts there.", { version: "2.1.0", availableVersion: "2.2.0", permissions: ["accounts.read.basic", "roblox.status"], availablePermissions: ["accounts.read.basic", "roblox.status", "roblox.join"] }),
     demoWidget("afk-guard", "AFK Guard", "Keeps idle accounts from being kicked while you're away.", { enabled: false, version: "0.9.1", permissions: ["process.spawn"], canStartOnLaunch: true }),
-    demoWidget("stock_notifier", "Stock Notifier", "Watches a game's shop and shows current stock on the dashboard.", { version: "1.0.4", permissions: ["network.fetch"], hasPageFrame: false, canStartOnLaunch: true, startOnLaunch: true, moduleUrl: "/src/demo-widgets/stock_notifier/main.js" }),
   ],
-  widgetErrors: [],
+  widgetErrors: ["afk-guard: the package signature doesn't match the catalogue. Reinstall it?"],
   catalogue: [
     demoEntry("quest-planner", "Quest Planner", "Tracks daily quests across all your accounts in one checklist.", "1.3.0", ["accounts.read.basic", "widgetData.read", "widgetData.write"]),
     demoEntry("friend-finder", "Friend Finder", "Shows which of your accounts are in the same server as your friends.", "0.4.2", ["accounts.read.basic", "roblox.status"]),
@@ -55,9 +56,7 @@ const demoState: AppState = {
     showGameNames: true,
     notifyOnDrop: false,
     alwaysOnTop: false,
-    clientPriority: "normal",
-    cpuCores: 0,
-    tileSize: "fit",
+    alwaysAnimate: false,
   },
   safeMode: false,
   recentPlaces: [
@@ -96,9 +95,7 @@ if (typeof window !== "undefined" && new URLSearchParams(window.location.search)
   demoState.settings.placeId = places[0].placeId;
 }
 
-const demoStores = new Map<string, unknown>([
-  ["rogue_lineage", { showIcons: true, accounts: { 101: { race: "lightborn", cls: "druid" }, 102: { race: "vind", cls: "shinobi" }, 104: { race: "gaian", cls: "necromancer" } } }],
-]);
+const demoStores = new Map<string, unknown>();
 
 let demoTheme = "";
 
@@ -234,6 +231,14 @@ export const bridge = {
     }),
 
   placeExists: (placeId: string) => call<boolean>("place_exists", { placeId }, () => true),
+  submitSurvey: (rating: number, comment: string) => call<void>("submit_survey", { rating, comment }, () => undefined),
+
+  searchPlaces: (query: string) =>
+    call<PlaceMatch[]>("search_places", { query }, () => demoState.recentPlaces
+      .filter((place) => place.name?.toLowerCase().includes(query.trim().toLowerCase()))
+      .map((place, index) => ({ placeId: place.placeId, name: place.name ?? "", playerCount: 12_000 >> index, upVotes: 90 - index * 10, downVotes: 10 + index * 10,
+        creatorName: "Demo Studio", creatorVerified: index === 0, visits: 68_648_562 >> index,
+        favorites: 172_633 >> index, updated: new Date(minutesAgo(90)).toISOString(), genre: "Action RPG", maturity: "minimal" }))),
 
   forgetRecentPlace: (placeId: string) =>
     call<void>("forget_recent_place", { placeId }, () => {
@@ -247,15 +252,12 @@ export const bridge = {
       if (placeId) rememberDemoPlace(placeId);
     }),
 
-  /** Sets an account's client priority. `null` uses the default priority. */
-  setAccountPriority: (accountId: number, priority: ClientPriority | null) =>
-    call<void>("set_account_priority", { accountId, priority }, () => {
+  /** Pins an account to the dashboard, or unpins it. */
+  setAccountPinned: (accountId: number, pinned: boolean) =>
+    call<void>("set_account_pinned", { accountId, pinned }, () => {
       const account = demoState.accounts.find(({ id }) => id === accountId);
-      if (account) account.priority = priority;
+      if (account) account.pinned = pinned;
     }),
-
-  /** Tiles the open Roblox windows and returns how many moved. Windows only. */
-  tileRobloxWindows: () => call<number>("tile_roblox_windows", {}, () => 0),
 
   installWidget: (entry: CatalogueEntry) =>
     call<void>("install_widget", { widgetId: entry.id }, () => {

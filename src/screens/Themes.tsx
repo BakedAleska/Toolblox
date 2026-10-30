@@ -1,12 +1,12 @@
-import { ChevronDown, Download, ExternalLink, RotateCcw, ShieldAlert, Upload } from "lucide-react";
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { ArrowLeft, ChevronDown, Code, Download, ExternalLink, RotateCcw, ShieldAlert, Upload } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { bridge } from "@/bridge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { collapseEmbedded, colorGroups, currentDensity, currentFont, defaultColors, densities, expandEmbedded, fonts, readBlock, setBlock, shrinkEmbedded, textScaleValue, textSizePoints, textSizeRange, validTextSize, toHex, useDarkMode, type ThemeStore } from "@/lib/theme";
-import { ChoiceRow, Group, IconButton, Panel, SettingRow, Spinner, type ScreenProps } from "@/shared";
+import { collapseEmbedded, colorGroups, currentDensity, currentFont, defaultColors, densities, expandEmbedded, fonts, readBlock, setBlock, shrinkEmbedded, textScaleValue, textSizePoints, textSizeRange, validTextSize, alphaOf, toHex, useDarkMode, type ThemeStore } from "@/lib/theme";
+import { ChoiceRow, Group, IconButton, Panel, Screen, SettingRow, Spinner, type ScreenProps, failure } from "@/shared";
 
 /** Matches the theme size limit in `theme.rs`. */
 const MAX_THEME_BYTES = 16 * 1024 * 1024;
@@ -15,18 +15,12 @@ const SAVE_DELAY = 400;
 
 const colorProperties = colorGroups.flatMap(({ tokens }) => tokens.map(([token]) => `--${token}`));
 
-export function ThemesTab({ state, notify, confirm, patchSettings, themes }: ScreenProps & { themes: ThemeStore }) {
+export function ThemesTab({ state, notify, confirm, navigate, patchSettings, themes }: ScreenProps & { themes: ThemeStore }) {
   const { css, save } = themes;
-  /** Unapplied edits to the CSS, or undefined while the field shows the saved CSS. */
-  const [draft, setDraft] = useState<string>();
   const [busy, setBusy] = useState<"import" | "export">();
   const importInput = useRef<HTMLInputElement>(null);
 
-  /** Changes the saved CSS, and any unapplied edits the same way, so neither loses the change. */
-  const editCss = (edit: (css: string) => string) => {
-    if (draft !== undefined) setDraft(edit(draft));
-    void save(edit(css), SAVE_DELAY);
-  };
+  const editCss = (edit: (css: string) => string) => void save(edit(css), SAVE_DELAY);
   const importFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -35,7 +29,7 @@ export function ThemesTab({ state, notify, confirm, patchSettings, themes }: Scr
     const contents = await file.text();
     const run = async () => {
       setBusy("import");
-      try { await save(contents); setDraft(undefined); notify("Theme imported."); }
+      try { await save(contents); notify("Theme imported."); }
       catch (error) { notify(String(error)); }
       finally { setBusy(undefined); }
     };
@@ -45,7 +39,7 @@ export function ThemesTab({ state, notify, confirm, patchSettings, themes }: Scr
   const exportFile = async () => {
     setBusy("export");
     try { notify(`Exported to ${await themes.exportTheme()}.`); }
-    catch (error) { notify(`The theme wasn't exported. Is the Downloads folder writable? (${String(error)})`); }
+    catch (error) { notify(failure(`The theme wasn't exported. Is the Downloads folder writable?`, error)); }
     finally { setBusy(undefined); }
   };
 
@@ -62,15 +56,14 @@ export function ThemesTab({ state, notify, confirm, patchSettings, themes }: Scr
       </div>} />
     </Panel></Group>
 
-    <Colors css={css} editCss={editCss} />
+    <Colors css={css} editCss={editCss} openCss={() => navigate("/settings/css")} />
     <Style editCss={editCss} />
-    <CustomCss css={css} draft={draft} setDraft={setDraft} save={save} />
   </>;
 }
 
 /** Shows each token's current value, including any the custom CSS sets. Picking a color writes it
  * to the custom CSS for the mode the app is showing. */
-function Colors({ css, editCss }: { css: string; editCss: (edit: (css: string) => string) => void }) {
+function Colors({ css, editCss, openCss }: { css: string; editCss: (edit: (css: string) => string) => void; openCss: () => void }) {
   const mode = useDarkMode() ? "dark" : "light";
   const declared = readBlock(css, mode);
   const values = getComputedStyle(document.documentElement);
@@ -78,11 +71,14 @@ function Colors({ css, editCss }: { css: string; editCss: (edit: (css: string) =
   const changed = colorProperties.some((property) => property in declared);
   return <Group title="Colors" action={changed && <Button variant="ghost" size="sm"
     onClick={() => editCss((current) => setBlock(current, mode, Object.fromEntries(colorProperties.map((property) => [property, undefined]))))}>Reset colors</Button>}>
-    <Panel className="columns-[14rem] gap-x-6 p-4">
-      {colorGroups.map(({ title, tokens }) => <fieldset key={title} className="mb-4 break-inside-avoid last:mb-0">
-        <legend className="mb-1 text-xs text-muted-foreground">{title}</legend>
-        {tokens.map(([token, label]) => <ColorField key={token} label={label} value={values.getPropertyValue(`--${token}`).trim()} changed={`--${token}` in declared} change={(value) => set(`--${token}`, value)} />)}
-      </fieldset>)}
+    <Panel className="flex flex-col gap-3 p-4">
+      <div className="columns-[14rem] gap-x-6">
+        {colorGroups.map(({ title, tokens }) => <fieldset key={title} className="mb-4 break-inside-avoid last:mb-0">
+          <legend className="mb-1 text-xs text-muted-foreground">{title}</legend>
+          {tokens.map(([token, label]) => <ColorField key={token} property={`--${token}`} label={label} value={values.getPropertyValue(`--${token}`).trim()} changed={`--${token}` in declared} change={(value) => set(`--${token}`, value)} />)}
+        </fieldset>)}
+      </div>
+      <Button variant="ghost" size="sm" className="-ml-2.5 self-start text-muted-foreground" onClick={openCss}><Code />CSS</Button>
     </Panel>
   </Group>;
 }
@@ -95,8 +91,8 @@ function Style({ editCss }: { editCss: (edit: (css: string) => string) => void }
   const set = (property: string, value?: string) => editCss((text) => setBlock(text, "all", { [property]: value }));
   const font = currentFont(read("--font"));
   return <Group title="Style"><Panel className="divide-y">
-    <SettingRow title="Font" control={(labelId) => <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" size="sm" className="w-44 justify-between font-normal" aria-labelledby={labelId} />}>
+    <SettingRow title="Font" control={() => <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="outline" size="sm" className="w-44 justify-between font-normal" aria-label={`Font: ${font?.label ?? "Custom"}`} />}>
         <span className="truncate">{font?.label ?? "Custom"}</span><ChevronDown className="text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-menu min-w-0">
@@ -128,32 +124,47 @@ function TextSizeRow({ points, change }: { points: number; change: (points: numb
   </div>} />;
 }
 
-function ColorField({ label, value, changed, change }: { label: string; value: string; changed: boolean; change: (value?: string) => void }) {
+/** While a color is dragged, only its token is previewed as an inline style on `<html>`. The theme
+ * CSS is written once the changes pause, since rewriting it re-renders the whole app. */
+function ColorField({ property, label, value, changed, change }: { property: string; label: string; value: string; changed: boolean; change: (value?: string) => void }) {
   const id = useId();
   const hex = toHex(value);
+  const alpha = alphaOf(value);
+  const [picked, setPicked] = useState<string>();
+  const timer = useRef<number>(undefined);
+  useEffect(() => setPicked(undefined), [hex]);
+  const commit = (next?: string) => {
+    window.clearTimeout(timer.current);
+    change(next);
+    document.documentElement.style.removeProperty(property);
+  };
+  const preview = (color: string) => {
+    const next = alpha < 255 ? `${color}${alpha.toString(16).padStart(2, "0")}` : color;
+    setPicked(color);
+    document.documentElement.style.setProperty(property, next);
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => commit(next), SAVE_DELAY);
+  };
   return <div className="flex h-9 items-center gap-2">
-    <input id={id} type="color" value={hex} onChange={(event) => change(event.target.value)}
-      className="size-7 shrink-0 rounded-md border border-input bg-transparent p-0.5 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 [&::-moz-color-swatch]:rounded-sm [&::-moz-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-sm [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0" />
+    <input id={id} type="color" value={picked ?? hex} onChange={(event) => preview(event.target.value)}
+      className="size-7 shrink-0 rounded-lg border border-input bg-transparent p-0.5 outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-moz-color-swatch]:rounded-sm [&::-moz-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-sm [&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0" />
     <label htmlFor={id} className="min-w-0 flex-1 truncate text-sm">{label}</label>
-    <span className="font-mono text-xs text-muted-foreground">{hex}</span>
-    <IconButton label={`Reset ${label}`} size="icon-sm" className={changed ? undefined : "invisible"} onClick={() => change()}><RotateCcw /></IconButton>
+    <span className="font-mono text-xs text-muted-foreground">{picked ?? hex}{alpha < 255 && ` ${Math.round(alpha / 2.55)}%`}</span>
+    <IconButton label={`Reset ${label}`} size="icon-sm" className={changed ? undefined : "invisible"} onClick={() => commit()}><RotateCcw /></IconButton>
   </div>;
 }
 
-function CustomCss({ css, draft, setDraft, save }: { css: string; draft?: string; setDraft: (draft?: string) => void; save: ThemeStore["save"] }) {
+/** Edits the theme's CSS as text. Embedded images show as short placeholders. */
+export function CustomCssScreen({ navigate, themes }: ScreenProps & { themes: ThemeStore }) {
+  const { css, save } = themes;
   const id = useId();
   const shown = useMemo(() => collapseEmbedded(css), [css]);
+  /** Unapplied edits to the CSS, or undefined while the field shows the saved CSS. */
+  const [draft, setDraft] = useState<string>();
   const text = draft ?? shown.text;
   const dirty = draft !== undefined && draft !== shown.text;
-  const field = useRef<HTMLTextAreaElement>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  useLayoutEffect(() => {
-    const element = field.current;
-    if (!element) return;
-    element.style.height = "auto";
-    element.style.height = `${element.scrollHeight + element.offsetHeight - element.clientHeight}px`;
-  }, [text]);
   const apply = async () => {
     if (draft === undefined) return;
     setBusy(true);
@@ -161,17 +172,17 @@ function CustomCss({ css, draft, setDraft, save }: { css: string; draft?: string
     catch (reason) { setError(String(reason)); }
     finally { setBusy(false); }
   };
-  return <Group title="Custom CSS" action={<div className="flex gap-2">
-    <Button variant="ghost" size="sm" disabled={busy || !dirty} onClick={() => { setDraft(undefined); setError(""); }}>Revert</Button>
-    <Button size="sm" disabled={busy || !dirty} onClick={() => void apply()}>{busy && <Spinner />}Apply</Button>
-  </div>}><Panel className="flex flex-col gap-2 px-4 py-3">
-    <p id={`${id}-d`} className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">Applied after the default styles.
+  return <Screen title="Custom CSS" actions={<IconButton label="Back to settings" onClick={() => navigate("/settings")}><ArrowLeft /></IconButton>} toolbar={<>
+    <p id={`${id}-d`} className="mr-auto flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">Applied after the default styles.
       <Button variant="link" size="sm" className="h-auto px-0 text-xs" onClick={() => void bridge.openExternal("https://toolblox.dev/docs/app/themes/")}>Documentation<ExternalLink /></Button>
     </p>
-    <Textarea ref={field} rows={1} value={text} onChange={(event) => { setDraft(event.target.value); setError(""); }} spellCheck={false} placeholder=":root { --radius: 12px; }"
-      className="max-h-96 min-h-8 resize-none py-1.5 font-mono text-xs" aria-label="Custom CSS" aria-describedby={error ? `${id}-e` : `${id}-d`} aria-invalid={!!error}
+    <Button variant="ghost" size="sm" disabled={busy || !dirty} onClick={() => { setDraft(undefined); setError(""); }}>Revert</Button>
+    <Button size="sm" disabled={busy || !dirty} onClick={() => void apply()}>{busy && <Spinner />}Apply</Button>
+  </>}>
+    <Textarea autoFocus value={text} onChange={(event) => { setDraft(event.target.value); setError(""); }} spellCheck={false} placeholder=":root { --radius: 12px; }"
+      className="min-h-40 flex-1 resize-none font-mono text-xs" aria-label="Custom CSS" aria-describedby={error ? `${id}-e` : `${id}-d`} aria-invalid={!!error}
       onBlur={() => { if (draft !== undefined) setDraft(draft.trimEnd() === shown.text ? undefined : draft.trimEnd()); }}
       onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void apply(); } }} />
     {error && <p id={`${id}-e`} className="text-xs text-destructive" role="alert">{error}</p>}
-  </Panel></Group>;
+  </Screen>;
 }

@@ -138,10 +138,11 @@ jobs:
           windows=$(sha256sum release/Toolblox-Setup.exe | cut -d' ' -f1)
           macos=$(sha256sum release/Toolblox.dmg | cut -d' ' -f1)
           node scripts/release-notes.mjs "$VERSION" "$windows" "$macos" > notes.md
+          (cd release && sha256sum Toolblox-Setup.exe Toolblox-Update.exe Toolblox.dmg Toolblox.app.tar.gz > SHA256SUMS)
           gh release create "v$VERSION" --title "Toolblox ${VERSION/-/ }" --notes-file notes.md --latest \
             release/Toolblox-Setup.exe release/Toolblox-Setup.exe.sig release/Toolblox-Update.exe \
             release/Toolblox.dmg release/Toolblox.app.tar.gz release/Toolblox.app.tar.gz.sig \
-            release/THIRD-PARTY-NOTICES.txt
+            release/THIRD-PARTY-NOTICES.txt release/SHA256SUMS
 
   pages:
     needs: release

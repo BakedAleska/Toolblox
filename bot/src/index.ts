@@ -1,14 +1,17 @@
 import { respond } from "./commands.ts";
 import { syncChangelogs } from "./changelogs.ts";
 import { sendDirectMessage, verifyInteraction } from "./discord.ts";
-import { MAX_BODY_BYTES, allowSurvey, parseSurvey, surveyEmbed } from "./survey.ts";
+import { allowRequest } from "./limit.ts";
+import { MAX_BODY_BYTES, parseSurvey, surveyEmbed } from "./survey.ts";
 import {
+  compareStats,
   countDownloads,
-  downloadIncrease,
+  countUpdates,
+  emptyTotals,
   fetchReleases,
-  formatIncrease,
-  formatTotals,
-  highestTotals,
+  formatReport,
+  formatStats,
+  type Stats,
   type Totals,
 } from "./releases.ts";
 
@@ -22,10 +25,16 @@ export interface Env {
 }
 
 /**
- * KV key holding the download totals from the last check. Changing it restarts tracking with a
+ * KV key holding the totals from the last check. Changing it restarts tracking with a
  * "Download tracking started" message, as when the counted assets changed.
  */
-const TOTALS_KEY = "downloads";
+const STATS_KEY = "stats";
+
+/** KV key holding first downloads from the website per platform. */
+const USERS_KEY = "users";
+
+/** The website, the only page whose first downloads are counted. */
+const SITE_ORIGIN = "https://toolblox.dev";
 
 /** Discord interaction and response types. */
 const PING = 1;
@@ -44,7 +53,7 @@ async function receiveSurvey(request: Request, env: Env): Promise<Response> {
   if (body.length > MAX_BODY_BYTES) return new Response("Too large.", { status: 413 });
   const answers = parseSurvey(body);
   if (!answers) return new Response("Invalid answers.", { status: 400 });
-  if (!(await allowSurvey(env.STATE, request.headers.get("CF-Connecting-IP") ?? "unknown"))) {
+  if (!(await allowRequest(env.STATE, "survey", request.headers.get("CF-Connecting-IP") ?? "unknown"))) {
     return new Response("Too many answers.", { status: 429 });
   }
   try {
@@ -56,13 +65,35 @@ async function receiveSurvey(request: Request, env: Env): Promise<Response> {
   return new Response(null, { status: 204 });
 }
 
+/**
+ * Counts a first download from the website, sent by toolblox.dev the first time a browser
+ * downloads Toolblox. Only the platform is counted. Requests from other pages or over the
+ * per-address limit are rejected.
+ */
+async function receiveDownload(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return new Response("Not found.", { status: 404 });
+  if (request.headers.get("Origin") !== SITE_ORIGIN) return new Response("Forbidden.", { status: 403 });
+  const kind = new URL(request.url).searchParams.get("platform");
+  if (kind !== "windows" && kind !== "macos") return new Response("Invalid platform.", { status: 400 });
+  if (!(await allowRequest(env.STATE, "download", request.headers.get("CF-Connecting-IP") ?? "unknown"))) {
+    return new Response("Too many downloads.", { status: 429 });
+  }
+  const users = (await env.STATE.get<Totals>(USERS_KEY, "json")) ?? emptyTotals();
+  users[kind] += 1;
+  await env.STATE.put(USERS_KEY, JSON.stringify(users));
+  return new Response(null, { status: 204 });
+}
+
 export default {
   /**
-   * Receives beta survey answers at `/survey`, and answers Discord interactions everywhere else.
+   * Receives beta survey answers at `/survey` and first downloads at `/download`, and answers
+   * Discord interactions everywhere else.
    * Interactions without a valid Discord signature are rejected.
    */
   async fetch(request, env) {
-    if (new URL(request.url).pathname === "/survey") return receiveSurvey(request, env);
+    const { pathname } = new URL(request.url);
+    if (pathname === "/survey") return receiveSurvey(request, env);
+    if (pathname === "/download") return receiveDownload(request, env);
     if (request.method !== "POST") return new Response("Not found.", { status: 404 });
     const body = await request.text();
     const valid = await verifyInteraction(
@@ -83,29 +114,33 @@ export default {
   },
 
   /**
-   * Posts new released changelogs to the #changelogs channel, then compares download totals with
-   * the last check and sends the owner a DM when they grew. A changelog failure is logged and
-   * doesn't stop the download check. Secrets are trimmed, because a secret piped from `echo` ends
-   * with a newline.
+   * Posts new released changelogs to the #changelogs channel, then compares downloads, users, and
+   * updates with the last check and sends the owner a DM when any grew. A changelog failure is
+   * logged and doesn't stop the check. Secrets are trimmed, because a secret piped from `echo`
+   * ends with a newline.
    */
   async scheduled(_controller, env) {
     const token = env.DISCORD_BOT_TOKEN.trim();
     const owner = env.OWNER_USER_ID.trim();
     await syncChangelogs(token, env.STATE, env.GITHUB_TOKEN?.trim()).catch((error) => console.warn(`Changelogs weren't posted: ${error}`));
-    const current = countDownloads(await fetchReleases(env.GITHUB_TOKEN?.trim()));
-    const previous = await env.STATE.get<Totals>(TOTALS_KEY, "json");
+    const releases = await fetchReleases(env.GITHUB_TOKEN?.trim());
+    const current: Stats = {
+      downloads: countDownloads(releases),
+      users: (await env.STATE.get<Totals>(USERS_KEY, "json")) ?? emptyTotals(),
+      updates: countUpdates(releases),
+    };
+    const previous = await env.STATE.get<Stats>(STATS_KEY, "json");
     if (!previous) {
-      await sendDirectMessage(token, owner, `Download tracking started.\nTotal: ${formatTotals(current)}`);
-      await env.STATE.put(TOTALS_KEY, JSON.stringify(current));
+      await sendDirectMessage(token, owner, `Download tracking started.\n${formatStats(current)}`);
+      await env.STATE.put(STATS_KEY, JSON.stringify(current));
       return;
     }
-    const totals = highestTotals(previous, current);
-    if (formatTotals(totals) !== formatTotals(current)) {
-      console.warn(`GitHub reported fewer downloads: ${formatTotals(current)}, saved ${formatTotals(previous)}.`);
+    const { increases, totals } = compareStats(previous, current);
+    if (formatStats(totals) !== formatStats(current)) {
+      console.warn(`Counts were lower than saved:\n${formatStats(current)}\nSaved:\n${formatStats(totals)}`);
     }
-    const increase = downloadIncrease(previous, current);
-    if (!increase) return;
-    await sendDirectMessage(token, owner, formatIncrease(increase, totals));
-    await env.STATE.put(TOTALS_KEY, JSON.stringify(totals));
+    if (!Object.keys(increases).length) return;
+    await sendDirectMessage(token, owner, formatReport(increases, totals));
+    await env.STATE.put(STATS_KEY, JSON.stringify(totals));
   },
 } satisfies ExportedHandler<Env>;

@@ -1,17 +1,19 @@
 /**
  * Builds the signed update manifest and widget catalogue for GitHub Pages.
  *
- * Reads the latest GitHub release, hashes its Windows installer and macOS app archive, and writes `_site/` from the
+ * Reads the latest GitHub release, takes the SHA-256 of its Windows installer and macOS app archive from `SHA256SUMS`
+ * (or downloads and hashes them for older releases, which adds to their download counts), and writes `_site/` from the
  * built site in `site/dist/` plus `updates/stable.json` and `catalogue/v1.json`, each with a detached Ed25519 `.sig`.
  * The catalogue lists every widget in `widgets/`, packaged under `catalogue/<id>/<version>/`.
  * Private keys are base64 32-byte seeds in `MANIFEST_PRIVATE_KEY` and `CATALOGUE_PRIVATE_KEY`.
  */
 import { createHash, createPrivateKey, sign } from "node:crypto";
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { CHECKSUMS, parseChecksums } from "./checksums.mjs";
 import { packageWidgets } from "./widgets.mjs";
 
 const INSTALLER = "Toolblox-Setup.exe";
-/** The same installer under a second name, so updates and manifest builds stay out of the download count of `INSTALLER`. Older releases don't have it. */
+/** The same installer under a second name, so updates stay out of the download count of `INSTALLER`. Older releases don't have it. */
 const UPDATER_INSTALLER = "Toolblox-Update.exe";
 /** The universal macOS app archive, used for both Mac architectures. Older releases don't have it. */
 const MACOS_ARCHIVE = "Toolblox.app.tar.gz";
@@ -56,10 +58,20 @@ const installer = release.assets.find((entry) => entry.name === UPDATER_INSTALLE
 const version = release.tag_name.replace(/^v/, "");
 if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`Release tag ${release.tag_name} isn't a semantic version.`);
 
+const checksums = release.assets.find((entry) => entry.name === CHECKSUMS);
+const sums = checksums && parseChecksums((await download(checksums.url)).toString("utf8"));
+/** Returns the SHA-256 of a release asset, from `SHA256SUMS` when the release has it. */
+const sha256 = async (file) => {
+  if (!sums) return createHash("sha256").update(await download(file.url)).digest("hex");
+  const sum = sums.get(file.name);
+  if (!sum) throw new Error(`${CHECKSUMS} in release ${release.tag_name} has no ${file.name}.`);
+  return sum;
+};
+
 /** Returns the manifest entry for a release asset and its updater signature. */
 const artifact = async (file, signatureFile) => ({
   url: file.browser_download_url,
-  sha256: createHash("sha256").update(await download(file.url)).digest("hex"),
+  sha256: await sha256(file),
   signature: (await download(asset(signatureFile).url)).toString("utf8").trim(),
 });
 const platforms = { "windows-x86_64": await artifact(installer, `${INSTALLER}.sig`) };

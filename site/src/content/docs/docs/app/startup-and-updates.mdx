@@ -356,12 +356,13 @@ unofficial release build can't silently run without update enforcement.
    app on macOS with the endpoint and keys above. It publishes `Toolblox-Setup.exe`,
    `Toolblox-Setup.exe.sig` (the updater signature), `Toolblox-Update.exe` (identical bytes, used
    by updates so the download count of the setup file counts manual downloads only),
-   `Toolblox.dmg`, `Toolblox.app.tar.gz` and its `.sig`, and `THIRD-PARTY-NOTICES.txt`, then calls
-   the Pages workflow.
+   `Toolblox.dmg`, `Toolblox.app.tar.gz` and its `.sig`, `THIRD-PARTY-NOTICES.txt`, and
+   `SHA256SUMS` (the SHA-256 of both installers and both updates), then calls the Pages workflow.
 
 2. **Publish script** ([`publish-updates.mjs`](https://github.com/BakedAleska/Toolblox/blob/main/scripts/publish-updates.mjs)).
-   Reads the latest GitHub release, requires a semver tag, downloads `Toolblox-Update.exe`
-   (falling back to `Toolblox-Setup.exe` for older releases) to compute its SHA-256, reads the
+   Reads the latest GitHub release, requires a semver tag, takes the SHA-256 of
+   `Toolblox-Update.exe` (falling back to `Toolblox-Setup.exe` for older releases) from
+   `SHA256SUMS`, or downloads and hashes it when the release has no `SHA256SUMS`, reads the
    updater signature from `Toolblox-Setup.exe.sig`, and writes `_site/updates/stable.json` with
    a `windows-x86_64` entry. When the release has `Toolblox.app.tar.gz`, it adds the same archive
    as `darwin-aarch64` and `darwin-x86_64`, with the signature from `Toolblox.app.tar.gz.sig`. It signs the exact bytes with `MANIFEST_PRIVATE_KEY` (a base64

@@ -1,13 +1,14 @@
 ---
 title: Privacy policy
 description: What Toolblox stores, where it's stored, and every service it connects to.
-updated: October 30, 2026
+updated: October 31, 2026
 ---
 
 Toolblox is a desktop app that runs on your device. It has no accounts, servers, analytics, or
 telemetry, and the project doesn't collect, sell, or share personal information. The only data
 the project receives is what Discord sends when someone uses the
-[Toolblox Discord bot](#discord-bot), and beta survey answers that someone chooses to send.
+[Toolblox Discord bot](#discord-bot), beta survey answers that someone chooses to send, and the
+platform of each browser's first download from [this website](#this-website).
 
 ### Data stored on this device
 
@@ -46,9 +47,14 @@ of the request, under its own privacy policy.
 ### This website
 
 toolblox.dev is hosted on GitHub Pages, so GitHub receives your IP address and the pages you
-request. The website sets no cookies and uses no analytics. To show the latest version, the
-download count, and the number of GitHub stars, your browser asks the GitHub API for public
-repository details. Downloads come from GitHub's release servers.
+request. The website sets no cookies. To show the latest version, the download count, and the
+number of GitHub stars, your browser asks the GitHub API for public repository details. Downloads
+come from GitHub's release servers.
+
+The first time you download Toolblox from this website, your browser stores a note that a
+download happened, and the website tells the [Toolblox Discord bot](#discord-bot) whether it was
+for Windows or macOS. The note holds no identifier, and nothing is sent on later downloads. To
+stop it, clear this website's data or block requests to `workers.dev`.
 
 ### Widgets
 
@@ -69,8 +75,10 @@ Beta survey answers sent from the app are delivered to the developer as a Discor
 and aren't stored by the bot. To limit spam, the bot keeps a count of answers for each IP address
 for one hour. The address is stored only as a one-way hash.
 
-The bot also stores total release download counts from GitHub's public statistics, which contain
-no personal information. Cloudflare receives each request under the
+The bot also stores total release download counts from GitHub's public statistics, and a count
+of first downloads from this website for each platform. Neither contains personal information. To
+limit spam, the bot keeps a count of first downloads for each IP address for one hour, stored only
+as a one-way hash. Cloudflare receives each request under the
 [Cloudflare privacy policy](https://www.cloudflare.com/privacypolicy/), and Discord's
 [privacy policy](https://discord.com/privacy) applies to everything sent through Discord.
 

@@ -3,8 +3,8 @@
 A Discord bot that runs as a Cloudflare Worker. It answers slash commands, and every five
 minutes it checks GitHub's release download counts and sends a DM to the owner, and only the
 owner (`OWNER_USER_ID`), when they grow.
-The counts are GitHub's public release data. The only thing the app sends the bot is the optional
-beta survey (see below).
+The only thing the app sends the bot is the optional beta survey (see below). The website sends
+the platform of each browser's first download.
 
 | Command | Reply |
 | --- | --- |
@@ -14,17 +14,28 @@ beta survey (see below).
 | `/version` | The latest version and its release page |
 | `/install` | The install guide |
 
-Each DM gives the total, then splits it into Windows (`Toolblox-Setup.exe`) and macOS
-(`Toolblox.dmg`), the same count the website shows. Updates aren't counted. Before 0.3.0, Windows
-updates also downloaded `Toolblox-Setup.exe`, so Windows installers count only from releases with
-a separate `Toolblox-Update.exe`. These are download counts, not installs or active users.
+Each DM lists what grew, then three totals, each split into Windows and macOS:
+
+| Total | Source |
+| --- | --- |
+| Downloads | GitHub's counts of `Toolblox-Setup.exe` and `Toolblox.dmg`, the same count the website shows, re-downloads included. Before 0.3.0, Windows updates also downloaded `Toolblox-Setup.exe`, so Windows installers count only from releases with a separate `Toolblox-Update.exe`. |
+| Users | First downloads from toolblox.dev, one per browser. Counted from when the website started sending them, and a new browser or cleared site data counts again. |
+| Updates | GitHub's counts of `Toolblox-Update.exe` and `Toolblox.app.tar.gz`. Updates are required at startup, so these show installs still in use. Releases without `SHA256SUMS` were also downloaded by each manifest build, so their `.sig` downloads are subtracted. |
+
+## Individual downloads
+
+The first time a browser downloads Toolblox from toolblox.dev, the page stores a note in
+`localStorage` and sends `POST /download?platform=windows` or `platform=macos`. The bot accepts
+only requests from `https://toolblox.dev`, at most three per address per hour, and adds one to the
+`users` count in KV. It stores nothing else. The page's endpoint is `DOWNLOAD_COUNTER` in
+`site/src/pages/index.astro`.
 
 ## Beta survey
 
 The app posts survey answers to `POST /survey` as JSON: `rating` (1–5), `comment` (up to 2,000
 characters), and `version`. The bot DMs them to the owner as an embed. Anyone can call the
 endpoint, so it rejects invalid answers and bodies over 16 KB, and accepts three answers per IP
-address per hour. Counts are kept in KV under a hash of the address. The app's endpoint is
+address per hour (`src/limit.ts`). Counts are kept in KV under a hash of the address. The app's endpoint is
 `SURVEY_URL` in `src-tauri/src/app_commands.rs`; set it to the deployed `workers.dev` URL followed
 by `/survey`. Remove the route with the survey after the beta.
 

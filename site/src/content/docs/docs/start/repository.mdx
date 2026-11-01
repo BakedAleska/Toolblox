@@ -370,6 +370,7 @@ The build receives the endpoints and public keys as compile-time environment var
 
 Windows prepares `Toolblox-Setup.exe`, its `.sig`, the identical `Toolblox-Update.exe`, and
 `THIRD-PARTY-NOTICES.txt`; macOS prepares `Toolblox.dmg`, `Toolblox.app.tar.gz`, and its `.sig`.
-Each uploads them as a workflow artifact. Unless it's a dry run, a `release` job then commits
+Each uploads them as a workflow artifact. Unless it's a dry run, a `release` job writes
+`SHA256SUMS` for both installers and both updates, then commits
 `chore(release): <version>`, tags `v<version>`, publishes the GitHub release with both platforms'
 files, and calls `pages.yml` so installed apps move to the new version on their next launch.

@@ -82,7 +82,8 @@ build with a new public key, which existing installs can't update to automatical
 Every release has one download per platform, `Toolblox-Setup.exe` for Windows and
 `Toolblox.dmg` for macOS. The updater uses `Toolblox-Update.exe` (the same bytes as the Windows
 installer), `Toolblox.app.tar.gz` (the universal macOS app, listed as `darwin-aarch64` and
-`darwin-x86_64` in the manifest), and their `.sig` files. Releases also include
+`darwin-x86_64` in the manifest), and their `.sig` files. `SHA256SUMS` lists the SHA-256 of both
+installers and both updates, so manifest builds don't download them. Releases also include
 `THIRD-PARTY-NOTICES.txt`, which `scripts/third-party-notices.mjs` generates from
 the Rust crates and npm packages in the build. Settings links to the notices of the installed
 version. The README and download page link to
@@ -96,10 +97,13 @@ entry for their platform, so every release must include both platforms.
 
 ## Usage
 
-Toolblox has no telemetry. Updates and manifest builds download `Toolblox-Update.exe` and
-`Toolblox.app.tar.gz`, so the `Toolblox-Setup.exe` and `Toolblox.dmg` counts are manual downloads
-only and the `Toolblox-Update.exe` count approximates updates. Releases without `Toolblox-Update.exe` mix both, plus one download per
-Pages deploy, and the download page leaves them out:
+Toolblox has no telemetry. Updates download `Toolblox-Update.exe` and `Toolblox.app.tar.gz`, so
+the `Toolblox-Setup.exe` and `Toolblox.dmg` counts are manual downloads only, re-downloads
+included. Manifest builds read hashes from `SHA256SUMS`, so for releases that have it the update
+counts are exact. Older releases were also downloaded once per Pages deploy, counted by the
+matching `.sig` downloads. Releases without `Toolblox-Update.exe` mix updates and downloads, and the
+download page leaves them out. The bot reports these counts, plus individual downloads from the
+website (see `bot/README.md`):
 
 ```sh
 gh api repos/BakedAleska/Toolblox/releases --jq '.[] | "\(.tag_name) \([.assets[] | "\(.name)=\(.download_count)"] | join(" "))"'

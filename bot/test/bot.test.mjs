@@ -4,15 +4,30 @@ import { test } from "node:test";
 import { byVersion, changelogEmbeds, parseChangelog, pendingChangelogs, syncChangelogs } from "../src/changelogs.ts";
 import { COMMANDS, respond } from "../src/commands.ts";
 import { verifyInteraction } from "../src/discord.ts";
-import { MAX_PER_WINDOW, allowSurvey, parseSurvey, rateKey, surveyEmbed } from "../src/survey.ts";
+import worker from "../src/index.ts";
+import { MAX_PER_WINDOW, allowRequest, rateKey } from "../src/limit.ts";
+import { parseSurvey, surveyEmbed } from "../src/survey.ts";
 import {
+  compareStats,
   countDownloads,
-  downloadIncrease,
-  formatIncrease,
+  countUpdates,
+  formatReport,
+  formatStats,
   formatTotals,
   formatVersion,
   highestTotals,
+  totalsIncrease,
 } from "../src/releases.ts";
+
+/** An in-memory stand-in for the KV namespace. */
+function memoryState() {
+  const store = new Map();
+  return {
+    store,
+    get: async (key, type) => (store.has(key) ? (type === "json" ? JSON.parse(store.get(key)) : store.get(key)) : null),
+    put: async (key, value) => void store.set(key, value),
+  };
+}
 
 const toHex = (bytes) => Buffer.from(bytes).toString("hex");
 
@@ -57,28 +72,63 @@ test("counts installers only, skipping updates and installers that doubled as up
   assert.deepEqual(countDownloads(releases), { windows: 7, macos: 5 });
 });
 
-test("reports growth as a total and its split", () => {
-  const previous = { windows: 7, macos: 5 };
-  assert.equal(downloadIncrease(previous, previous), null);
-  assert.equal(downloadIncrease(previous, { windows: 6, macos: 5 }), null);
-
-  const current = { windows: 9, macos: 5 };
-  const increase = downloadIncrease(previous, current);
-  assert.deepEqual(increase, { windows: 2, macos: 0 });
-  assert.equal(formatIncrease(increase, current), "New downloads: +2 (Windows +2, macOS +0)\nTotal: 14 (Windows 9, macOS 5)");
-  assert.equal(formatTotals(previous), "12 (Windows 7, macOS 5)");
+test("counts updates, subtracting manifest builds from releases without checksums", () => {
+  const asset = (name, download_count) => ({ name, download_count });
+  const releases = [
+    { tag_name: "v0.5.0-beta", html_url: "", draft: false, assets: [
+      asset("SHA256SUMS", 9), asset("Toolblox-Setup.exe.sig", 9), asset("Toolblox-Update.exe", 4),
+      asset("Toolblox.app.tar.gz.sig", 9), asset("Toolblox.app.tar.gz", 3),
+    ] },
+    { tag_name: "v0.4.0-beta", html_url: "", draft: false, assets: [
+      asset("Toolblox-Setup.exe.sig", 11), asset("Toolblox-Update.exe", 12),
+      asset("Toolblox.app.tar.gz.sig", 11), asset("Toolblox.app.tar.gz", 13),
+    ] },
+    { tag_name: "v0.3.1-beta", html_url: "", draft: false, assets: [
+      asset("Toolblox-Setup.exe.sig", 14), asset("Toolblox-Update.exe", 13),
+    ] },
+    { tag_name: "v0.2.0-beta", html_url: "", draft: false, assets: [asset("Toolblox-Setup.exe", 46), asset("Toolblox-Setup.exe.sig", 37)] },
+  ];
+  assert.deepEqual(countUpdates(releases), { windows: 5, macos: 5 });
 });
 
-test("keeps the highest counts when GitHub reports fewer downloads", () => {
+test("reports each metric that grew, then every total", () => {
+  const previous = { windows: 7, macos: 5 };
+  assert.equal(totalsIncrease(previous, previous), null);
+  assert.equal(totalsIncrease(previous, { windows: 6, macos: 5 }), null);
+  assert.deepEqual(totalsIncrease(previous, { windows: 9, macos: 5 }), { windows: 2, macos: 0 });
+  assert.deepEqual(totalsIncrease(undefined, { windows: 1, macos: 0 }), { windows: 1, macos: 0 });
+  assert.equal(formatTotals(previous), "12 (Windows 7, macOS 5)");
+
+  const saved = { downloads: { windows: 7, macos: 5 }, users: { windows: 2, macos: 1 }, updates: { windows: 3, macos: 1 } };
+  const current = { downloads: { windows: 9, macos: 5 }, users: { windows: 3, macos: 1 }, updates: { windows: 3, macos: 1 } };
+  const { increases, totals } = compareStats(saved, current);
+  assert.deepEqual(increases, { downloads: { windows: 2, macos: 0 }, users: { windows: 1, macos: 0 } });
+  assert.deepEqual(totals, current);
+  assert.equal(formatReport(increases, totals), [
+    "New downloads: +2 (Windows +2, macOS +0)",
+    "New users: +1 (Windows +1, macOS +0)",
+    "",
+    "Downloads: 14 (Windows 9, macOS 5)",
+    "Users: 4 (Windows 3, macOS 1)",
+    "Updates: 4 (Windows 3, macOS 1)",
+  ].join("\n"));
+  assert.equal(formatStats(saved).split("\n").length, 3);
+});
+
+test("keeps the highest counts when a response reports fewer", () => {
   const saved = { windows: 9, macos: 7 };
   const bad = { windows: 0, macos: 0 };
-  assert.equal(downloadIncrease(saved, bad), null);
+  assert.equal(totalsIncrease(saved, bad), null);
   assert.deepEqual(highestTotals(saved, bad), saved);
-  assert.equal(downloadIncrease(highestTotals(saved, bad), saved), null);
+  assert.equal(totalsIncrease(highestTotals(saved, bad), saved), null);
 
   const partial = { windows: 10, macos: 0 };
-  assert.deepEqual(downloadIncrease(saved, partial), { windows: 1, macos: 0 });
+  assert.deepEqual(totalsIncrease(saved, partial), { windows: 1, macos: 0 });
   assert.deepEqual(highestTotals(saved, partial), { windows: 10, macos: 7 });
+
+  const { increases, totals } = compareStats({ downloads: saved }, { downloads: bad, users: bad, updates: { windows: 1, macos: 0 } });
+  assert.deepEqual(increases, { updates: { windows: 1, macos: 0 } });
+  assert.deepEqual(totals.downloads, saved);
 });
 
 test("formats release tags", () => {
@@ -219,12 +269,69 @@ test("formats survey answers as an embed", () => {
   });
 });
 
-test("limits survey answers per address without storing the address", async () => {
-  const stored = new Map();
-  const state = { get: async (key) => stored.get(key) ?? null, put: async (key, value) => { stored.set(key, value); } };
-  for (let count = 0; count < MAX_PER_WINDOW; count++) assert.equal(await allowSurvey(state, "203.0.113.7"), true);
-  assert.equal(await allowSurvey(state, "203.0.113.7"), false);
-  assert.equal(await allowSurvey(state, "203.0.113.8"), true);
-  assert.ok([...stored.keys()].every((key) => !key.includes("203.0.113")));
-  assert.equal(stored.get(await rateKey("203.0.113.7")), String(MAX_PER_WINDOW));
+test("limits requests per address and scope without storing the address", async () => {
+  const { store, ...state } = memoryState();
+  for (let count = 0; count < MAX_PER_WINDOW; count++) assert.equal(await allowRequest(state, "survey", "203.0.113.7"), true);
+  assert.equal(await allowRequest(state, "survey", "203.0.113.7"), false);
+  assert.equal(await allowRequest(state, "download", "203.0.113.7"), true);
+  assert.equal(await allowRequest(state, "survey", "203.0.113.8"), true);
+  assert.ok([...store.keys()].every((key) => !key.includes("203.0.113")));
+  assert.equal(store.get(await rateKey("survey", "203.0.113.7")), String(MAX_PER_WINDOW));
+});
+
+test("counts first downloads from the website by platform only", async () => {
+  const state = memoryState();
+  const env = { STATE: state };
+  const send = (platform, init = {}) =>
+    worker.fetch(new Request(`https://bot.test/download?platform=${platform}`, {
+      method: "POST",
+      ...init,
+      headers: { Origin: "https://toolblox.dev", "CF-Connecting-IP": "203.0.113.9", ...init.headers },
+    }), env);
+
+  assert.equal((await send("windows")).status, 204);
+  assert.equal((await send("macos")).status, 204);
+  assert.equal((await send("linux")).status, 400);
+  assert.equal((await send("windows", { headers: { Origin: "https://example.test" } })).status, 403);
+  assert.equal((await send("windows", { method: "GET" })).status, 404);
+  assert.deepEqual(JSON.parse(state.store.get("users")), { windows: 1, macos: 1 });
+
+  assert.equal((await send("windows")).status, 204);
+  assert.equal((await send("windows")).status, 429);
+  assert.deepEqual(JSON.parse(state.store.get("users")), { windows: 2, macos: 1 });
+});
+
+test("reports downloads, users, and updates from the scheduled check", async () => {
+  const state = memoryState();
+  const messages = [];
+  const releases = [{ tag_name: "v0.4.0-beta", html_url: "", draft: false, assets: [
+    { name: "Toolblox-Setup.exe", download_count: 15 }, { name: "Toolblox-Update.exe", download_count: 12 },
+    { name: "Toolblox-Setup.exe.sig", download_count: 11 }, { name: "Toolblox.dmg", download_count: 10 },
+  ] }];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    if (url.startsWith("https://api.github.com/repos/BakedAleska/Toolblox/releases")) return Response.json(releases);
+    if (url.includes("/contents/changelogs")) return Response.json([]);
+    if (url.endsWith("/users/@me/channels")) return Response.json({ id: "dm" });
+    if (url.endsWith("/channels/dm/messages")) {
+      messages.push(JSON.parse(init.body).content);
+      return Response.json({ id: "1" });
+    }
+    return new Response("Not found", { status: 404 });
+  };
+  const env = { STATE: state, DISCORD_BOT_TOKEN: "token\n", OWNER_USER_ID: "owner" };
+  try {
+    await worker.scheduled({}, env);
+    assert.equal(messages[0], "Download tracking started.\nDownloads: 25 (Windows 15, macOS 10)\nUsers: 0 (Windows 0, macOS 0)\nUpdates: 1 (Windows 1, macOS 0)");
+
+    await worker.scheduled({}, env);
+    assert.equal(messages.length, 1);
+
+    state.store.set("users", JSON.stringify({ windows: 0, macos: 1 }));
+    releases[0].assets[0].download_count = 16;
+    await worker.scheduled({}, env);
+    assert.equal(messages[1], "New downloads: +1 (Windows +1, macOS +0)\nNew users: +1 (Windows +0, macOS +1)\n\nDownloads: 26 (Windows 16, macOS 10)\nUsers: 1 (Windows 0, macOS 1)\nUpdates: 1 (Windows 1, macOS 0)");
+  } finally {
+    globalThis.fetch = original;
+  }
 });

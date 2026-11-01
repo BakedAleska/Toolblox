@@ -45,8 +45,8 @@ const titles = ["Toolblox, your new best friend.", "Sign in once. That's it.", "
           A free desktop app for managing Roblox accounts. Run several at once, tune how each one launches, and add widgets for the games you play as they're released.
         </p>
         <div class="rise grid w-full max-w-md grid-cols-1 gap-3 sm:grid-cols-2" style="--i: 2">
-          <span class="contents mac:hidden"><a href={installer} class={buttonVariants({ size: "lg", className: "h-10 w-full px-4" })}><Download />Download for Windows</a></span>
-          <span class="hidden mac:contents"><a href={macInstaller} data-mac-hero class={buttonVariants({ size: "lg", className: "h-10 w-full px-4" })}><Download />Download for macOS</a></span>
+          <span class="contents mac:hidden"><a href={installer} data-download="windows" class={buttonVariants({ size: "lg", className: "h-10 w-full px-4" })}><Download />Download for Windows</a></span>
+          <span class="hidden mac:contents"><a href={macInstaller} data-mac-hero data-download="macos" class={buttonVariants({ size: "lg", className: "h-10 w-full px-4" })}><Download />Download for macOS</a></span>
           <a href={repo} class={buttonVariants({ size: "lg", variant: "outline", className: "h-10 w-full px-4" })}><GitHubIcon />View source code</a>
         </div>
         <ul class="rise flex justify-center gap-3" style="--i: 3" aria-label="Commitments">
@@ -185,7 +185,7 @@ const titles = ["Toolblox, your new best friend.", "Sign in once. That's it.", "
                 </a>
               </CardContent>
               <CardFooter className="mt-auto">
-                <a href={installer} class={buttonVariants({ className: "w-full" })}><Download />Download for Windows</a>
+                <a href={installer} data-download="windows" class={buttonVariants({ className: "w-full" })}><Download />Download for Windows</a>
               </CardFooter>
             </Card>
             <Card className="windows:hidden">
@@ -205,7 +205,7 @@ const titles = ["Toolblox, your new best friend.", "Sign in once. That's it.", "
                 </a>
               </CardContent>
               <CardFooter className="mt-auto">
-                <a href={macInstaller} data-mac-download data-href={macInstaller} data-ready-class={buttonVariants({ className: "w-full" })} class={buttonVariants({ className: "w-full" })}><Download /><span data-mac-download-label>Download for macOS</span></a>
+                <a href={macInstaller} data-mac-download data-download="macos" data-href={macInstaller} data-ready-class={buttonVariants({ className: "w-full" })} class={buttonVariants({ className: "w-full" })}><Download /><span data-mac-download-label>Download for macOS</span></a>
               </CardFooter>
             </Card>
           </div>
@@ -266,6 +266,24 @@ const titles = ["Toolblox, your new best friend.", "Sign in once. That's it.", "
           element.hidden = false;
         })
         .catch(() => {});
+  </script>
+
+  <script>
+    /*
+     * The first download from this browser tells the Toolblox bot its platform, so the bot can
+     * count individual downloads. The stored note holds no identifier, and the download itself
+     * goes straight to GitHub.
+     */
+    const DOWNLOAD_COUNTER = "https://toolblox-bot.al3velazquez2007.workers.dev/download";
+    for (const link of document.querySelectorAll<HTMLAnchorElement>("[data-download]")) {
+      link.addEventListener("click", () => {
+        try {
+          if (localStorage.getItem("toolblox:downloaded")) return;
+          localStorage.setItem("toolblox:downloaded", "1");
+          navigator.sendBeacon(`${DOWNLOAD_COUNTER}?platform=${link.dataset.download}`);
+        } catch {}
+      });
+    }
   </script>
 
   <script>

@@ -1,8 +1,8 @@
 # Toolblox bot
 
-A Discord bot that runs as a Cloudflare Worker. It answers slash commands, and every five
-minutes it checks GitHub's release download counts and sends a DM to the owner, and only the
-owner (`OWNER_USER_ID`), when they grow.
+A Discord bot that runs as a Cloudflare Worker. It answers slash commands, posts released
+changelogs, and sends the owner, and only the owner (`OWNER_USER_ID`), a daily report at 6 PM New
+York time. The bot runs every five minutes, and a report that fails is retried on the next run.
 The only thing the app sends the bot is the optional beta survey (see below). The website sends
 the platform of each browser's first download.
 
@@ -14,13 +14,17 @@ the platform of each browser's first download.
 | `/version` | The latest version and its release page |
 | `/install` | The install guide |
 
-Each DM lists what grew, then three totals, each split into Windows and macOS:
+The daily report gives three totals, each split into Windows and macOS, with its change since the
+last report:
 
 | Total | Source |
 | --- | --- |
 | Downloads | GitHub's counts of `Toolblox-Setup.exe` and `Toolblox.dmg`, the same count the website shows, re-downloads included. Before 0.3.0, Windows updates also downloaded `Toolblox-Setup.exe`, so Windows installers count only from releases with a separate `Toolblox-Update.exe`. |
 | Users | First downloads from toolblox.dev, one per browser. Counted from when the website started sending them, and a new browser or cleared site data counts again. |
 | Updates | GitHub's counts of `Toolblox-Update.exe` and `Toolblox.app.tar.gz`. Updates are required at startup, so these show installs still in use. Releases without `SHA256SUMS` were also downloaded by each manifest build, so their `.sig` downloads are subtracted. |
+
+The report also lists downloads that weren't a browser's first download from the website
+(re-downloads, direct links, and crawlers), and the newest release's own downloads and updates.
 
 ## Individual downloads
 
@@ -83,7 +87,7 @@ by `/survey`. Remove the route with the survey after the beta.
    The application ID is set in `scripts/register.mjs`. `DISCORD_APPLICATION_ID` overrides it.
    Run this again whenever `COMMANDS` in `src/commands.ts` changes.
 
-The first check after deploying sends "Download tracking started" with the current totals.
+The first report after deploying shows no change, because there's no earlier report to compare.
 
 ## Development
 

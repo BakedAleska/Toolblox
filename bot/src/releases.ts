@@ -2,6 +2,7 @@
 export interface Release {
   tag_name: string;
   html_url: string;
+  published_at: string;
   draft: boolean;
   assets: { name: string; download_count: number }[];
 }
@@ -133,13 +134,72 @@ export function formatStats(stats: Stats): string {
   return METRICS.map(([metric, label]) => `${label}: ${formatTotals(stats[metric])}`).join("\n");
 }
 
-/** Formats a notification: a line for each metric that grew, then every total. */
-export function formatReport(increases: Partial<Stats>, stats: Stats): string {
-  const growth = METRICS.flatMap(([metric, label]) => {
-    const increase = increases[metric];
-    return increase ? [`New ${label.toLowerCase()}: ${formatTotals(increase, "+")}`] : [];
-  });
-  return [...growth, "", formatStats(stats)].join("\n");
+/** Time zone and hour (24-hour) of the daily report. */
+const REPORT_ZONE = "America/New_York";
+export const REPORT_HOUR = 18;
+
+/** Returns the date and hour in the report's time zone. */
+export function reportClock(now: Date): { day: string; hour: number; date: string } {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { timeZone: REPORT_ZONE, year: "numeric", month: "2-digit", day: "2-digit", hour: "numeric", hourCycle: "h23" })
+      .formatToParts(now)
+      .map(({ type, value }) => [type, value]),
+  );
+  return {
+    day: `${parts.year}-${parts.month}-${parts.day}`,
+    hour: Number(parts.hour),
+    date: now.toLocaleDateString("en-US", { dateStyle: "long", timeZone: REPORT_ZONE }),
+  };
+}
+
+/** Counts for the newest release. */
+export interface LatestCounts {
+  tag: string;
+  publishedAt: string;
+  downloads: Totals;
+  updates: Totals;
+}
+
+/** Everything the daily report shows. */
+export interface DailyReport {
+  /** The report's date, already formatted, such as `October 31, 2026`. */
+  date: string;
+  increases: Partial<Stats>;
+  totals: Stats;
+  latest?: LatestCounts;
+}
+
+/** Returns the counts of the newest published release. */
+export function latestCounts(releases: Release[]): LatestCounts | undefined {
+  const latest = latestRelease(releases);
+  if (!latest) return undefined;
+  return { tag: latest.tag_name, publishedAt: latest.published_at, downloads: countDownloads([latest]), updates: countUpdates([latest]) };
+}
+
+/** Sums both platforms. */
+const sum = (totals: Totals) => LABELS.reduce((total, [kind]) => total + totals[kind], 0);
+
+/**
+ * Formats the daily report: each total with its change since the last report, downloads that
+ * weren't a browser's first download from the website, and the newest release's own counts.
+ */
+export function formatDailyReport({ date, increases, totals, latest }: DailyReport): string {
+  const lines = [`**Daily report · ${date}**`, ""];
+  for (const [metric, label] of METRICS) {
+    lines.push(`**${label}:** ${formatTotals(totals[metric])}`, `Today: ${formatTotals(increases[metric] ?? emptyTotals(), "+")}`);
+  }
+  const other = Math.max(0, sum(increases.downloads ?? emptyTotals()) - sum(increases.users ?? emptyTotals()));
+  lines.push(`Re-downloads and other sources today: +${other}`);
+  if (latest) {
+    const published = new Date(latest.publishedAt).toLocaleDateString("en-US", { dateStyle: "long", timeZone: "UTC" });
+    lines.push(
+      "",
+      `**Latest version: ${formatVersion(latest.tag)}** (released ${published})`,
+      `Downloads: ${formatTotals(latest.downloads)}`,
+      `Updates: ${formatTotals(latest.updates)}`,
+    );
+  }
+  return lines.join("\n");
 }
 
 /** Formats a release tag for display, such as `0.3.1 beta` for `v0.3.1-beta`. */

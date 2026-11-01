@@ -9,8 +9,11 @@ import {
   countUpdates,
   emptyTotals,
   fetchReleases,
-  formatReport,
+  formatDailyReport,
   formatStats,
+  latestCounts,
+  REPORT_HOUR,
+  reportClock,
   type Stats,
   type Totals,
 } from "./releases.ts";
@@ -29,6 +32,9 @@ export interface Env {
  * "Download tracking started" message, as when the counted assets changed.
  */
 const STATS_KEY = "stats";
+
+/** KV key holding the local date of the last daily report, such as `2026-10-31`. */
+const REPORTED_KEY = "reported";
 
 /** KV key holding first downloads from the website per platform. */
 const USERS_KEY = "users";
@@ -114,33 +120,31 @@ export default {
   },
 
   /**
-   * Posts new released changelogs to the #changelogs channel, then compares downloads, users, and
-   * updates with the last check and sends the owner a DM when any grew. A changelog failure is
-   * logged and doesn't stop the check. Secrets are trimmed, because a secret piped from `echo`
-   * ends with a newline.
+   * Posts new released changelogs to the #changelogs channel, then sends the owner the daily
+   * report once a day, from 6 PM New York time. A failed report is retried on the next run that
+   * hour. A changelog failure is logged and doesn't stop the report. Secrets are trimmed, because a
+   * secret piped from `echo` ends with a newline.
    */
-  async scheduled(_controller, env) {
+  async scheduled(controller, env) {
     const token = env.DISCORD_BOT_TOKEN.trim();
     const owner = env.OWNER_USER_ID.trim();
     await syncChangelogs(token, env.STATE, env.GITHUB_TOKEN?.trim()).catch((error) => console.warn(`Changelogs weren't posted: ${error}`));
+    const clock = reportClock(new Date(controller.scheduledTime));
+    if (clock.hour < REPORT_HOUR || (await env.STATE.get(REPORTED_KEY)) === clock.day) return;
+
     const releases = await fetchReleases(env.GITHUB_TOKEN?.trim());
     const current: Stats = {
       downloads: countDownloads(releases),
       users: (await env.STATE.get<Totals>(USERS_KEY, "json")) ?? emptyTotals(),
       updates: countUpdates(releases),
     };
-    const previous = await env.STATE.get<Stats>(STATS_KEY, "json");
-    if (!previous) {
-      await sendDirectMessage(token, owner, `Download tracking started.\n${formatStats(current)}`);
-      await env.STATE.put(STATS_KEY, JSON.stringify(current));
-      return;
-    }
+    const previous = (await env.STATE.get<Stats>(STATS_KEY, "json")) ?? current;
     const { increases, totals } = compareStats(previous, current);
     if (formatStats(totals) !== formatStats(current)) {
       console.warn(`Counts were lower than saved:\n${formatStats(current)}\nSaved:\n${formatStats(totals)}`);
     }
-    if (!Object.keys(increases).length) return;
-    await sendDirectMessage(token, owner, formatReport(increases, totals));
+    await sendDirectMessage(token, owner, formatDailyReport({ date: clock.date, increases, totals, latest: latestCounts(releases) }));
     await env.STATE.put(STATS_KEY, JSON.stringify(totals));
+    await env.STATE.put(REPORTED_KEY, clock.day);
   },
 } satisfies ExportedHandler<Env>;

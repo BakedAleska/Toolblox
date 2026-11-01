@@ -11,11 +11,13 @@ import {
   compareStats,
   countDownloads,
   countUpdates,
-  formatReport,
+  formatDailyReport,
   formatStats,
   formatTotals,
   formatVersion,
   highestTotals,
+  latestCounts,
+  reportClock,
   totalsIncrease,
 } from "../src/releases.ts";
 
@@ -104,13 +106,25 @@ test("reports each metric that grew, then every total", () => {
   const { increases, totals } = compareStats(saved, current);
   assert.deepEqual(increases, { downloads: { windows: 2, macos: 0 }, users: { windows: 1, macos: 0 } });
   assert.deepEqual(totals, current);
-  assert.equal(formatReport(increases, totals), [
-    "New downloads: +2 (Windows +2, macOS +0)",
-    "New users: +1 (Windows +1, macOS +0)",
+  assert.equal(formatDailyReport({
+    date: "October 31, 2026",
+    increases,
+    totals,
+    latest: { tag: "v0.4.5-beta", publishedAt: "2026-11-01T02:23:45Z", downloads: { windows: 2, macos: 1 }, updates: { windows: 1, macos: 0 } },
+  }), [
+    "**Daily report · October 31, 2026**",
     "",
-    "Downloads: 14 (Windows 9, macOS 5)",
-    "Users: 4 (Windows 3, macOS 1)",
-    "Updates: 4 (Windows 3, macOS 1)",
+    "**Downloads:** 14 (Windows 9, macOS 5)",
+    "Today: +2 (Windows +2, macOS +0)",
+    "**Users:** 4 (Windows 3, macOS 1)",
+    "Today: +1 (Windows +1, macOS +0)",
+    "**Updates:** 4 (Windows 3, macOS 1)",
+    "Today: +0 (Windows +0, macOS +0)",
+    "Re-downloads and other sources today: +1",
+    "",
+    "**Latest version: 0.4.5 beta** (released November 1, 2026)",
+    "Downloads: 3 (Windows 2, macOS 1)",
+    "Updates: 1 (Windows 1, macOS 0)",
   ].join("\n"));
   assert.equal(formatStats(saved).split("\n").length, 3);
 });
@@ -301,18 +315,39 @@ test("counts first downloads from the website by platform only", async () => {
   assert.deepEqual(JSON.parse(state.store.get("users")), { windows: 2, macos: 1 });
 });
 
-test("reports downloads, users, and updates from the scheduled check", async () => {
+test("reads the report clock in New York time, across daylight saving", () => {
+  assert.deepEqual(reportClock(new Date("2026-10-31T22:00:00Z")), { day: "2026-10-31", hour: 18, date: "October 31, 2026" });
+  assert.deepEqual(reportClock(new Date("2026-11-02T23:00:00Z")), { day: "2026-11-02", hour: 18, date: "November 2, 2026" });
+  assert.equal(reportClock(new Date("2026-11-01T03:30:00Z")).day, "2026-10-31");
+});
+
+test("counts the newest published release on its own", () => {
+  const releases = [
+    { tag_name: "v0.5.0-beta", html_url: "", published_at: "", draft: true, assets: [] },
+    { tag_name: "v0.4.5-beta", html_url: "", published_at: "2026-11-01T02:23:45Z", draft: false, assets: [
+      { name: "Toolblox-Setup.exe", download_count: 2 }, { name: "Toolblox-Update.exe", download_count: 3 },
+      { name: "Toolblox-Setup.exe.sig", download_count: 1 }, { name: "Toolblox.dmg", download_count: 1 },
+    ] },
+  ];
+  assert.deepEqual(latestCounts(releases), {
+    tag: "v0.4.5-beta", publishedAt: "2026-11-01T02:23:45Z", downloads: { windows: 2, macos: 1 }, updates: { windows: 2, macos: 0 },
+  });
+  assert.equal(latestCounts([]), undefined);
+});
+
+test("sends the daily report once a day from 6 PM New York time", async () => {
   const state = memoryState();
   const messages = [];
-  const releases = [{ tag_name: "v0.4.0-beta", html_url: "", draft: false, assets: [
+  const releases = [{ tag_name: "v0.4.0-beta", html_url: "", published_at: "2026-10-22T20:14:14Z", draft: false, assets: [
     { name: "Toolblox-Setup.exe", download_count: 15 }, { name: "Toolblox-Update.exe", download_count: 12 },
     { name: "Toolblox-Setup.exe.sig", download_count: 11 }, { name: "Toolblox.dmg", download_count: 10 },
   ] }];
+  let failDm = false;
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init = {}) => {
     if (url.startsWith("https://api.github.com/repos/BakedAleska/Toolblox/releases")) return Response.json(releases);
     if (url.includes("/contents/changelogs")) return Response.json([]);
-    if (url.endsWith("/users/@me/channels")) return Response.json({ id: "dm" });
+    if (url.endsWith("/users/@me/channels")) return failDm ? new Response("", { status: 500 }) : Response.json({ id: "dm" });
     if (url.endsWith("/channels/dm/messages")) {
       messages.push(JSON.parse(init.body).content);
       return Response.json({ id: "1" });
@@ -320,17 +355,29 @@ test("reports downloads, users, and updates from the scheduled check", async () 
     return new Response("Not found", { status: 404 });
   };
   const env = { STATE: state, DISCORD_BOT_TOKEN: "token\n", OWNER_USER_ID: "owner" };
+  const run = (time) => worker.scheduled({ scheduledTime: Date.parse(time) }, env);
   try {
-    await worker.scheduled({}, env);
-    assert.equal(messages[0], "Download tracking started.\nDownloads: 25 (Windows 15, macOS 10)\nUsers: 0 (Windows 0, macOS 0)\nUpdates: 1 (Windows 1, macOS 0)");
+    await run("2026-10-31T21:55:00Z");
+    assert.equal(messages.length, 0);
 
-    await worker.scheduled({}, env);
+    await run("2026-10-31T22:00:00Z");
+    assert.equal(messages.length, 1);
+    assert.ok(messages[0].startsWith("**Daily report · October 31, 2026**\n\n**Downloads:** 25 (Windows 15, macOS 10)\nToday: +0"));
+    assert.ok(messages[0].includes("**Latest version: 0.4.0 beta** (released October 22, 2026)\nDownloads: 25 (Windows 15, macOS 10)\nUpdates: 1 (Windows 1, macOS 0)"));
+
+    await run("2026-10-31T22:05:00Z");
     assert.equal(messages.length, 1);
 
     state.store.set("users", JSON.stringify({ windows: 0, macos: 1 }));
-    releases[0].assets[0].download_count = 16;
-    await worker.scheduled({}, env);
-    assert.equal(messages[1], "New downloads: +1 (Windows +1, macOS +0)\nNew users: +1 (Windows +0, macOS +1)\n\nDownloads: 26 (Windows 16, macOS 10)\nUsers: 1 (Windows 0, macOS 1)\nUpdates: 1 (Windows 1, macOS 0)");
+    releases[0].assets[0].download_count = 18;
+    failDm = true;
+    await assert.rejects(run("2026-11-01T23:00:00Z"));
+    failDm = false;
+    await run("2026-11-01T23:05:00Z");
+    assert.equal(messages.length, 2);
+    assert.ok(messages[1].includes("**Downloads:** 28 (Windows 18, macOS 10)\nToday: +3 (Windows +3, macOS +0)"));
+    assert.ok(messages[1].includes("**Users:** 1 (Windows 0, macOS 1)\nToday: +1 (Windows +0, macOS +1)"));
+    assert.ok(messages[1].includes("Re-downloads and other sources today: +2"));
   } finally {
     globalThis.fetch = original;
   }

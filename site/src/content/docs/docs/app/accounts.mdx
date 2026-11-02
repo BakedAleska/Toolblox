@@ -99,7 +99,6 @@ file has camelCase keys. See
 | `autoRejoin` | `bool` | `false` | Rejoin accounts that leave a game. |
 | `openOnLaunch` | `bool` | `false` | Launch Toolblox at login. |
 | `runInBackground` | `bool` | `true` | Closing the window hides to the tray. |
-| `widgetsStartOnLaunch` | `Vec<String>` | `[]` | Widgets whose processes start with the app. |
 | `minimizeOnJoin` | `bool` | `false` | Minimize the window after a manual join. |
 | `showGameNames` | `bool` | `true` | Look up and show game names for accounts in game. |
 | `notifyOnDrop` | `bool` | `false` | Notify when an account leaves a game. |
@@ -111,7 +110,7 @@ A `RecentPlace` is `{ "placeId": String, "name": Option<String> }`. `name` is `n
 looks it up and an empty string when Roblox has no name for the place. `Settings::validate`
 requires a valid `placeId` when it's non-empty, at most `RECENT_PLACES_LIMIT` (6) recent places,
 each with a valid place ID and a name of at most 100 characters, and valid widget IDs in
-`disabledWidgets`, `widgetsStartOnLaunch`, and the keys of `widgetSettings`.
+`disabledWidgets` and the keys of `widgetSettings`.
 
 `Settings::remember_place` moves a place to the front of `recentPlaces`, keeping any name already
 looked up, and truncates the list to five. It runs when the default place changes or a
@@ -132,8 +131,7 @@ Three different shapes describe an account, and only the last two ever reach Jav
 `extra` (which could hold anything a future version wrote). A unit test,
 `account_dto_never_serializes_a_secret_field`, asserts the serialized DTO contains no `cookie`,
 `secret`, or `widget_data` text. Settings follow the same pattern: the interface receives a
-`SettingsDto` without `disabledWidgets`, `widgetSettings`, `widgetsStartOnLaunch`, or
-`recentPlaces`, which are exposed through dedicated fields and commands instead. Note that the DTO
+`SettingsDto` without `disabledWidgets`, `widgetSettings`, or `recentPlaces`, which are exposed through dedicated fields and commands instead. Note that the DTO
 names the sidebar field `sidebarPosition` while the file names it `sidebarPos`.
 
 <Aside>

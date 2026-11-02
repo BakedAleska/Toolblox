@@ -1,11 +1,12 @@
-import { MoreHorizontal, Plus, Puzzle, RefreshCw, Settings as SettingsIcon, Trash2 } from "lucide-react";
+import { MoreHorizontal, Plus, Puzzle, RefreshCw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { bridge } from "@/bridge";
 import { cn } from "@/lib/utils";
 import { Panel, Screen, SectionTitle, Spinner, permissionSummary, type ScreenProps, failure } from "@/shared";
+import { WidgetContextMenu, WidgetMenuItems, useWidgetActions, type WidgetAction } from "@/screens/WidgetMenu";
 import { useWidgetRegistry } from "@/widgets/host";
 import type { CatalogueEntry, WidgetSummary } from "@/types";
 
@@ -14,27 +15,26 @@ const access = (permissions: string[]) => permissions.length ? `Permissions: ${p
 
 export function Widgets({ state, refresh, navigate, notify, confirm }: ScreenProps) {
   const [working, setWorking] = useState<Set<string>>(new Set());
-  const { settingsPages, errors } = useWidgetRegistry();
+  const { errors } = useWidgetRegistry();
   const run = async (id: string, action: () => Promise<void>, message: string) => {
     setWorking((current) => new Set(current).add(id));
     try { await action(); await refresh(); }
     catch (error) { notify(failure(`${message} Does retrying help?`, error)); }
     finally { setWorking((current) => { const next = new Set(current); next.delete(id); return next; }); }
   };
-  const install = (entry: CatalogueEntry) => confirm({ title: `Install ${entry.name}?`, message: entry.permissions.length ? `Requested permissions: ${permissionSummary(entry.permissions)}. No other access is granted.` : "This widget requests no special permissions.", action: "Install", run: () => run(entry.id, () => bridge.installWidget(entry), `${entry.name} couldn't be installed.`) });
+  const actions = useWidgetActions({ state, navigate, confirm }, run);
+  const install = (entry: CatalogueEntry) => confirm({ scale: "small", title: `Install ${entry.name}?`, message: entry.permissions.length ? `Requested permissions: ${permissionSummary(entry.permissions)}. No other access is granted.` : "This widget requests no special permissions.", action: "Install", run: () => run(entry.id, () => bridge.installWidget(entry), `${entry.name} couldn't be installed.`) });
 
   return <Screen title="Widgets" className="gap-4">
     {state.widgetErrors.map((error) => <Panel key={error} className="px-4 py-3 text-sm text-destructive ring-destructive/30">{error}</Panel>)}
 
     {state.installedWidgets.length > 0 && <section className="flex min-h-[calc(100dvh-5rem)] flex-col gap-2" aria-labelledby="installed-title">
       <SectionTitle><span id="installed-title">Installed</span></SectionTitle>
-      <div className={grid}>{state.installedWidgets.map((widget) => <InstalledCard key={widget.id} widget={widget} busy={working.has(widget.id)}
+      <div className={grid}>{state.installedWidgets.map((widget) => <InstalledCard key={widget.id} widget={widget} busy={working.has(widget.id)} actions={actions(widget)}
         open={() => navigate(`/widgets/${widget.id}`)}
         toggle={(enabled) => void run(widget.id, () => bridge.setWidgetEnabled(widget.id, enabled), `${widget.name} couldn't be ${enabled ? "enabled" : "disabled"}.`)}
-        update={() => confirm({ title: `Update ${widget.name}?`, message: widget.availablePermissions?.length ? `Requested permissions: ${permissionSummary(widget.availablePermissions)}. No other access is granted.` : "This version requests no special permissions.", action: "Update", run: () => run(widget.id, () => bridge.updateWidget(widget.id), `${widget.name} couldn't be updated.`) })}
-        error={errors.get(widget.id)}
-        settings={widget.hasSettings || widget.canStartOnLaunch || settingsPages.has(widget.id) ? () => navigate(`/widgets/${widget.id}/settings`) : undefined}
-        uninstall={() => confirm({ title: `Uninstall ${widget.name}?`, message: "This removes the widget and its settings from this device.", action: "Uninstall", danger: true, run: () => run(widget.id, () => bridge.uninstallWidget(widget.id), `${widget.name} couldn't be uninstalled.`) })} />)}</div>
+        update={() => confirm({ scale: "small", title: `Update ${widget.name}?`, message: widget.availablePermissions?.length ? `Requested permissions: ${permissionSummary(widget.availablePermissions)}. No other access is granted.` : "This version requests no special permissions.", action: "Update", run: () => run(widget.id, () => bridge.updateWidget(widget.id), `${widget.name} couldn't be updated.`) })}
+        error={errors.get(widget.id)} />)}</div>
     </section>}
 
     <section className="flex flex-col gap-2" aria-labelledby="catalogue-title">
@@ -44,13 +44,19 @@ export function Widgets({ state, refresh, navigate, notify, confirm }: ScreenPro
         <Button variant="outline" size="sm" disabled={working.has("catalogue")} onClick={() => void run("catalogue", () => bridge.retryCatalogue(), "The catalogue couldn't be refreshed.")}>{working.has("catalogue") ? <Spinner /> : <RefreshCw />}Retry</Button>
       </Panel>
         : state.catalogue.length ? <div className={grid}>{state.catalogue.map((entry) => <WidgetCard key={entry.id} name={entry.name} logoUrl={entry.logoUrl} bannerUrl={entry.bannerUrl} meta={`v${entry.version}`} description={entry.description} permissions={entry.permissions}
-          footer={<Button variant="outline" size="sm" className="ml-auto" disabled={working.has(entry.id)} onClick={() => install(entry)}>{working.has(entry.id) ? <Spinner /> : <Plus />}Install</Button>} />)}</div>
+          requirement={entry.minAppVersion && <Requirement version={entry.minAppVersion} supported={entry.supported} />}
+          footer={<Button variant="outline" size="sm" className="ml-auto" disabled={working.has(entry.id) || !entry.supported} onClick={() => install(entry)}>{working.has(entry.id) ? <Spinner /> : <Plus />}Install</Button>} />)}</div>
         : null}
     </section>
   </Screen>;
 }
 
-function WidgetCard({ name, logoUrl, bannerUrl, meta, description, permissions, active = true, action, footer }: { name: string; logoUrl?: string; bannerUrl?: string; meta?: string; description: string; permissions: string[]; active?: boolean; action?: ReactNode; footer: ReactNode }) {
+/** The Toolblox version a widget needs. Says to update when this build is older. */
+function Requirement({ version, supported }: { version: string; supported: boolean }) {
+  return <p className={cn("text-xs", supported ? "text-muted-foreground/80" : "text-warning")}>Requires Toolblox {version} or later.{!supported && " Update Toolblox to install it."}</p>;
+}
+
+function WidgetCard({ name, logoUrl, bannerUrl, meta, description, permissions, requirement, active = true, action, footer }: { name: string; logoUrl?: string; bannerUrl?: string; meta?: string; description: string; permissions: string[]; requirement?: ReactNode; active?: boolean; action?: ReactNode; footer: ReactNode }) {
   const [failed, setFailed] = useState(false);
   const [bannerFailed, setBannerFailed] = useState(false);
   const logo = logoUrl && !failed ? logoUrl : undefined;
@@ -75,26 +81,25 @@ function WidgetCard({ name, logoUrl, bannerUrl, meta, description, permissions, 
       <div className="flex-1 space-y-1">
         <p className="line-clamp-2 text-sm text-muted-foreground">{description || "No description."}</p>
         <p className="line-clamp-2 text-xs text-muted-foreground/80">{access(permissions)}</p>
+        {requirement}
       </div>
       <div className="flex items-center gap-2">{footer}</div>
     </div>
   </Panel>;
 }
 
-function InstalledCard({ widget, busy, error, open, toggle, update, settings, uninstall }: { widget: WidgetSummary; busy: boolean; error?: string; open: () => void; toggle: (enabled: boolean) => void; update: () => void; settings?: () => void; uninstall: () => void }) {
+function InstalledCard({ widget, busy, error, actions, open, toggle, update }: { widget: WidgetSummary; busy: boolean; error?: string; actions: WidgetAction[]; open: () => void; toggle: (enabled: boolean) => void; update: () => void }) {
   const updateAvailable = widget.availableVersion && widget.availableVersion !== widget.version;
-  return <WidgetCard name={widget.name} logoUrl={widget.logoUrl} bannerUrl={widget.bannerUrl} meta={widget.version ? `v${widget.version}` : undefined} description={widget.description} permissions={widget.permissions} active={widget.enabled}
+  return <WidgetContextMenu actions={actions}><WidgetCard name={widget.name} logoUrl={widget.logoUrl} bannerUrl={widget.bannerUrl} meta={widget.version ? `v${widget.version}` : undefined} description={widget.description} permissions={widget.permissions} active={widget.enabled}
+    requirement={updateAvailable && widget.availableNeedsApp && <p className="text-xs text-warning">v{widget.availableVersion} requires Toolblox {widget.availableNeedsApp} or later.</p>}
     action={<Switch checked={widget.enabled} disabled={busy} onCheckedChange={(value) => toggle(value)} aria-label={`Enable ${widget.name}`} />}
     footer={<>
       <Button variant="outline" size="sm" disabled={!widget.enabled} onClick={open}>Open</Button>
       {error && <span className="min-w-0 truncate text-xs text-destructive" title={error}>Failed to load</span>}
-      {updateAvailable && <Button variant="secondary" size="sm" disabled={busy} onClick={update}>{busy ? <Spinner /> : <RefreshCw />}Update to v{widget.availableVersion}</Button>}
+      {updateAvailable && <Button variant="secondary" size="sm" disabled={busy || !!widget.availableNeedsApp} onClick={update}>{busy ? <Spinner /> : <RefreshCw />}Update to v{widget.availableVersion}</Button>}
       <DropdownMenu>
         <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" className="ml-auto" aria-label={`More actions for ${widget.name}`} />}><MoreHorizontal /></DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-40">
-          {settings && <DropdownMenuItem onClick={settings}><SettingsIcon />Settings</DropdownMenuItem>}
-          <DropdownMenuItem variant="destructive" onClick={uninstall}><Trash2 />Uninstall</DropdownMenuItem>
-        </DropdownMenuContent>
+        <DropdownMenuContent align="end" className="min-w-40"><WidgetMenuItems actions={actions} /></DropdownMenuContent>
       </DropdownMenu>
-    </>} />;
+    </>} /></WidgetContextMenu>;
 }

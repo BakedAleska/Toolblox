@@ -142,7 +142,6 @@ The host also logs widget events under its own targets:
 | `Uninstalled widget <id>` | `app_commands` | `info` |
 | `Enabled widget <id>` / `Disabled widget <id>` | `app_commands` | `info` |
 | `Widget catalogue unavailable: <error>` | `app_commands` | `warn` |
-| `Widget <id> process <process> didn't start on launch: <error>` | `toolblox` | `warn` |
 | `Command widget_request failed: <error>` | `interface` | `warn` |
 | `Toolblox <version> (<build>) starting on <os> <arch> in safe mode` | `toolblox` | `info` |
 
@@ -207,7 +206,6 @@ on the safe mode banner restarts without the marker.
 - `open_widget` refuses every surface, so no frame opens and no IPC session starts:
   `Widgets are off in safe mode. Can you restart Toolblox normally?`
 - Widget pages and widget settings pages show **Page unavailable**.
-- **Start with Toolblox** processes don't start.
 - A banner reads "Safe mode. Widgets are off for this session." with a **Restart normally**
   button.
 

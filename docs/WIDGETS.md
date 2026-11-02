@@ -44,11 +44,11 @@ builds add the `examples/hello_world/` widget to the widgets folder once, as a s
 | Member | Purpose |
 | --- | --- |
 | `widget` | This widget's `id`, `name`, and `version`. |
-| `React`, `ui` | The app's React instance and components: `AccountCard`, `AccountName`, `Avatar`, `Badge`, `Button`, `Checkbox`, `ChoiceRow`, `DropdownMenu*`, `EmptyState`, `IconButton`, `Input`, `Panel`, `SectionTitle`, `Spinner`, `StatTile`, `Switch`, `SwitchRow`, `Tabs*`, `ToggleGroup*`, `Tooltip*`, and `cn`. |
+| `React`, `ui` | The app's React instance and components: `AccountCard`, `AccountName`, `Avatar`, `Badge`, `Button`, `Checkbox`, `ChoiceRow`, `DropdownMenu*`, `EmptyState`, `IconButton`, `Input`, `Modal`, `Panel`, `PopoutButton`, `SectionTitle`, `SettingRow`, `Spinner`, `StatTile`, `Switch`, `SwitchRow`, `Tabs*`, `ToggleGroup*`, `Tooltip*`, `cn`, and `system`, the control-surface style for system widgets: `Console`, `PowerButton`, `Split`, `Tiles`, `Tile`, `TileRow`, `SwitchField`, `SliderField`, `Stepper`, `Segmented`, `Keycap`, `AddButton`, `RemoveButton`, `SelectButton`, and `usePopout`. |
 | `getState()`, `useAppState()`, `onStateChange(listener)` | Current app state: accounts, settings, widgets, and recent places. |
 | `navigate(route)`, `notify(message, kind)`, `refresh()`, `join(accountIds)` | App actions, including the Join flow with its place prompt. |
 | `registerPage(Component)` | The widget's page at `/widgets/<id>`. |
-| `registerSettings(Component)` | The widget's settings page at `/widgets/<id>/settings`. Toolblox Settings stays separate. |
+| `registerSettings(Component)` | The widget's tab in Settings, named after the widget, at `/widgets/<id>/settings`. Toolblox's own tabs can't be replaced. |
 | `replaceScreen(screen, Component)` | Replaces `"dashboard"`, `"accounts"`, or `"widgets"`. Settings can't be replaced. |
 | `addToSlot(slot, Component, { order })` | Adds to a slot. See the table below. |
 | `addStyles(css)` | Adds a stylesheet to the whole app, for example to override theme tokens on `:root`. |
@@ -66,9 +66,25 @@ contributions when it's disabled, updated, or uninstalled.
 | `dashboard.stats` | none | After the Dashboard stat tiles. `ui.StatTile` matches them. |
 | `dashboard.sections` | none | Below the Dashboard stats. |
 | `sidebar.footer` | `{ collapsed }` | Bottom of the sidebar. |
+| `page.topbar` | none | The header of this widget's own page, in the main window and in its own window. Other widgets' entries don't appear there. |
 
 Tailwind classes are compiled into the app ahead of time, so only classes the app already uses are
 available. Ship other styles with `addStyles`.
+
+### Own window
+
+`ui.PopoutButton` is a topbar entry for `page.topbar`. It opens the widget's page in its own
+window, and in that window it returns the page to the main window:
+
+```js
+toolblox.addToSlot("page.topbar", () => h(ui.PopoutButton));
+```
+
+A widget's module runs in one window at a time. Opening the widget in its own window unloads the
+module from the main window and loads it in the new one, and closing that window brings it back,
+so `activate` and `deactivate` run again each time. The new window shows the page, and a settings
+button opens the settings component there. `navigate` does nothing in that window. Disabling,
+updating, or uninstalling the widget closes its window. Processes keep running throughout.
 
 ### Failure handling
 
@@ -128,7 +144,9 @@ listing or update is one pull request that changes only that folder. `node scrip
 checks every folder, and after a merge the Pages workflow packages each one at
 `https://toolblox.dev/catalogue/<id>/<version>/package.zip` and re-signs the catalogue.
 Development builds without a catalogue URL list `widgets/` and `examples/` from the working tree
-as their catalogue instead, so installs and updates can be tested before committing.
+as their catalogue instead, so installs and updates can be tested before committing. Once a widget
+from `widgets/` is installed, development builds reinstall it within a second of any file change,
+stopping its processes first, and reload its module in every window.
 
 Submitting a widget to the catalogue confirms that:
 
@@ -140,7 +158,10 @@ Submitting a widget to the catalogue confirms that:
 
 Review rejects widgets that:
 
-- play, farm, or act in a game without the user, or automate input to the Roblox client;
+- play, farm, or act in a game without the user;
+- send input to the Roblox client that the user didn't turn on with a key or button, or without an
+  indicator on screen while it runs. Conditions and scripts can pause or stop that input, but not
+  start it;
 - read or change Roblox client memory or files, or inject code into the client, including
   through `optional-bin/` executables;
 - send account names, user IDs, notes, or widget data anywhere the widget's description doesn't

@@ -1,5 +1,6 @@
 import * as React from "react";
-import { Component, useSyncExternalStore, type ComponentType, type ErrorInfo, type ReactNode } from "react";
+import { AppWindow, PictureInPicture2 } from "lucide-react";
+import { Component, createContext, useContext, useSyncExternalStore, type ComponentProps, type ComponentType, type ErrorInfo, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -12,7 +13,8 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { bridge, describeError } from "@/bridge";
 import { cn } from "@/lib/utils";
-import { AccountCard, AccountName, Avatar, ChoiceRow, EmptyState, IconButton, Panel, SectionTitle, Spinner, StatTile, SwitchRow } from "@/shared";
+import { AccountCard, AccountName, Avatar, ChoiceRow, EmptyState, IconButton, Modal, Panel, SectionTitle, SettingRow, Spinner, StatTile, SwitchRow } from "@/shared";
+import { system } from "@/widgets/kit";
 import type { Account, AppRoute, AppState, LogLevel, WidgetSummary } from "@/types";
 
 const logLevels: LogLevel[] = ["debug", "info", "warn", "error"];
@@ -27,6 +29,8 @@ export type SlotProps = {
   "dashboard.stats": Record<string, never>;
   "dashboard.sections": Record<string, never>;
   "sidebar.footer": { collapsed: boolean };
+  /** The header of the widget's own page, in the main window and in its own window. */
+  "page.topbar": Record<string, never>;
 };
 export type SlotName = keyof SlotProps;
 
@@ -38,7 +42,7 @@ const pages = new Map<string, ComponentType>();
 const settingsPages = new Map<string, ComponentType>();
 const slots = new Map<SlotName, Owned<ComponentType<never>>[]>();
 const disposers = new Map<string, (() => void)[]>();
-const loaded = new Map<string, { sessionId?: string; deactivate?: () => void }>();
+const loaded = new Map<string, { url?: string; sessionId?: string; deactivate?: () => void }>();
 const errors = new Map<string, string>();
 const listeners = new Set<() => void>();
 let version = 0;
@@ -67,11 +71,33 @@ const track = (widgetId: string, dispose: () => void) => {
   return () => { dispose(); disposers.set(widgetId, (disposers.get(widgetId) ?? []).filter((item) => item !== dispose)); emit(); };
 };
 
+/** The widget page being shown, and whether it's in the widget's own window. */
+export const WidgetPageContext = createContext<{ widgetId: string; popout: boolean } | undefined>(undefined);
+
+/**
+ * Topbar entry that moves the widget's page into its own window, or back to the main window.
+ * Renders nothing outside a widget page.
+ */
+function PopoutButton() {
+  const page = useContext(WidgetPageContext);
+  if (!page) return null;
+  const move = () => (page.popout ? bridge.closeWidgetPopout(page.widgetId) : bridge.openWidgetPopout(page.widgetId))
+    .catch((error) => actions?.notify(`The window didn't ${page.popout ? "close" : "open"}. Does retrying help? (${describeError(error)})`, "error"));
+  return page.popout
+    ? <IconButton label="Return to main window" className="text-muted-foreground" onClick={() => void move()}><AppWindow /></IconButton>
+    : <IconButton label="Open in its own window" className="text-muted-foreground" onClick={() => void move()}><PictureInPicture2 /></IconButton>;
+}
+
+/** The app's dialog at the small scale unless the widget passes another. */
+const WidgetModal = (props: ComponentProps<typeof Modal>) => <Modal scale="small" {...props} />;
+
 /** Shared UI so widget interfaces match the rest of the app. */
 const ui = {
   AccountCard, AccountName, Avatar, Badge, Button, Checkbox, ChoiceRow, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
-  EmptyState, IconButton, Input, Panel, SectionTitle, Spinner, StatTile, Switch, SwitchRow, Tabs, TabsContent, TabsList, TabsTrigger,
+  EmptyState, IconButton, Input, Modal: WidgetModal, Panel, PopoutButton, SectionTitle, SettingRow, Spinner, StatTile, Switch, SwitchRow, Tabs, TabsContent, TabsList, TabsTrigger,
   ToggleGroup, ToggleGroupItem, Tooltip, TooltipContent, TooltipTrigger, cn,
+  /** The control-surface style for system widgets. See `src/widgets/kit.tsx`. `usePopout` reports whether the page is in the widget's own window. */
+  system: { ...system, usePopout: () => useContext(WidgetPageContext)?.popout ?? false },
 };
 
 function createApi(widget: WidgetSummary, sessionId?: string) {
@@ -142,18 +168,18 @@ function unload(widgetId: string) {
   emit();
 }
 
-/** Loads modules for enabled widgets and unloads ones that were disabled or removed. */
+/** Loads modules for enabled widgets, unloads ones that were disabled or removed, and reloads ones whose module URL changed. */
 export async function syncWidgetModules(widgets: WidgetSummary[], safeMode: boolean) {
   const wanted = new Map(safeMode ? [] : widgets.filter((widget) => widget.enabled && widget.moduleUrl).map((widget) => [widget.id, widget]));
-  for (const id of [...loaded.keys()]) if (!wanted.has(id)) unload(id);
+  for (const [id, entry] of [...loaded]) if (wanted.get(id)?.moduleUrl !== entry.url) unload(id);
   for (const widget of wanted.values()) {
     if (loaded.has(widget.id)) continue;
-    loaded.set(widget.id, {});
+    loaded.set(widget.id, { url: widget.moduleUrl });
     try {
       const session = await bridge.openWidget(widget.id, "module").catch(() => undefined);
       const module = await import(/* @vite-ignore */ widget.moduleUrl!) as { activate?: (api: ToolbloxApi) => unknown; deactivate?: () => void };
       if (!loaded.has(widget.id)) continue;
-      loaded.set(widget.id, { sessionId: session?.sessionId, deactivate: module.deactivate });
+      loaded.set(widget.id, { url: widget.moduleUrl, sessionId: session?.sessionId, deactivate: module.deactivate });
       await module.activate?.(createApi(widget, session?.sessionId));
     } catch (error) {
       void bridge.writeLog("error", `Module failed to load: ${describeError(error)}`, widget.id);
@@ -175,10 +201,10 @@ export class WidgetBoundary extends Component<{ widgetId: string; children: Reac
   }
 }
 
-/** Renders every widget contribution for a slot. */
-export function WidgetSlot<S extends SlotName>({ name, props, wrap }: { name: S; props: SlotProps[S]; wrap?: (children: ReactNode) => ReactNode }) {
+/** Renders every widget contribution for a slot, or only `widgetId`'s when it's set. */
+export function WidgetSlot<S extends SlotName>({ name, props, widgetId, wrap }: { name: S; props: SlotProps[S]; widgetId?: string; wrap?: (children: ReactNode) => ReactNode }) {
   const { slots: current } = useWidgetRegistry();
-  const items = current.get(name) ?? [];
+  const items = (current.get(name) ?? []).filter((item) => !widgetId || item.widgetId === widgetId);
   if (!items.length) return null;
   const rendered = items.map(({ widgetId, value }, index) => {
     const Contribution = value as ComponentType<SlotProps[S]>;

@@ -15,8 +15,9 @@ and installing reviewed game-specific widgets. `PRODUCT.md` is the product autho
   from catalogue review, signed and hash-pinned packages, safe mode, and error boundaries.
 - Remote pages receive no Tauri capabilities. Legacy iframe widget surfaces stay sandboxed.
 - Tests pin every place a session secret is read or exposed (`SECRET_ACCESS` in
-  `credentials.rs`) and the main webview's permissions and CSP (`lib.rs`). Changing either list
-  needs security review. Widget IPC responses that contain a session cookie are blocked.
+  `credentials.rs`) and the permissions and CSP of the main webview and widget popouts
+  (`lib.rs`). Changing either list needs security review. Widget IPC responses that contain a
+  session cookie are blocked.
 - Keep the implementation small. Prefer standard-library and native platform behavior over new
   dependencies or speculative abstractions.
 
@@ -56,8 +57,10 @@ and installing reviewed game-specific widgets. `PRODUCT.md` is the product autho
   and `destructive`, and status is never conveyed by color alone.
 - Use semantic HTML, visible keyboard focus, labelled controls, reduced-motion support, and
   responsive layouts.
-- Dialogs use `Modal` with one of two fixed sizes: `portrait` for forms and lists, `landscape`
-  for short messages and confirmations. Related dialogs share a size. Don't add other sizes.
+- Dialogs use `Modal` with one of two shapes: `portrait` (1:1) for forms and lists, `landscape`
+  for short messages and confirmations. Each shape has two scales: `default`, and `small` for
+  dialogs about widgets and dialogs widgets open. Related dialogs share a shape and scale. Don't
+  add other sizes.
 - Use the shared spacing scale: 4, 8, 12, 16, and 24 pixels.
 - Radii: 6 pixels for controls (`rounded-lg`), 9 for panels (`rounded-xl`), 12 for the hero
   (`rounded-2xl`). Surfaces use tonal layering and hairline rings; only floating layers (menus,

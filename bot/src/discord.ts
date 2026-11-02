@@ -47,9 +47,18 @@ export async function discordRequest(token: string, method: string, path: string
   return response;
 }
 
-/** Sends a direct message from the bot, with optional embeds. The bot and the user must share a server. */
-export async function sendDirectMessage(token: string, userId: string, content: string, embeds?: unknown[]): Promise<void> {
-  const channel = await discordRequest(token, "POST", "/users/@me/channels", { recipient_id: userId });
-  const { id } = await channel.json<{ id: string }>();
-  await discordRequest(token, "POST", `/channels/${id}/messages`, { content, embeds, allowed_mentions: { parse: [] } });
+/** Finds a text or announcement channel by name in the bot's servers, remembering its ID in KV under `key`. */
+export async function findChannel(token: string, state: KVNamespace, name: string, key: string): Promise<string> {
+  const saved = await state.get(key);
+  if (saved) return saved;
+  const guilds = await (await discordRequest(token, "GET", "/users/@me/guilds")).json<{ id: string }[]>();
+  for (const guild of guilds) {
+    const channels = await (await discordRequest(token, "GET", `/guilds/${guild.id}/channels`)).json<{ id: string; name: string; type: number }[]>();
+    const channel = channels.find((channel) => channel.name === name && (channel.type === 0 || channel.type === 5));
+    if (channel) {
+      await state.put(key, channel.id);
+      return channel.id;
+    }
+  }
+  throw new Error(`The #${name} channel wasn't found. Is the bot in the server and allowed to see it?`);
 }

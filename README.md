@@ -23,6 +23,10 @@ npm run tauri dev
 builds skip the update check and identify themselves as Canary. Set `TOOLBLOX_DATA_DIR` to keep
 debug data separate from an installed copy.
 
+On macOS, run `scripts/dev-certificate.sh` once. It creates a local signing certificate that debug
+builds are signed with, so Keychain's **Always Allow** and the Input Monitoring and Accessibility
+permissions last across rebuilds instead of being asked for again after each one.
+
 Before opening a pull request:
 
 ```sh

@@ -208,6 +208,8 @@ component references the app renders, built on [Base UI](https://base-ui.com/) i
 | `EmptyState` | `src/shared.tsx` | `{ icon, title, text?, action? }`. |
 | `IconButton` | `src/shared.tsx` | `{ label, ...Button props }`. Icon-only button with a tooltip and `aria-label`. |
 | `Input` | `src/components/ui/input.tsx` | Native `<input>` props. |
+| `Modal` | `src/shared.tsx` | `{ open, close, title, description?, action, submit, busy?, disabled?, danger?, size, scale?, children? }`. `size` is `portrait` (1:1) for forms and lists, or `landscape` for short messages. `scale` defaults to `small` in widgets. |
+| `PopoutButton` | `src/widgets/host.tsx` | No props. A topbar entry for `page.topbar` that opens the widget's page in its own window, or returns it to the main window. Renders nothing outside the widget's page. |
 | `Panel` | `src/shared.tsx` | `<div>` props. The app's 12 px rounded, hairline-ringed surface. Add `divide-y` for row groups. |
 | `SectionTitle` | `src/shared.tsx` | `{ children, action? }`. The small heading above a group. |
 | `Spinner` | `src/shared.tsx` | `{ className? }`. |
@@ -393,7 +395,8 @@ registerPage(component: React.ComponentType): () => void
 
 Sets the component for the widget's page at `/widgets/<id>`, which the sidebar entry opens. The
 component receives no props. The host renders it inside the standard screen layout, under a
-header with the widget's name and, when the widget has settings, a settings button. A registered
+header with the widget's name, its `page.topbar` entries, and a settings button when it has a
+Settings tab. A registered
 page takes precedence over an `entry` frame. Calling it again replaces the previous page. Returns
 a disposer. See [Slots and screens](/docs/widgets/reference/slots/#widget-pages).
 
@@ -403,10 +406,13 @@ a disposer. See [Slots and screens](/docs/widgets/reference/slots/#widget-pages)
 registerSettings(component: React.ComponentType): () => void
 ```
 
-Sets the component for the widget's settings page at `/widgets/<id>/settings`, reached from the
-widget page's settings button and from the widget card's menu on the Widgets page. Toolblox's own
-Settings page stays separate and can't be extended this way. Calling it again replaces the
-previous component. Returns a disposer.
+Sets the component for the widget's tab in Settings, named after the widget and opened at
+`/widgets/<id>/settings`. It's reached from the settings button on the widget's page, from
+**Settings** in the menu that right-clicking the widget opens, in the sidebar or on its Widgets
+page card, and from the card's **More actions** menu.
+Toolblox's own tabs can't be replaced. While the widget is in its own window, the tab shows a link
+to that window instead, and the window shows the component. Calling it again replaces the previous
+component. Returns a disposer.
 
 ### `replaceScreen`
 
@@ -453,6 +459,7 @@ widget may add any number of components to the same slot. Returns a disposer.
 | `dashboard.stats` | none |
 | `dashboard.sections` | none |
 | `sidebar.footer` | `{ collapsed: boolean }` |
+| `page.topbar` | `{}` |
 
 Placement, wrappers, and examples for each slot are on
 [Slots and screens](/docs/widgets/reference/slots/).

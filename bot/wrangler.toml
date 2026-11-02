@@ -2,7 +2,7 @@ name = "toolblox-bot"
 main = "src/index.ts"
 compatibility_date = "2026-10-01"
 
-# Posts changelogs every five minutes and sends the daily report from 6 PM New York time.
+# Posts new changelogs every five minutes.
 [triggers]
 crons = ["*/5 * * * *"]
 

@@ -49,6 +49,7 @@ and [`src/screens/Dashboard.tsx`](https://github.com/BakedAleska/Toolblox/blob/m
 | `dashboard.stats` | `{}` | After the three built-in Dashboard stat tiles (Accounts, In game, Widgets enabled), in the same grid. | None. Each contribution is a grid item. |
 | `dashboard.sections` | `{}` | Below the Dashboard stats and the Recently played list, above the `dashboard.html` frames. | `<div class="flex flex-col gap-4">` around all contributions. |
 | `sidebar.footer` | `{ collapsed: boolean }` | Bottom of the sidebar, below the GitHub link and version. | None. |
+| `page.topbar` | `{}` | The header of the contributing widget's own page, before the theme and window buttons, in the main window and in the widget's own window. Only the page's own widget's contributions render. | None. Contributions sit in the header's flex row. |
 
 ### `accounts.row`
 
@@ -184,23 +185,25 @@ while the widget is disabled. The page renders, in order of precedence:
 3. Otherwise, an empty state: **No page**, "This widget adds features to other parts of Toolblox."
 
 The host wraps the page in the standard screen layout: a sticky 56 px header with the widget's
-name, a settings button when the widget has a settings page, and content capped at `max-w-[120rem]`.
+name, the widget's `page.topbar` entries, a settings button when the widget has a Settings tab,
+and content capped at `max-w-[120rem]`. While the widget
+is in its own window, the page shows a link to that window and a **Return here** button instead.
 The widget page's screen container is a flex column with `h-full`, which lets an `index.html`
 frame grow to fill the window height. A registered page is a child of that column.
 
 ### `/widgets/<id>/settings`
 
-Reached from the settings button on the widget's page and from **Settings** in the widget card's
-menu on the Widgets page. Both appear when any of these is true: the manifest declares
-`settingsEntry`, the manifest declares at least one process, or the widget registered a settings
-component. The page renders, top to bottom:
+Opens Settings on the widget's tab, named after the widget. It's reached from **Settings** in the
+menu that right-clicking the widget opens, in the sidebar or on the Widgets page, and in the
+card's **More actions** menu. The tab appears when the widget is enabled and any of these is true:
+the manifest declares `settingsEntry`, the manifest declares at least one process, the widget
+registered a settings component, or the widget is in its own window. The tab renders, top to
+bottom:
 
-1. A **Start with Toolblox** switch when the manifest declares processes.
-2. The component from `registerSettings`, inside an error boundary.
-3. The `settings.html` frame when the manifest declares `settingsEntry`.
-4. An empty state, **No settings**, when none of the above apply.
-
-Its header shows `<name> settings` and an **Open widget** button when the widget has a page.
+1. The component from `registerSettings`, inside an error boundary.
+2. The `settings.html` frame when the manifest declares `settingsEntry`.
+While the widget is in its own window, both are replaced by a **Show window** button,
+because the widget's module runs in that window.
 
 ### Unavailable routes
 

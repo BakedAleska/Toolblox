@@ -91,6 +91,8 @@ The package that goes with it looks like this:
 | `permissions` | array of strings | No | Values from the [permission list](/docs/widgets/reference/permissions/), no duplicates. Defaults to `[]`. |
 | `networkOrigins` | array of strings | No | Bare HTTPS origins. Requires `network.fetch`. Defaults to `[]`. |
 | `processes` | array of objects | No | Executables under `optional-bin/`. Requires `process.spawn`. Defaults to `[]`. |
+| `popout` | string | No | Shape of the widget's own window: `portrait` (380×520) or `landscape` (600×320). Defaults to `portrait`. |
+| `minAppVersion` | string | No | Oldest Toolblox version the widget runs on, as SemVer. See [`minAppVersion`](#minappversion). |
 
 ### `schemaVersion`
 
@@ -286,12 +288,28 @@ and must still be a file inside the widget folder.
 
 `allowedArguments` is a set, not a sequence. A start request may pass any number of arguments up
 to 32, in any order and with repeats, as long as each argument is up to 1 KB and appears in this
-list. Any widget that declares at least one process gets a **Start with Toolblox** switch on its
-settings page. When it's on, every declared process starts with the app, with no arguments.
+list.
 
 Executables run as the signed-in user, outside any sandbox. The
 [review rules](/docs/widgets/publishing/review/) forbid using them to read, change, or inject into
 the Roblox client.
+
+### `minAppVersion`
+
+The oldest Toolblox version the widget runs on, such as `0.4.6`. Set it when the widget uses a host
+API or `toolblox.ui` component that older versions don't have. Pre-release labels are ignored when
+comparing, so `0.4.6` accepts `0.4.6-beta`. An invalid version fails with:
+
+> The widget's minimum Toolblox version isn't valid SemVer.
+
+The catalogue entry carries the same value. The catalogue card shows **Requires Toolblox
+<version> or later.**, and on an older version it disables **Install**, or **Update** for an
+installed widget whose newer version needs it. Installing anyway fails with:
+
+> <name> needs Toolblox <version> or later. Can you update Toolblox first?
+
+Toolblox updates itself on launch, so this is rare. Debug builds run unreleased code and accept
+every minimum.
 
 ## Unknown fields
 

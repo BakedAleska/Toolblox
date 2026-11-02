@@ -33,7 +33,10 @@ Submitting a widget to the catalogue confirms that:
 
 Review rejects widgets that:
 
-- play, farm, or act in a game without the user, or automate input to the Roblox client;
+- play, farm, or act in a game without the user;
+- send input to the Roblox client that the user didn't turn on with a key or button, or without an
+  indicator on screen while it runs. Conditions and scripts can pause or stop that input, but not
+  start it;
 - read or change Roblox client memory or files, or inject code into the client, including
   through `optional-bin/` executables;
 - send account names, user IDs, notes, or widget data anywhere the widget's description doesn't
@@ -50,7 +53,7 @@ directly applies:
 | Capability | Rule it falls under |
 | --- | --- |
 | [`roblox.join`](/docs/widgets/reference/ipc/#robloxjoin) and [`toolblox.join`](/docs/widgets/reference/host-api/#join) | Playing, farming, or acting in a game without the user. |
-| [`process.spawn`](/docs/widgets/reference/ipc/#processspawn) and `optional-bin/` executables | Automating input to the client, reading or changing its memory or files, or injecting code into it. |
+| [`process.spawn`](/docs/widgets/reference/ipc/#processspawn) and `optional-bin/` executables | Input the user didn't turn on, reading or changing client memory or files, or injecting code into the client. |
 | [`network.fetch`](/docs/widgets/reference/ipc/#networkfetch) | Sending account names, user IDs, notes, or widget data anywhere the description doesn't state. [`networkOrigins`](/docs/widgets/reference/manifest/#networkorigins) is where the contacted origins are declared. |
 | [`accounts.list`](/docs/widgets/reference/ipc/#accountslist), [`getState()`](/docs/widgets/reference/host-api/#getstate), [`widgetData`](/docs/widgets/reference/ipc/#widgetdataget) | The same disclosure rule covers the data these return. |
 | Code the widget runs | Hiding what it does through obfuscated code or downloaded scripts. The app's policy already blocks remote script URLs, so this mainly concerns text fetched with `network.fetch` and then run as code. |

@@ -72,6 +72,16 @@
         "format": "uri"
       }
     },
+    "minAppVersion": {
+      "description": "Oldest Toolblox version the widget runs on, as SemVer. Pre-release labels are ignored when comparing.",
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+    },
+    "popout": {
+      "description": "Shape of the widget's own window.",
+      "enum": ["portrait", "landscape"],
+      "default": "portrait"
+    },
     "processes": {
       "type": "array",
       "items": {

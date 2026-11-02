@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { version } from "../package.json";
 import type { Account, AppState, CatalogueEntry, LogLevel, PlaceMatch, Settings, StartupStatus, WidgetSummary } from "./types";
@@ -7,9 +9,9 @@ const minutesAgo = (minutes: number) => Date.now() - minutes * 60_000;
 const demoAccount = (id: number, name: string, displayName: string, extra: Partial<Account> = {}): Account =>
   ({ id, name, displayName, notes: "", addedAt: minutesAgo(60 * 24 * 30), presence: "offline", ...extra });
 const demoWidget = (id: string, name: string, description: string, extra: Partial<WidgetSummary> = {}): WidgetSummary =>
-  ({ id, name, description, enabled: true, version: "1.0.0", permissions: [], hasSettings: false, hasDashboardTile: false, hasPageFrame: true, canStartOnLaunch: false, startOnLaunch: false, hostUrl: "about:blank", ...extra });
+  ({ id, name, description, enabled: true, version: "1.0.0", permissions: [], hasSettings: false, hasDashboardTile: false, hasPageFrame: true, hostUrl: "about:blank", ...extra });
 const demoEntry = (id: string, name: string, description: string, version: string, permissions: string[] = []): CatalogueEntry =>
-  ({ id, name, description, version, permissions });
+  ({ id, name, description, version, permissions, supported: true });
 
 /** Sample data for the browser build and `npm run demo`. It never touches real accounts or files. */
 const demoState: AppState = {
@@ -31,7 +33,7 @@ const demoState: AppState = {
   installedWidgets: [
     demoWidget("trade-tracker", "Trade Tracker", "Logs trades per account and shows value changes over time.", { version: "1.2.0", permissions: ["accounts.read.basic", "widgetData.read", "widgetData.write"], hasSettings: true }),
     demoWidget("server-hopper", "Server Hopper", "Finds a new server and moves selected accounts to it.", { version: "2.1.0", availableVersion: "2.2.0", permissions: ["accounts.read.basic", "roblox.status"], availablePermissions: ["accounts.read.basic", "roblox.status", "roblox.join"] }),
-    demoWidget("afk-guard", "AFK Guard", "Keeps idle accounts from being disconnected for inactivity.", { enabled: false, version: "0.9.1", permissions: ["process.spawn"], canStartOnLaunch: true }),
+    demoWidget("afk-guard", "AFK Guard", "Keeps idle accounts from being disconnected for inactivity.", { enabled: false, version: "0.9.1", permissions: ["process.spawn"] }),
   ],
   widgetErrors: ["afk-guard: the package signature doesn't match the catalogue. Reinstall it?"],
   catalogue: [
@@ -61,6 +63,7 @@ const demoState: AppState = {
     ignoreReducedMotion: false,
   },
   safeMode: false,
+  popouts: [],
   recentPlaces: [
     { placeId: "8737899170", name: "Pet Simulator 99" },
     { placeId: "606849621", name: "Jailbreak" },
@@ -128,6 +131,13 @@ const copy = <T,>(value: T): T => structuredClone(value);
 
 /** True when the app runs on sample data instead of the Rust host. */
 export const isDemo = () => !isTauri();
+
+/** The widget ID when this window is a widget popout, labelled `popout-<id>`. */
+export const popoutWidgetId = () => {
+  if (!isTauri()) return undefined;
+  const label = getCurrentWindow().label;
+  return label.startsWith("popout-") ? label.slice("popout-".length) : undefined;
+};
 
 export type UpdaterScenario = "update" | "failure";
 const scenarioKey = "toolblox-demo-updater";
@@ -240,7 +250,6 @@ export const bridge = {
     }),
 
   placeExists: (placeId: string) => call<boolean>("place_exists", { placeId }, () => true),
-  submitSurvey: (rating: number, comment: string) => call<void>("submit_survey", { rating, comment }, () => undefined),
 
   searchPlaces: (query: string) =>
     call<PlaceMatch[]>("search_places", { query }, () => demoState.recentPlaces
@@ -276,8 +285,6 @@ export const bridge = {
         hasSettings: false,
         hasDashboardTile: false,
         hasPageFrame: true,
-        canStartOnLaunch: false,
-        startOnLaunch: false,
         hostUrl: "about:blank",
       });
       demoState.catalogue = demoState.catalogue.filter(({ id }) => id !== entry.id);
@@ -287,12 +294,6 @@ export const bridge = {
     call<void>("set_widget_enabled", { widgetId, enabled }, () => {
       const widget = demoState.installedWidgets.find(({ id }) => id === widgetId);
       if (widget) widget.enabled = enabled;
-    }),
-
-  setWidgetStartOnLaunch: (widgetId: string, enabled: boolean) =>
-    call<void>("set_widget_start_on_launch", { widgetId, enabled }, () => {
-      const widget = demoState.installedWidgets.find(({ id }) => id === widgetId);
-      if (widget) widget.startOnLaunch = enabled;
     }),
 
   updateWidget: (widgetId: string) => call<void>("update_widget", { widgetId }, () => undefined),
@@ -305,6 +306,22 @@ export const bridge = {
   retryCatalogue: () => call<void>("retry_catalogue", {}, () => undefined),
   openExternal: (url: string) => isTauri() ? openUrl(url) : Promise.resolve(window.open(url, "_blank", "noopener,noreferrer")).then(() => undefined),
   openWidget: (widgetId: string, surface: "main" | "settings" | "dashboard" | "module" = "main") => call<{ sessionId: string; url: string }>("open_widget", { widgetId, surface }, () => ({ sessionId: crypto.randomUUID(), url: "about:blank" })),
+  /** Opens a module widget in its own window, or shows that window when it's open. */
+  openWidgetPopout: (widgetId: string) => call<void>("open_widget_popout", { widgetId }, () => undefined),
+  /** Closes a widget's own window, which returns the widget to the main window. */
+  closeWidgetPopout: (widgetId: string) => call<void>("close_widget_popout", { widgetId }, () => undefined),
+  /** Calls `listener` with the open popouts' widget IDs whenever one opens or closes. Returns a function that stops listening. */
+  onPopoutsChanged: (listener: (widgetIds: string[]) => void) => {
+    if (!isTauri()) return () => {};
+    const stop = listen<string[]>("widget-popouts-changed", (event) => listener(event.payload));
+    return () => void stop.then((unlisten) => unlisten());
+  },
+  /** Calls `listener` after a development build reinstalls widgets from the working tree. Returns a function that stops listening. */
+  onWidgetsChanged: (listener: () => void) => {
+    if (!isTauri()) return () => {};
+    const stop = listen("widgets-changed", () => listener());
+    return () => void stop.then((unlisten) => unlisten());
+  },
   getWidgetStore: (widgetId: string) => call<unknown>("get_widget_store", { widgetId }, () => demoStores.get(widgetId) ?? null),
   setWidgetStore: (widgetId: string, value: unknown) => call<void>("set_widget_store", { widgetId, value }, () => { demoStores.set(widgetId, copy(value)); }),
   /** Turns the window into the mini window, `height` pixels tall, or restores it with `null`. */

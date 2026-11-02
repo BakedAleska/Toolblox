@@ -121,9 +121,8 @@ The widget lifecycle is covered in the widget reference; this table lists the co
 | --- | --- | --- | --- | --- |
 | `install_widget` | `widget_id: String` | `()` (async) | Downloads the catalogue package (at most 20 MB) and installs it after hash, version, and permission checks. Fails if already installed. | `installWidget(entry)` (sends `entry.id`) |
 | `update_widget` | `widget_id: String` | `()` (async) | Requires a strictly newer semver in the catalogue, stops the widget's processes, and installs the new version. | `updateWidget(widgetId)` |
-| `uninstall_widget` | `widget_id: String` | `()` | Stops processes, removes the widget folder, and removes the widget from `disabledWidgets`, `widgetsStartOnLaunch`, and `widgetSettings`. Per-account `widget_data` isn't removed. | `uninstallWidget(widgetId)` |
+| `uninstall_widget` | `widget_id: String` | `()` | Stops processes, removes the widget folder, and removes the widget from `disabledWidgets` and `widgetSettings`. Per-account `widget_data` isn't removed. | `uninstallWidget(widgetId)` |
 | `set_widget_enabled` | `widget_id: String`, `enabled: bool` | `()` | Adds or removes the widget from `disabledWidgets`. Disabling stops its processes. | `setWidgetEnabled(widgetId, enabled)` |
-| `set_widget_start_on_launch` | `widget_id: String`, `enabled: bool` | `()` | Adds or removes the widget from `widgetsStartOnLaunch`. | `setWidgetStartOnLaunch(widgetId, enabled)` |
 | `retry_catalogue` | — | `()` (async) | Downloads and verifies the signed catalogue again, recording any error. | `retryCatalogue()` |
 | `open_widget` | `widget_id: String`, `surface: Option<String>` | `WidgetHostSession` | Starts a session for `main` (default), `settings`, `dashboard`, or `module` and returns `{ sessionId, url }`. Frame surfaces get the manifest's permissions; `module` gets every permission. Fails in safe mode, for disabled widgets, and for surfaces the manifest doesn't declare. | `openWidget(widgetId, surface)` |
 | `close_widget_session` | `session_id: String` | `()` | Forgets a session. | `closeWidgetSession(sessionId)` |
@@ -206,18 +205,19 @@ and adds presence.
 | `id`, `name`, `description`, `icon`, `version` | From the installed manifest. |
 | `enabled` | Not listed in `disabledWidgets`. |
 | `availableVersion`, `availablePermissions` | Set when the catalogue has a strictly newer semver; the permissions are the newer version's. |
+| `availableNeedsApp` | The newer version's `minAppVersion`, set only when this build is older. The update is disabled. |
 | `permissions` | The installed manifest's permissions. |
 | `hasSettings`, `hasDashboardTile`, `hasPageFrame` | Whether the manifest declares `settingsEntry`, `dashboardEntry`, and `entry`. |
 | `moduleUrl` | URL of the manifest's `module`, when declared. |
 | `logoUrl`, `bannerUrl` | URLs of the manifest's `icon` and `banner`, when declared. |
-| `canStartOnLaunch`, `startOnLaunch` | Whether the manifest declares processes, and whether the widget is in `widgetsStartOnLaunch`. |
 | `hostUrl` | URL of the widget's `index.html`. |
 
 Widget asset URLs use `http://widget.localhost/<id>/<path>` on Windows (WebView2 serves custom
 schemes over HTTP) and `widget://localhost/<id>/<path>` elsewhere.
 
 A `CatalogueEntry` carries `id`, `name`, `description`, `version`, `logoUrl` (the catalogue's
-`iconUrl`), `bannerUrl`, and `permissions`. See [Manifest](/docs/widgets/reference/manifest/) and
+`iconUrl`), `bannerUrl`, `permissions`, `minAppVersion`, and `supported`, which is `false` when this
+build is older than `minAppVersion`. See [Manifest](/docs/widgets/reference/manifest/) and
 [Catalogue](/docs/widgets/publishing/catalogue/).
 
 ### `Settings`
@@ -234,7 +234,7 @@ read and write through `save_settings`.
 | `placeId` | `string` |
 | `multiInstance`, `autoRejoin`, `openOnLaunch`, `runInBackground`, `minimizeOnJoin`, `showGameNames`, `notifyOnDrop`, `alwaysOnTop` | `boolean` |
 
-Widget-related settings (`disabledWidgets`, `widgetsStartOnLaunch`, `widgetSettings`) and
+Widget-related settings (`disabledWidgets`, `widgetSettings`) and
 `recentPlaces` are deliberately absent. They change only through their dedicated commands, so a
 `save_settings` call from a stale snapshot can't overwrite them.
 

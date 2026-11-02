@@ -1,0 +1,13 @@
+# Runs the gateway bot. Put DISCORD_BOT_TOKEN=... in a .env file next to this one, then run
+# `docker compose up -d`.
+services:
+  toolblox-gateway:
+    image: node:24-alpine
+    command: node /bot/index.mjs
+    volumes:
+      - ./index.mjs:/bot/index.mjs:ro
+    environment:
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+    user: node
+    read_only: true
+    restart: unless-stopped

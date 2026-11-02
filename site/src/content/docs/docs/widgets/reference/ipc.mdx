@@ -457,13 +457,6 @@ Standard error lines after the 200th still reach the widget through `process.pol
 A process that exits by itself stays recorded until it's stopped or started again; starting it
 again replaces it.
 
-### Start with Toolblox
-
-Any widget that declares processes gets a **Start with Toolblox** switch on its settings page.
-When it's on and the widget is enabled, Toolblox starts every declared process, with no arguments,
-after the startup update check passes. This doesn't happen in safe mode. A process that fails to
-start is logged as `Widget <id> process <process> didn't start on launch: <error>`.
-
 ## Schema
 
 The JSON Schema for requests is published at

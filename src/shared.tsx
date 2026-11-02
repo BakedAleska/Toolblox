@@ -25,7 +25,7 @@ export const failure = (message: string, error: unknown) => {
   return text.endsWith("?") ? text : `${message} (${text})`;
 };
 
-export type ConfirmRequest ={ title: string; message: string; action: string; danger?: boolean; run: () => Promise<void> };
+export type ConfirmRequest = { title: string; message: string; action: string; danger?: boolean; scale?: ModalScale; run: () => Promise<void> };
 
 /** Shared callbacks every screen receives from the app shell. */
 export type ScreenProps = {
@@ -58,14 +58,17 @@ const permissionLabels: Record<string, string> = {
 
 export const permissionSummary = (permissions: string[]) => permissions.map((permission) => permissionLabels[permission] || permission).join(", ");
 
-/** Renders the app-wide buttons at the right end of every page header, with a page's own `tools` grouped before them. */
-export const ScreenTools = createContext<(tools?: ReactNode) => ReactNode>(() => null);
+/**
+ * Renders the app-wide buttons at the right end of every page header. A page's own `tools` are
+ * grouped before them, past a separator, and its `iconTools` sit beside them in the same group.
+ */
+export const ScreenTools = createContext<(tools?: ReactNode, iconTools?: ReactNode) => ReactNode>(() => null);
 
 /** Scrolling page with a sticky header. The column is a container, so pages switch to more columns
  * with `@5xl:` and wider queries as the window grows, and caps at 120rem on very wide screens. The
  * header keeps a gap below it so scrolled content doesn't meet its edge. */
-export function Screen({ title, actions, tools: pageTools, toolbar, children, className }: { title: string; actions?: ReactNode; tools?: ReactNode; toolbar?: ReactNode; children: ReactNode; className?: string }) {
-  const tools = useContext(ScreenTools)(pageTools);
+export function Screen({ title, actions, tools: pageTools, iconTools, toolbar, children, className }: { title: string; actions?: ReactNode; tools?: ReactNode; iconTools?: ReactNode; toolbar?: ReactNode; children: ReactNode; className?: string }) {
+  const tools = useContext(ScreenTools)(pageTools, iconTools);
   return <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
     <div className={cn("@container mx-auto flex min-h-full max-w-[120rem] flex-col gap-2 px-6 pb-6", className)}>
       <header data-slot="screen-header" className="sticky top-0 z-10 -mx-6 shrink-0 bg-background/90 px-6 pb-2 backdrop-blur-sm">
@@ -103,11 +106,16 @@ export function IconButton({ label, children, variant = "ghost", size = "icon", 
 }
 
 /** The two dialog sizes. Portrait holds forms and lists, and landscape holds short messages. */
-const modalSizes = { portrait: "h-96 max-w-96", landscape: "h-60 max-w-lg" };
+/** Dialog shapes, each in two scales. `small` is for dialogs about widgets and dialogs widgets open. */
+const modalSizes = {
+  portrait: { default: "h-96 max-w-96", small: "h-80 max-w-80 p-4" },
+  landscape: { default: "h-60 max-w-lg", small: "h-52 max-w-md p-4" },
+};
+export type ModalScale = "default" | "small";
 
 /** Every dialog in the app: a title, an optional description, content, and Cancel beside one
  * action. It's a form, so Enter runs the action. It can't be closed while `busy`. */
-export function Modal({ open, close, title, description, action, submit, busy = false, disabled = false, danger = false, size, children }: {
+export function Modal({ open, close, title, description, action, submit, busy = false, disabled = false, danger = false, size, scale = "default", children }: {
   open: boolean;
   close: () => void;
   title: ReactNode;
@@ -118,10 +126,11 @@ export function Modal({ open, close, title, description, action, submit, busy = 
   disabled?: boolean;
   danger?: boolean;
   size: keyof typeof modalSizes;
+  scale?: ModalScale;
   children?: ReactNode;
 }) {
   return <AlertDialog open={open} onOpenChange={(next) => { if (!next && !busy) close(); }}>
-    <AlertDialogContent className={cn("flex flex-col", modalSizes[size])}>
+    <AlertDialogContent className={cn("flex flex-col", modalSizes[size][scale])}>
       <form className="contents" onSubmit={(event) => { event.preventDefault(); submit(); }}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>

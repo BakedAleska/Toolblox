@@ -41,6 +41,7 @@ export function readWidget(folder) {
   if (typeof manifest.name !== "string" || !manifest.name.trim()) fail("the manifest needs a name.");
   if (typeof manifest.description !== "string" || !manifest.description.trim()) fail("the manifest needs a description.");
   if (!SEMVER.test(manifest.version ?? "")) fail("the version isn't valid SemVer.");
+  if (manifest.minAppVersion !== undefined && !SEMVER.test(manifest.minAppVersion)) fail("minAppVersion isn't valid SemVer.");
   if (!manifest.module && !manifest.entry) fail("the manifest must declare a module or an entry page.");
   for (const key of ["module", "entry", "settingsEntry", "dashboardEntry", "icon", "banner"]) {
     if (manifest[key] && !files.includes(manifest[key])) fail(`${manifest[key]} is missing.`);
@@ -122,6 +123,7 @@ export function packageWidgets(widgetsRoot, outputRoot, baseUrl) {
         permissions: manifest.permissions ?? [],
         ...(manifest.icon && { iconUrl: `${baseUrl}${path}/${manifest.icon.split("/").at(-1)}` }),
         ...(manifest.banner && { bannerUrl: `${baseUrl}${path}/${manifest.banner.split("/").at(-1)}` }),
+        ...(manifest.minAppVersion && { minAppVersion: manifest.minAppVersion }),
       };
     });
 }

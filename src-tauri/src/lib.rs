@@ -128,38 +128,6 @@ fn take_safe_mode(data_root: &std::path::Path) -> bool {
     marker || std::env::args().any(|argument| argument == "--safe-mode")
 }
 
-/// Starts the processes of widgets marked to start on launch, unless safe mode is active.
-fn start_widgets_on_launch(runtime: &Runtime) {
-    if runtime.safe_mode {
-        return;
-    }
-    let Ok(settings) = runtime.storage.load_settings() else {
-        return;
-    };
-    let Ok(mut processes) = runtime.processes.lock() else {
-        return;
-    };
-    for widget in widgets::discover_installed(&runtime.widgets_root)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|widget| {
-            settings.widgets_start_on_launch.contains(&widget.id)
-                && !settings.disabled_widgets.contains(&widget.id)
-        })
-    {
-        let root = runtime.widgets_root.join(&widget.id);
-        for declaration in &widget.manifest.processes {
-            if let Err(error) = processes.start(&widget.id, &root, declaration, &[]) {
-                log::warn!(
-                    "Widget {} process {} didn't start on launch: {error}",
-                    widget.id,
-                    declaration.id
-                );
-            }
-        }
-    }
-}
-
 /// Builds and runs the Tauri application.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -229,6 +197,22 @@ pub fn run() {
             app.manage(runtime);
             app.manage(Arc::clone(&lifecycle_state));
             app.manage(startup::StartupState::new());
+
+            #[cfg(debug_assertions)]
+            {
+                use tauri::Emitter;
+                let sync_app = app.handle().clone();
+                std::thread::spawn(move || {
+                    let mut seen = std::collections::HashMap::new();
+                    loop {
+                        if app_commands::sync_local_widgets(&sync_app.state::<Runtime>(), &mut seen)
+                        {
+                            let _ = sync_app.emit(app_commands::WIDGETS_CHANGED, ());
+                        }
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+                    }
+                });
+            }
 
             let before_quit = Arc::new(move || {
                 if let Ok(mut processes) = processes.lock() {
@@ -306,7 +290,6 @@ pub fn run() {
                 }
                 app_commands::backfill_profiles(&services_app.state::<Runtime>()).await;
                 app_commands::check_sessions(&services_app.state::<Runtime>()).await;
-                start_widgets_on_launch(&services_app.state::<Runtime>());
                 auto_rejoin::run(services_app).await;
             });
             Ok(())
@@ -319,7 +302,6 @@ pub fn run() {
             app_commands::set_account_pinned,
             app_commands::place_exists,
             app_commands::search_places,
-            app_commands::submit_survey,
             app_commands::forget_recent_place,
             app_commands::get_widget_store,
             app_commands::set_widget_store,
@@ -334,12 +316,13 @@ pub fn run() {
             app_commands::save_settings,
             app_commands::install_widget,
             app_commands::set_widget_enabled,
-            app_commands::set_widget_start_on_launch,
             app_commands::update_widget,
             app_commands::uninstall_widget,
             app_commands::retry_catalogue,
             app_commands::open_widget,
             app_commands::close_widget_session,
+            app_commands::open_widget_popout,
+            app_commands::close_widget_popout,
             app_commands::widget_request,
             app_commands::read_log,
             app_commands::open_log_folder,
@@ -376,9 +359,9 @@ pub fn run() {
 mod tests {
     use super::*;
 
-    /// Module widgets share the main webview, so its permissions and network policy are pinned.
-    /// Widening them needs security review: no permission may create or script webviews, read
-    /// cookies, or reach the network outside IPC.
+    /// Module widgets share the main webview and widget popouts, so their permissions and network
+    /// policy are pinned. Widening them needs security review: no permission may create or script
+    /// webviews, read cookies, or reach the network outside IPC.
     #[test]
     fn webview_permissions_match_the_reviewed_list() {
         let capability: serde_json::Value =
@@ -386,6 +369,10 @@ mod tests {
         assert_eq!(
             capability["permissions"],
             serde_json::json!(["core:default", "opener:default"])
+        );
+        assert_eq!(
+            capability["windows"],
+            serde_json::json!(["main", "popout-*"])
         );
         let capabilities = std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/capabilities"))
             .unwrap()

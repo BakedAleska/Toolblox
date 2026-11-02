@@ -38,6 +38,15 @@ describe("catalogue packaging", () => {
     expect(pack(widgets({}, { LICENSE: "MIT" }))).toThrow("main.js is missing");
     expect(pack(widgets({ permissions: ["cookies.read"] }))).toThrow("known permission");
     expect(pack(widgets({ version: "1.0" }))).toThrow("SemVer");
+    expect(pack(widgets({ minAppVersion: "next" }))).toThrow("minAppVersion");
+  });
+
+  it("copies the minimum Toolblox version into the catalogue entry", () => {
+    const root = widgets({ minAppVersion: "0.4.6" });
+    const [entry] = packageWidgets(join(root, "widgets"), join(root, "out"), "https://toolblox.dev/catalogue/");
+    expect(entry.minAppVersion).toBe("0.4.6");
+    const [plain] = packageWidgets(join(widgets(), "widgets"), join(root, "out2"), "https://toolblox.dev/catalogue/");
+    expect(plain).not.toHaveProperty("minAppVersion");
   });
 
   it("returns no entries without a widgets folder", () => {

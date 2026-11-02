@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "autoclicker",
+  "name": "Autoclicker",
+  "version": "1.9.0",
+  "description": "Clicks at a set rate while turned on with keybinds, and shows an indicator on screen. Nothing is sent anywhere.",
+  "module": "main.js",
+  "popout": "landscape",
+  "minAppVersion": "0.4.6",
+  "permissions": ["process.spawn"],
+  "processes": [
+    { "id": "clicker-windows", "executable": "optional-bin/autoclicker.exe" },
+    { "id": "clicker-macos", "executable": "optional-bin/autoclicker-macos" }
+  ]
+}

@@ -38,12 +38,12 @@ export interface WidgetSummary {
   availableVersion?: string;
   permissions: string[];
   availablePermissions?: string[];
+  /** Toolblox version the newer catalogue version needs, when this build is older. */
+  availableNeedsApp?: string;
   hasSettings: boolean;
   hasDashboardTile: boolean;
   hasPageFrame: boolean;
   moduleUrl?: string;
-  canStartOnLaunch: boolean;
-  startOnLaunch: boolean;
   hostUrl: string;
 }
 
@@ -56,6 +56,10 @@ export interface CatalogueEntry {
   bannerUrl?: string;
   version: string;
   permissions: string[];
+  /** Oldest Toolblox version the widget runs on. */
+  minAppVersion?: string;
+  /** Whether this build meets `minAppVersion`. */
+  supported: boolean;
 }
 
 export interface Settings {
@@ -117,6 +121,8 @@ export interface AppState {
   settings: Settings;
   recentPlaces: RecentPlace[];
   safeMode: boolean;
+  /** IDs of widgets open in their own window. */
+  popouts: string[];
 }
 
 export type AppRoute = "/" | "/accounts" | "/accounts/places" | "/widgets" | "/settings" | "/settings/css" | "/settings/log" | `/widgets/${string}`;

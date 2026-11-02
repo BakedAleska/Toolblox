@@ -20,7 +20,7 @@ development build running with the widgets folder open.
 | Method | Route or screen | Notes |
 | --- | --- | --- |
 | `registerPage(Component)` | `/widgets/<id>` | Rendered under a header with the widget's name. |
-| `registerSettings(Component)` | `/widgets/<id>/settings` | Rendered under a header with the widget's name followed by "settings". |
+| `registerSettings(Component)` | `/widgets/<id>/settings` | Rendered in the widget's tab in Settings, named after the widget. |
 | `navigate(route)` | Any app route | Changes the route the same way the sidebar does. |
 | `replaceScreen(screen, Component)` | `"dashboard"`, `"accounts"`, or `"widgets"` | Renders your component instead of the core screen. Settings can't be replaced. |
 
@@ -46,26 +46,25 @@ such as tabs, not routes.
 
 For `/widgets/<id>`, the shell renders a `WidgetHost`:
 
-- The header shows the widget's name. When the widget has a settings page, a settings button sits at
-  the right of the header.
+- The header shows the widget's name, any `page.topbar` entries the widget added, and a settings
+  button that opens the widget's Settings tab when it has one.
 - The body is the registered page inside an error boundary. Without one, it's the widget's
   sandboxed `index.html` when the manifest declares `entry`, or an empty state reading "No page.
   This widget adds features to other parts of Toolblox."
 
-For `/widgets/<id>/settings`, the shell renders `WidgetSettings`:
+For `/widgets/<id>/settings`, the shell opens Settings on the widget's tab:
 
-- The header reads the widget's name followed by "settings", and has an **Open widget** button when the widget has a page.
-- When the widget declares processes, a **Start with Toolblox** switch comes first. See
-  [Processes](/docs/widgets/tutorials/processes/).
-- Then your settings component, inside an error boundary, then the sandboxed `settings.html` if the
-  manifest declares one.
+- The tab is named after the widget and sits after Toolblox's own tabs.
+- It holds your settings component, inside an error boundary, then the sandboxed `settings.html` if
+  the manifest declares one.
 
 Both bodies sit in the app's standard screen layout: a scrolling column capped at `max-w-[120rem]`, with
 24-pixel side padding and 16 pixels between direct children. Return several top-level sections from
 your component, in a fragment, and they're spaced like the core screens.
 
 Every installed widget gets a sidebar entry under **Widgets**, whether or not it registers a page.
-Disabled widgets' entries are shown but can't be selected.
+Disabled widgets' entries are shown but can't be selected. Right-clicking an entry opens a menu
+with **Settings**, **Enable** or **Disable**, and **Uninstall**.
 
 ## Build Squad Board
 
@@ -208,10 +207,10 @@ Disabled widgets' entries are shown but can't be selected.
    ```
 
 3. **Reload and open it.** Reload the window from the developer tools, then select **Squad Board**
-   in the sidebar. The header has a settings button because the widget registered a settings page.
+   in the sidebar. Because the widget registered a settings page, Settings has a **Squad Board** tab.
 
-4. **Try the settings.** Open the settings page, set **Default tab** to **Accounts**, then go back to
-   the page with **Open widget**. Turn on **Replace Dashboard** and select **Dashboard** in the
+4. **Try the settings.** Right-click **Squad Board** in the sidebar and choose **Settings**, set
+   **Default tab** to **Accounts**, then select **Squad Board** in the sidebar again. Turn on **Replace Dashboard** and select **Dashboard** in the
    sidebar: Squad Board's overview renders in its place. Turn it off and the core Dashboard
    returns immediately, without a reload.
 
@@ -278,9 +277,10 @@ scale (`gap-1`, `gap-2`, `gap-3`, `gap-4`, `px-6`), and radii come from the comp
 
 ## The settings page
 
-`registerSettings(SquadSettings)` adds a page at `/widgets/squad_board/settings`. Registering it
-also makes the settings button appear in the page header and a **Settings** item appear in the
-widget card's menu on the Widgets page.
+`registerSettings(SquadSettings)` adds a **Squad Board** tab to Settings, opened at
+`/widgets/squad_board/settings`. Registering it also adds **Settings** to the widget's menus: the
+one right-clicking it opens, in the sidebar or on the Widgets page, and its card's **More actions**
+menu.
 
 The rows come from `toolblox.ui`:
 
@@ -389,7 +389,7 @@ and switch what it shows with state.
 | Symptom | Cause |
 | --- | --- |
 | "Page unavailable" on a widget route | The widget is disabled, Toolblox is in safe mode, or the path has more than `/widgets/<id>/settings`. |
-| The settings button doesn't appear | `registerSettings` wasn't called, or `activate` threw before reaching it. |
+| The widget's Settings tab doesn't appear | `registerSettings` wasn't called, `activate` threw before reaching it, or the widget is disabled. |
 | A replaced screen has no header or padding | Replacements don't get the `Screen` layout. Build it as `SquadDashboard` does. |
 | The core screen doesn't come back | The remover was lost. Keep it, or disable the widget; Toolblox removes every registration on unload. |
 | A setting changes but the page doesn't update | The component reads a plain variable. Subscribe with `useSyncExternalStore` as `useSettings` does. |

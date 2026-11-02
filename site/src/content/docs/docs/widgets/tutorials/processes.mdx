@@ -30,8 +30,8 @@ It assumes you've finished [Storage and state](/docs/widgets/tutorials/storage-a
 Helpers run as the user, with the user's access to files and the network. The install dialog says
 the widget can "run native code as the current user". Catalogue [review](/docs/widgets/publishing/review/)
 rejects helpers that read or change Roblox client memory or files, inject code into the client,
-automate input to it, or play a game without the user. Source for every helper must be available
-under an OSI-approved license.
+send it input the user didn't turn on, or play a game without the user. Source for every helper
+must be available under an OSI-approved license.
 </Aside>
 
 ## The four methods
@@ -421,24 +421,15 @@ const processId = toolblox.getState().platform === "macos" ? "timer-macos" : "ti
 
 ### Adopting a process that's already running
 
-`startWorker` treats "already running" as success. Two ordinary situations cause it:
-
-- **The window reloaded.** Reloading discards the module but not the process, which Rust owns.
-  The new module instance finds its helper still running.
-- **Start with Toolblox is on.** Because the widget declares processes, its settings page has a
-  **Start with Toolblox** switch. When it's on, Toolblox starts every declared process when it
-  opens, before any module loads.
+`startWorker` treats "already running" as success. It happens when the module loads again while
+its helper runs: after a window reload, after the widget moves to or from its own window, or after
+an update. Reloading discards the module but not the process, which Rust owns, so the new module
+instance finds its helper still running.
 
 Adopting keeps the helper's state, here its running timers. If your widget needs a fresh helper
 every time, call `process.stop` before `process.spawn`; stopping a process that isn't running
 succeeds.
 
-<Aside>
-**Start with Toolblox** starts every declared process with no arguments, so a helper must work
-without any. For a widget that declares one process per platform, the other platform's executable
-fails to start at each launch, and Toolblox logs a warning that it "didn't start on launch". The
-widget isn't affected.
-</Aside>
 
 ## Talking to the process
 

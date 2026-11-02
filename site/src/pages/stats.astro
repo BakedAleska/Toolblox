@@ -1,0 +1,115 @@
+---
+import Site from "../layouts/Site.astro";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Download, RefreshCw } from "lucide-react";
+
+/** The two totals, each split by platform. Counts load from GitHub in the browser. */
+const metrics = [
+  { id: "downloads", title: "Downloads", description: "Installers downloaded, re-downloads included.", Icon: Download },
+  { id: "updates", title: "Updates", description: "Required updates downloaded, which shows installs still in use.", Icon: RefreshCw },
+];
+---
+
+<Site title="Stats" description="Toolblox downloads and updates, from GitHub's public release statistics.">
+  <section class="mx-auto flex max-w-3xl flex-col gap-4 px-4 pt-16 pb-12 text-center sm:pt-24">
+    <h1 class="rise text-4xl font-semibold tracking-tight text-balance sm:text-5xl">Stats</h1>
+    <p class="rise text-lg text-pretty text-muted-foreground" style="--i: 1">Downloads and updates, from GitHub's public release statistics.</p>
+  </section>
+
+  <section class="border-t">
+    <div class="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-12">
+      <p data-stats-status class="text-center text-sm text-muted-foreground" role="status">Loading stats from GitHub…</p>
+      <div class="grid gap-4 md:grid-cols-2">
+        {metrics.map(({ id, title, description, Icon }) => (
+          <Card>
+            <CardHeader>
+              <Icon className="mb-2 size-6" aria-hidden="true" />
+              <CardTitle>{title}</CardTitle>
+              <CardDescription>{description}</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+              <p class="text-4xl font-semibold tracking-tight tabular-nums" data-total={id}>–</p>
+              <dl class="grid grid-cols-2 gap-2 text-sm">
+                <div><dt class="text-muted-foreground">Windows</dt><dd class="font-medium tabular-nums" data-windows={id}>–</dd></div>
+                <div><dt class="text-muted-foreground">macOS</dt><dd class="font-medium tabular-nums" data-macos={id}>–</dd></div>
+              </dl>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div class="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+        <table class="w-full text-left text-sm">
+          <caption class="sr-only">Downloads and updates for each release</caption>
+          <thead class="bg-muted/40 text-muted-foreground">
+            <tr>
+              <th scope="col" class="px-4 py-2 font-medium">Version</th>
+              <th scope="col" class="px-4 py-2 font-medium">Released</th>
+              <th scope="col" class="px-4 py-2 text-right font-medium">Downloads</th>
+              <th scope="col" class="px-4 py-2 text-right font-medium">Updates</th>
+            </tr>
+          </thead>
+          <tbody data-releases class="divide-y"></tbody>
+        </table>
+      </div>
+
+      <p class="text-center text-xs text-pretty text-muted-foreground">
+        Windows installers count from 0.3.0, when updates got their own file. Counts come from
+        GitHub's release statistics and include automated downloads.
+      </p>
+    </div>
+  </section>
+
+  <script>
+    import { countDownloads, countUpdates, formatCount, formatVersion, RELEASES_URL, sum, type Release, type Totals } from "../stats";
+
+    const status = document.querySelector<HTMLElement>("[data-stats-status]");
+    const show = (id: string, totals: Totals) => {
+      const set = (attribute: string, value: number) => {
+        const element = document.querySelector<HTMLElement>(`[${attribute}="${id}"]`);
+        if (element) element.textContent = formatCount(value);
+      };
+      set("data-total", sum(totals));
+      set("data-windows", totals.windows);
+      set("data-macos", totals.macos);
+    };
+
+    fetch(RELEASES_URL)
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((all: Release[]) => {
+        const releases = all.filter((release) => !release.draft);
+        show("downloads", countDownloads(releases));
+        show("updates", countUpdates(releases));
+        const body = document.querySelector("[data-releases]");
+        for (const release of releases) {
+          const row = document.createElement("tr");
+          const cells = [
+            formatVersion(release.tag_name),
+            new Date(release.published_at).toLocaleDateString("en-US", { dateStyle: "medium", timeZone: "UTC" }),
+            formatCount(sum(countDownloads([release]))),
+            formatCount(sum(countUpdates([release]))),
+          ];
+          cells.forEach((text, index) => {
+            const cell = document.createElement(index === 0 ? "th" : "td");
+            if (index === 0) {
+              cell.setAttribute("scope", "row");
+              const link = document.createElement("a");
+              link.href = release.html_url;
+              link.textContent = text;
+              link.className = "font-medium underline-offset-4 hover:underline";
+              cell.append(link);
+            } else {
+              cell.textContent = text;
+            }
+            cell.className = `px-4 py-2 ${index > 1 ? "text-right tabular-nums" : ""}`;
+            row.append(cell);
+          });
+          body?.append(row);
+        }
+        status?.remove();
+      })
+      .catch(() => {
+        if (status) status.textContent = "Loading stats from GitHub failed. Does reloading the page help?";
+      });
+  </script>
+</Site>

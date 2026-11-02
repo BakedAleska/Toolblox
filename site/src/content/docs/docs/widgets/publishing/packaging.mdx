@@ -217,6 +217,13 @@ Development builds without a configured catalogue URL list the repository's `wid
 `examples/` folders as their catalogue. See
 [Testing the catalogue locally](/docs/widgets/publishing/catalogue/#testing-the-catalogue-locally).
 
+Once a widget from `widgets/` is installed, development builds keep it in sync with the working
+tree. Toolblox checks the folder once a second, and when a file changes it stops the widget's
+processes, reinstalls the folder with the same checks a catalogue package gets, and reloads the
+widget's module in every window. Save a file, or rebuild a helper into `optional-bin/`, and the
+change applies without a reinstall, a version bump, or a window reload. A change that fails a
+check, such as invalid `widget.json`, is logged and the installed copy stays.
+
 <Aside>
 Release builds currently install only catalogue widgets. A folder copied into the widgets folder
 by hand has no valid `.installed.json` and doesn't load in a release build.
@@ -235,9 +242,9 @@ An update:
 2. stops all of the widget's processes;
 3. runs the full install sequence above, ending in the atomic swap.
 
-Storage, per-account data, the enabled state, and the **Start with Toolblox** setting are kept. A
-module that was already loaded keeps running its previous code until the app restarts, because
-its URL doesn't change; see the [host API lifecycle](/docs/widgets/reference/host-api/#lifecycle).
+Storage, per-account data, and the enabled state are kept. The module's URL carries the installed
+package's hash, so a module that was already loaded is unloaded and the new code is imported; see
+the [host API lifecycle](/docs/widgets/reference/host-api/#lifecycle).
 
 There's no downgrade path in the app: a lower catalogue version isn't offered.
 
@@ -248,7 +255,7 @@ Uninstalling, after a confirmation that it "This removes the widget and its sett
 1. stops all of the widget's processes;
 2. deletes `<widgets folder>/<id>`. If a file is locked, for example by a process that didn't
    stop, this fails with `Couldn't remove the widget. Is a widget process still running?`;
-3. removes the widget from the disabled list and the **Start with Toolblox** list;
+3. removes the widget from the disabled list;
 4. deletes its [`storage`](/docs/widgets/reference/host-api/#storage) value.
 
 Per-account data written with `widgetData.set` stays with each account and is available again if

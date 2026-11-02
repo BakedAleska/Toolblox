@@ -56,6 +56,21 @@ pub struct WidgetManifest {
     /// Executables under `optional-bin/` the widget may start. Requires `process.spawn`.
     #[serde(default)]
     pub processes: Vec<WidgetProcess>,
+    /// Shape of the widget's own window.
+    #[serde(default)]
+    pub popout: PopoutShape,
+    /// Oldest Toolblox version the widget runs on, as SemVer.
+    #[serde(default)]
+    pub min_app_version: Option<String>,
+}
+
+/// Shape of a module widget's own window.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PopoutShape {
+    #[default]
+    Portrait,
+    Landscape,
 }
 
 /// An action a widget may be granted, named as in manifests.
@@ -131,6 +146,37 @@ pub struct CatalogueEntry {
     pub icon_url: Option<String>,
     #[serde(default)]
     pub banner_url: Option<String>,
+    /// Oldest Toolblox version the widget runs on, copied from its manifest.
+    #[serde(default)]
+    pub min_app_version: Option<String>,
+}
+
+/// This build's version.
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Whether `app` is at least `minimum`. Pre-release labels are ignored, so `0.5.0` accepts
+/// `0.5.0-beta`. A missing minimum accepts every version, and an invalid one accepts none.
+fn meets_minimum(minimum: Option<&str>, app: &str) -> bool {
+    let Some(minimum) = minimum else {
+        return true;
+    };
+    let release = |version: &str| {
+        Version::parse(version)
+            .ok()
+            .map(|v| (v.major, v.minor, v.patch))
+    };
+    matches!((release(minimum), release(app)), (Some(minimum), Some(app)) if app >= minimum)
+}
+
+/// Whether this build runs a widget that needs `minimum`. Debug builds run unreleased code, so
+/// they accept every minimum.
+pub fn app_supports(minimum: Option<&str>) -> bool {
+    cfg!(debug_assertions) || meets_minimum(minimum, APP_VERSION)
+}
+
+/// The error for a widget that needs a newer Toolblox.
+pub fn needs_newer_app(name: &str, minimum: &str) -> String {
+    format!("{name} needs Toolblox {minimum} or later. Can you update Toolblox first?")
 }
 
 /// A widget installed on this device.
@@ -168,6 +214,10 @@ impl WidgetManifest {
             return Err("The widget name must contain between 1 and 80 characters.".into());
         }
         Version::parse(&self.version).map_err(|_| "The widget version isn't valid SemVer.")?;
+        if let Some(minimum) = &self.min_app_version {
+            Version::parse(minimum)
+                .map_err(|_| "The widget's minimum Toolblox version isn't valid SemVer.")?;
+        }
         if self.entry.is_none() && self.module.is_none() {
             return Err("The widget must declare an entry page or a module.".into());
         }
@@ -250,6 +300,14 @@ impl Catalogue {
             validate_widget_id(&entry.id)?;
             Version::parse(&entry.version)
                 .map_err(|_| format!("Widget {} has an invalid version.", entry.id))?;
+            if let Some(minimum) = &entry.min_app_version {
+                Version::parse(minimum).map_err(|_| {
+                    format!(
+                        "Widget {} has an invalid minimum Toolblox version.",
+                        entry.id
+                    )
+                })?;
+            }
             validate_sha256(&entry.sha256)?;
             let permissions: HashSet<_> = entry.permissions.iter().collect();
             if permissions.len() != entry.permissions.len() {
@@ -316,6 +374,13 @@ pub fn install_archive(
         }
         if manifest.version != expected_version {
             return Err("The widget package version doesn't match the catalogue.".into());
+        }
+        if let Some(minimum) = manifest
+            .min_app_version
+            .as_deref()
+            .filter(|minimum| !app_supports(Some(minimum)))
+        {
+            return Err(needs_newer_app(&manifest.name, minimum));
         }
         if manifest.permissions.iter().collect::<HashSet<_>>()
             != expected_permissions.iter().collect::<HashSet<_>>()
@@ -485,6 +550,7 @@ pub fn local_catalogue(roots: &[&Path]) -> Result<Catalogue, String> {
             permissions: manifest.permissions,
             icon_url,
             banner_url,
+            min_app_version: manifest.min_app_version,
         });
     }
     Ok(Catalogue {
@@ -574,6 +640,66 @@ pub fn package_folder(folder: &Path) -> Result<Vec<u8>, String> {
     zip.finish()
         .map(Cursor::into_inner)
         .map_err(|_| "Couldn't package the widget.".to_string())
+}
+
+/// A cheap fingerprint of a folder's files: their paths, sizes, and modification times, skipping
+/// hidden ones. Development builds only.
+#[cfg(debug_assertions)]
+pub fn folder_fingerprint(folder: &Path) -> u64 {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    fn visit(folder: &Path, hasher: &mut DefaultHasher) {
+        let Ok(entries) = fs::read_dir(folder) else {
+            return;
+        };
+        let mut entries: Vec<_> = entries
+            .flatten()
+            .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
+            .collect();
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            entry.file_name().hash(hasher);
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            if metadata.is_dir() {
+                visit(&entry.path(), hasher);
+            } else {
+                metadata.len().hash(hasher);
+                metadata.modified().ok().hash(hasher);
+            }
+        }
+    }
+    let mut hasher = DefaultHasher::new();
+    visit(folder, &mut hasher);
+    hasher.finish()
+}
+
+/// Packages a working-tree widget folder and installs it, with the same checks as a catalogue
+/// package, when the package differs from `installed_sha256`. Calls `before_install` first.
+/// Returns whether it installed. Development builds only.
+#[cfg(debug_assertions)]
+pub fn reinstall_from_folder(
+    folder: &Path,
+    installed_sha256: &str,
+    widgets_root: &Path,
+    before_install: impl FnOnce(),
+) -> Result<bool, String> {
+    let manifest = read_manifest(folder)?;
+    let archive = package_folder(folder)?;
+    let sha256 = hex::encode(Sha256::digest(&archive));
+    if sha256 == installed_sha256 {
+        return Ok(false);
+    }
+    before_install();
+    install_archive(
+        &archive,
+        &manifest.id,
+        &manifest.version,
+        &sha256,
+        &manifest.permissions,
+        widgets_root,
+    )?;
+    Ok(true)
 }
 
 /// Removes an installed widget's folder. A missing widget succeeds.
@@ -885,7 +1011,42 @@ mod tests {
             permissions: vec![WidgetPermission::WidgetDataRead],
             network_origins: Vec::new(),
             processes: Vec::new(),
+            popout: PopoutShape::Portrait,
+            min_app_version: None,
         }
+    }
+
+    #[test]
+    fn minimum_app_version_ignores_pre_release_labels() {
+        assert!(meets_minimum(None, "0.4.5-beta"));
+        assert!(meets_minimum(Some("0.4.5"), "0.4.5-beta"));
+        assert!(meets_minimum(Some("0.4.5-beta"), "0.4.6-beta"));
+        assert!(meets_minimum(Some("0.4.6"), "1.0.0"));
+        assert!(!meets_minimum(Some("0.4.6"), "0.4.5-beta"));
+        assert!(!meets_minimum(Some("0.5.0"), "0.4.9"));
+        assert!(!meets_minimum(Some("not a version"), "0.4.5"));
+    }
+
+    #[test]
+    fn manifest_rejects_an_invalid_minimum_app_version() {
+        let mut value = manifest();
+        value.min_app_version = Some("0.4.6".into());
+        assert!(value.validate().is_ok());
+        value.min_app_version = Some("next".into());
+        assert!(value.validate().is_err());
+    }
+
+    #[test]
+    fn manifest_popout_defaults_to_portrait_and_rejects_unknown_shapes() {
+        let mut value = serde_json::to_value(manifest()).unwrap();
+        value.as_object_mut().unwrap().remove("popout");
+        let parsed: WidgetManifest = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(parsed.popout, PopoutShape::Portrait);
+        value["popout"] = "landscape".into();
+        let parsed: WidgetManifest = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(parsed.popout, PopoutShape::Landscape);
+        value["popout"] = "square".into();
+        assert!(serde_json::from_value::<WidgetManifest>(value).is_err());
     }
 
     #[test]
@@ -1121,5 +1282,44 @@ mod tests {
         .unwrap();
         let error = discover_installed(root.path()).remove(0).unwrap_err();
         assert!(error.contains("modified manifest"));
+    }
+
+    #[test]
+    fn working_tree_changes_reinstall_only_when_the_package_differs() {
+        let source = tempfile::tempdir().unwrap();
+        let installed = tempfile::tempdir().unwrap();
+        let folder = source.path().join("sample");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(
+            folder.join("widget.json"),
+            r#"{"schemaVersion":1,"id":"sample","name":"Sample","version":"1.0.0","module":"main.js"}"#,
+        )
+        .unwrap();
+        fs::write(folder.join("main.js"), "export function activate() {}").unwrap();
+        let before = folder_fingerprint(&folder);
+        assert!(reinstall_from_folder(&folder, "", installed.path(), || {}).unwrap());
+        let sha256 = discover_installed(installed.path())[0]
+            .as_ref()
+            .unwrap()
+            .sha256
+            .clone();
+        assert!(!reinstall_from_folder(&folder, &sha256, installed.path(), || panic!()).unwrap());
+
+        fs::write(
+            folder.join("main.js"),
+            "export function activate() { return 1; }",
+        )
+        .unwrap();
+        assert_ne!(folder_fingerprint(&folder), before);
+        let mut stopped = false;
+        assert!(
+            reinstall_from_folder(&folder, &sha256, installed.path(), || stopped = true).unwrap()
+        );
+        assert!(stopped);
+        assert!(
+            fs::read_to_string(installed.path().join("sample/main.js"))
+                .unwrap()
+                .contains("return 1")
+        );
     }
 }

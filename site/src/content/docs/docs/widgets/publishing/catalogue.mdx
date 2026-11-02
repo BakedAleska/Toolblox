@@ -74,6 +74,7 @@ time.
 | `permissions` | array | No | The package manifest's permissions, as a set. Defaults to `[]`. No duplicates. |
 | `iconUrl` | string | No | Image shown on the catalogue card. Any URL the app's image policy allows, such as `https:` or `data:`. |
 | `bannerUrl` | string | No | Image shown across the top of the catalogue card. Same URL rules as `iconUrl`. |
+| `minAppVersion` | string | No | Valid SemVer, copied from the package manifest. Shown on the catalogue card. Older Toolblox versions can't install the widget. |
 
 Entry checks, each of which rejects the whole catalogue:
 
@@ -81,6 +82,7 @@ Entry checks, each of which rejects the whole catalogue:
 | --- | --- |
 | Invalid ID | `Widget IDs may contain only lowercase letters, numbers, and underscores.` |
 | Invalid version | `Widget <id> has an invalid version.` |
+| Invalid `minAppVersion` | `Widget <id> has an invalid minimum Toolblox version.` |
 | Invalid hash | `A widget checksum isn't a valid SHA-256 value.` |
 | Duplicate permission | `Widget <id> has duplicate catalogue permissions.` |
 | Unknown permission, missing field, or wrong type | `The widget catalogue isn't valid JSON.` |

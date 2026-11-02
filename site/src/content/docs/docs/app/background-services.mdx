@@ -99,7 +99,6 @@ every 250 ms) and then runs, in order:
 | Autostart | Release builds only: if the OS registration differs from the `openOnLaunch` setting, enable or disable it. Errors are ignored. | `lib.rs` |
 | Always on top | If `alwaysOnTop` is set, apply it to the main window. | `lib.rs` |
 | Profile backfill | For every account with no avatar URL, fetch the public profile and fill in name, display name, and avatar. Failures are logged per account. | `app_commands::backfill_profiles` |
-| Widget processes | Unless safe mode is on, start every declared process of each installed widget that is in `widgetsStartOnLaunch` and not in `disabledWidgets`. Failures are logged as warnings. | `start_widgets_on_launch` |
 | Presence monitor | Runs `auto_rejoin::run`, which loops until the process exits. | `auto_rejoin.rs` |
 
 If startup never reaches `ready`, none of these run.

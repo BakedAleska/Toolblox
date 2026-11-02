@@ -1,4 +1,4 @@
-import { ExternalLink, LayoutDashboard, Minimize2, Monitor, Moon, Proportions, Puzzle, Settings as SettingsIcon, ShieldAlert, Sun, Users, X } from "lucide-react";
+import { AppWindow, ArrowLeft, ExternalLink, LayoutDashboard, Minimize2, Monitor, Moon, PictureInPicture2, Proportions, Puzzle, Settings as SettingsIcon, ShieldAlert, Sun, Users, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import "./index.css";
 import { Button } from "@/components/ui/button";
@@ -13,11 +13,11 @@ import { Dashboard } from "@/screens/Dashboard";
 import { MiniWindow } from "@/screens/Mini";
 import { PlaceSearch } from "@/screens/PlaceSearch";
 import { CustomCssScreen } from "@/screens/Themes";
-import { LogScreen, SettingsScreen } from "@/screens/Settings";
-import { useSurvey } from "@/screens/Survey";
+import { LogScreen, SettingsScreen, WidgetSettingsTab } from "@/screens/Settings";
+import { WidgetContextMenu, useWidgetActions, useWidgetHasSettings } from "@/screens/WidgetMenu";
 import { Widgets } from "@/screens/Widgets";
-import { EmptyState, IconButton, Modal, Panel, PlaceInput, Screen, ScreenTools, Spinner, SwitchRow, WidgetFrame, type ConfirmRequest, type PlaceRequest, type ScreenProps, failure } from "@/shared";
-import { WidgetBoundary, WidgetSlot, syncWidgetHost, syncWidgetModules, useWidgetRegistry, type CoreScreen } from "@/widgets/host";
+import { EmptyState, IconButton, Modal, PlaceInput, Screen, ScreenTools, Spinner, WidgetFrame, type ConfirmRequest, type PlaceRequest, type ScreenProps, failure } from "@/shared";
+import { WidgetBoundary, WidgetPageContext, WidgetSlot, syncWidgetHost, syncWidgetModules, useWidgetRegistry, type CoreScreen } from "@/widgets/host";
 import type { AppRoute, AppState, RecentPlace, Settings, StartupStatus, ThemeMode, WidgetSummary } from "@/types";
 
 const coreRoutes = [
@@ -105,8 +105,11 @@ function App() {
   const registry = useWidgetRegistry();
   const host = useRef<Parameters<typeof syncWidgetHost>>(undefined);
   useEffect(() => { if (host.current) syncWidgetHost(...host.current); });
-  const widgetsKey = state ? JSON.stringify([state.safeMode, state.installedWidgets.map(({ id, enabled, moduleUrl }) => [id, enabled, moduleUrl])]) : "";
-  useEffect(() => { if (state) void syncWidgetModules(state.installedWidgets, state.safeMode); }, [widgetsKey]);
+  const widgetsKey = state ? JSON.stringify([state.safeMode, state.popouts, state.installedWidgets.map(({ id, enabled, moduleUrl }) => [id, enabled, moduleUrl])]) : "";
+  /** A widget in its own window runs its module there, so the main window unloads it until the window closes. */
+  useEffect(() => { if (state) void syncWidgetModules(state.installedWidgets.filter(({ id }) => !state.popouts.includes(id)), state.safeMode); }, [widgetsKey]);
+  useEffect(() => bridge.onPopoutsChanged((popouts) => setState((current) => current && { ...current, popouts })), []);
+  useEffect(() => bridge.onWidgetsChanged(() => void load()), []);
 
   const load = async () => {
     setLoadError("");
@@ -149,7 +152,6 @@ function App() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  const survey = useSurvey(notify);
   const navigate = (next: AppRoute) => { window.location.hash = next; setRoute(next); };
   if (!startup || startup.phase !== "ready") return <UpdaterGate status={startup} />;
   if (!state) return <main className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground" aria-live="polite">
@@ -200,13 +202,13 @@ function App() {
     const match = route.match(/^\/widgets\/([\w-]+)(\/settings)?$/);
     const widget = match ? state.installedWidgets.find(({ id }) => id === match[1]) : undefined;
     screen = !widget?.enabled || state.safeMode ? <NotFound navigate={navigate} />
-      : match?.[2] ? <WidgetSettings widget={widget} {...props} />
-      : <WidgetHost widget={widget} navigate={navigate} />;
+      : match?.[2] ? <SettingsScreen {...props} themes={themes} widgetId={widget.id} />
+      : <WidgetHost widget={widget} {...props} />;
   }
 
-  return <TooltipProvider delay={400}><ScreenTools.Provider value={(tools) => <HeaderTools themeMode={state.settings.themeMode} patchSettings={patchSettings} openMini={props.openMini} extra={(tools || survey.button) && <>{survey.button}{tools}</>} />}>
+  return <TooltipProvider delay={400}><ScreenTools.Provider value={(tools, iconTools) => <HeaderTools themeMode={state.settings.themeMode} patchSettings={patchSettings} openMini={props.openMini} icons={iconTools} extra={tools} />}>
     <div className={cn("relative flex h-full", state.settings.sidebarPosition === "right" && "flex-row-reverse")}>
-      <Sidebar state={state} route={route} navigate={navigate} />
+      <Sidebar {...props} route={route} />
       <div className="relative flex min-w-0 flex-1 flex-col">
         {state.safeMode && <div className="flex items-center gap-3 border-b bg-warning/10 px-6 py-2 text-sm" role="status">
           <ShieldAlert className="size-4 shrink-0 text-warning" aria-hidden="true" />
@@ -218,7 +220,6 @@ function App() {
       {placeRequest && <PlaceDialog request={placeRequest} recentPlaces={state.recentPlaces} open={placeOpen} close={() => setPlaceOpen(false)}
         forget={(placeId) => bridge.forgetRecentPlace(placeId).then(load).catch((error) => notify(failure(`The place wasn't removed. Does retrying help?`, error)))} />}
       {confirm && <ConfirmDialog request={confirm} open={confirmOpen} close={() => setConfirmOpen(false)} notify={notify} />}
-      {survey.dialog}
       <Toaster {...toasts} side={state.settings.sidebarPosition === "right" ? "left" : "right"} />
     </div>
   </ScreenTools.Provider></TooltipProvider>;
@@ -246,20 +247,26 @@ const themeModes: { mode: ThemeMode; label: string; icon: ReactNode }[] = [
   { mode: "dark", label: "Dark", icon: <Moon /> },
 ];
 
-/** Theme, window snap, and mini mode, at the right end of every page header. `extra` sits before them, past a separator. */
-function HeaderTools({ themeMode, patchSettings, openMini, extra }: Pick<ScreenProps, "patchSettings" | "openMini"> & { themeMode?: ThemeMode; extra?: ReactNode }) {
+/** Theme, window snap, and mini mode, at the right end of every page header. `icons` sit just before them, and `extra` before that, past a separator. */
+function HeaderTools({ themeMode, patchSettings, openMini, icons, extra }: Pick<ScreenProps, "patchSettings" | "openMini"> & { themeMode?: ThemeMode; icons?: ReactNode; extra?: ReactNode }) {
   const themeIndex = Math.max(0, themeModes.findIndex(({ mode }) => mode === themeMode));
   const theme = themeModes[themeIndex];
   const nextTheme = themeModes[(themeIndex + 1) % themeModes.length];
   return <div className="flex shrink-0 items-center">
     {extra && <>{extra}<span className="mx-1 h-4 w-px bg-border" aria-hidden="true" /></>}
+    {icons}
     <IconButton label={`Theme: ${theme.label}`} className="text-muted-foreground" onClick={() => void patchSettings("themeMode", nextTheme.mode)}>{theme.icon}</IconButton>
     {!isDemo() && <IconButton label="Resize to default aspect ratio" className="text-muted-foreground" onClick={() => void bridge.snapWindow()}><Proportions /></IconButton>}
     {!isDemo() && <IconButton label="Open mini mode" className="text-muted-foreground" onClick={openMini}><Minimize2 /></IconButton>}
   </div>;
 }
 
-function Sidebar({ state, route, navigate }: { state: AppState; route: AppRoute; navigate: (route: AppRoute) => void }) {
+function Sidebar({ route, ...props }: ScreenProps & { route: AppRoute }) {
+  const { state, navigate, refresh, notify } = props;
+  const actions = useWidgetActions(props, async (_id, action, message) => {
+    try { await action(); await refresh(); }
+    catch (error) { notify(failure(`${message} Does retrying help?`, error)); }
+  });
   const [saved, setWidth] = useState(readSidebarWidth);
   const [dragging, setDragging] = useState(false);
   const [viewport, setViewport] = useState(window.innerWidth);
@@ -279,12 +286,12 @@ function Sidebar({ state, route, navigate }: { state: AppState; route: AppRoute;
     style.cursor = "col-resize"; style.userSelect = "none";
     return () => { style.cursor = ""; style.userSelect = ""; };
   }, [dragging]);
-  const current = route === "/accounts/places" ? "/accounts" : route.startsWith("/settings/") ? "/settings" : route;
+  const current = route === "/accounts/places" ? "/accounts" : route.startsWith("/settings/") || route.endsWith("/settings") ? "/settings" : route;
   const item = (target: AppRoute, label: string, icon: ReactNode, enabled = true) => <Tooltip key={target}>
     <TooltipTrigger render={<button className={cn(
-      "flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-sm text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
+      "flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-sm text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground [&_svg]:size-4 [&_svg]:shrink-0",
       current === target && "bg-sidebar-accent font-medium text-foreground hover:bg-sidebar-accent",
-    )} aria-current={current === target ? "page" : undefined} disabled={!enabled} onClick={() => navigate(target)} aria-label={label} />}>
+    )} aria-current={current === target ? "page" : undefined} aria-disabled={!enabled || undefined} onClick={() => { if (enabled) navigate(target); }} aria-label={label} />}>
       {icon}{!collapsed && <span className="truncate">{label}</span>}
     </TooltipTrigger>
     <TooltipContent side={right ? "left" : "right"} className={cn(!collapsed && "hidden")}>{enabled ? label : `${label} is disabled`}</TooltipContent>
@@ -300,7 +307,9 @@ function Sidebar({ state, route, navigate }: { state: AppState; route: AppRoute;
     <nav className="flex flex-1 flex-col gap-0.5 overflow-hidden">
       {coreRoutes.map(({ route: target, label, icon: Icon }) => item(target, label, <Icon aria-hidden="true" />))}
       {state.installedWidgets.length > 0 && (collapsed ? <hr className="my-2 border-sidebar-border" /> : <p className="mt-4 mb-1 truncate px-2.5 text-xs text-muted-foreground">Widgets</p>)}
-      {state.installedWidgets.map((widget) => item(`/widgets/${widget.id}`, widget.name, widget.logoUrl ? <img src={widget.logoUrl} alt="" className="size-4 shrink-0 rounded-sm object-cover" /> : <Puzzle aria-hidden="true" />, widget.enabled))}
+      {state.installedWidgets.map((widget) => <WidgetContextMenu key={widget.id} actions={actions(widget)}>
+        {item(`/widgets/${widget.id}`, widget.name, widget.logoUrl ? <img src={widget.logoUrl} alt="" className="size-4 shrink-0 rounded-sm object-cover" /> : <Puzzle aria-hidden="true" />, widget.enabled && !state.safeMode)}
+      </WidgetContextMenu>)}
     </nav>
     {!collapsed && <LoopingRow className="px-0.5">{() => <span className="shrink-0 px-2 py-1 text-xs whitespace-nowrap text-muted-foreground" title={state.channel === "canary" ? "Running from a source checkout." : "The installed, publicly released build."}>v{state.version}{state.channel === "canary" ? "-canary" : ""}</span>}</LoopingRow>}
     <WidgetSlot name="sidebar.footer" props={{ collapsed }} />
@@ -359,34 +368,40 @@ function LoopingRow({ className, children }: { className?: string; children: (cl
     return () => { element.removeEventListener("scroll", wrap); element.removeEventListener("wheel", wheel); };
   }, [fits]);
   const copy = (clone: boolean, key: number) => <div key={key} ref={clone ? undefined : middle} aria-hidden={clone || undefined} className="flex shrink-0 items-center gap-1 pr-1">{children(clone)}</div>;
-  return <div ref={scroller} className={cn("flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", fits ? "justify-center overflow-hidden" : "overflow-x-auto", className)}>
+  return <div ref={scroller} className={cn("flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", fits ? "overflow-hidden" : "overflow-x-auto", className)}>
     {fits ? copy(false, 1) : [copy(true, 0), copy(false, 1), copy(true, 2)]}
   </div>;
 }
 
-function WidgetHost({ widget, navigate }: { widget: WidgetSummary; navigate: (route: AppRoute) => void }) {
-  const { pages, settingsPages } = useWidgetRegistry();
+/**
+ * A widget's page, with its `page.topbar` entries and a link to its Settings tab in the header. A
+ * widget in its own window shows where it went.
+ */
+function WidgetHost({ widget, state, navigate, notify }: ScreenProps & { widget: WidgetSummary }) {
+  const { pages, slots } = useWidgetRegistry();
+  const hasSettings = useWidgetHasSettings(state)(widget);
+  const poppedOut = state.popouts.includes(widget.id);
   const Page = pages.get(widget.id);
-  const hasSettings = widget.hasSettings || widget.canStartOnLaunch || settingsPages.has(widget.id);
-  return <Screen title={widget.name} className="h-full" actions={hasSettings && <IconButton label={`${widget.name} settings`} onClick={() => navigate(`/widgets/${widget.id}/settings`)}><SettingsIcon /></IconButton>}>
-    {Page ? <WidgetBoundary widgetId={widget.id}><Page /></WidgetBoundary>
-      : widget.hasPageFrame ? <WidgetFrame widget={widget} surface="main" title={widget.name} />
-      : <EmptyState icon={<Puzzle />} title="No widget page" />}
+  const topbar = slots.get("page.topbar")?.some((item) => item.widgetId === widget.id);
+  const tools = (topbar || hasSettings) && <>
+    {topbar && <WidgetSlot name="page.topbar" props={{}} widgetId={widget.id} />}
+    {hasSettings && <IconButton label={`${widget.name} settings`} className="text-muted-foreground" onClick={() => navigate(`/widgets/${widget.id}/settings`)}><SettingsIcon /></IconButton>}
+  </>;
+  const show = () => void bridge.openWidgetPopout(widget.id).catch((error) => notify(failure("The window couldn't be shown. Does retrying help?", error)));
+  const back = () => void bridge.closeWidgetPopout(widget.id).catch((error) => notify(failure("The window didn't close. Does retrying help?", error)));
+  if (poppedOut) return <Screen title={widget.name} className="h-full" iconTools={hasSettings && tools}>
+    <EmptyState icon={<PictureInPicture2 />} title={`${widget.name} is in its own window`} action={<div className="flex gap-2">
+      <Button variant="outline" size="sm" onClick={show}>Show window</Button>
+      <Button variant="ghost" size="sm" onClick={back}><AppWindow />Return here</Button>
+    </div>} />
   </Screen>;
-}
-
-/** Settings for one widget. Kept apart from Toolblox's own Settings page. */
-function WidgetSettings({ widget, navigate, refresh, notify }: ScreenProps & { widget: WidgetSummary }) {
-  const { settingsPages, pages } = useWidgetRegistry();
-  const Custom = settingsPages.get(widget.id);
-  const empty = !Custom && !widget.hasSettings && !widget.canStartOnLaunch;
-  return <Screen title={`${widget.name} settings`} actions={(pages.has(widget.id) || widget.hasPageFrame) && <Button variant="ghost" size="sm" onClick={() => navigate(`/widgets/${widget.id}`)}>Open widget</Button>}>
-    {widget.canStartOnLaunch && <Panel><SwitchRow title="Start with Toolblox" checked={widget.startOnLaunch}
-      change={(value) => void bridge.setWidgetStartOnLaunch(widget.id, value).then(refresh).catch((error) => notify(failure(`The startup setting wasn't saved. Does retrying help?`, error)))} /></Panel>}
-    {Custom && <WidgetBoundary widgetId={widget.id}><Custom /></WidgetBoundary>}
-    {widget.hasSettings && <WidgetFrame widget={widget} surface="settings" title={`${widget.name} settings`} />}
-    {empty && <EmptyState icon={<SettingsIcon />} title="No settings" />}
-  </Screen>;
+  return <WidgetPageContext.Provider value={{ widgetId: widget.id, popout: false }}>
+    <Screen title={widget.name} className="h-full" iconTools={tools}>
+      {Page ? <WidgetBoundary widgetId={widget.id}><Page /></WidgetBoundary>
+        : widget.hasPageFrame ? <WidgetFrame widget={widget} surface="main" title={widget.name} />
+        : <EmptyState icon={<Puzzle />} title="No widget page" />}
+    </Screen>
+  </WidgetPageContext.Provider>;
 }
 
 function NotFound({ navigate }: { navigate: (route: AppRoute) => void }) {
@@ -435,7 +450,67 @@ function ConfirmDialog({ request, open, close, notify }: { request: ConfirmReque
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (open) setBusy(false); }, [open]);
   const submit = async () => { setBusy(true); try { await request.run(); close(); } catch (error) { notify(failure(`The action failed. Does retrying help?`, error)); setBusy(false); } };
-  return <Modal size="landscape" open={open} close={close} title={request.title} description={request.message} action={request.action} danger={request.danger} busy={busy} submit={() => void submit()} />;
+  return <Modal size="landscape" scale={request.scale} open={open} close={close} title={request.title} description={request.message} action={request.action} danger={request.danger} busy={busy} submit={() => void submit()} />;
+}
+
+/** A widget's page and settings in its own window. Only that widget's module runs here. */
+export function PopoutApp({ widgetId }: { widgetId: string }) {
+  const [state, setState] = useState<AppState>();
+  const [loadError, setLoadError] = useState("");
+  const [view, setView] = useState<"page" | "settings">("page");
+  const toasts = useToasts();
+  const notify = toasts.notify;
+  useTheme(state?.settings.themeMode);
+  useMotion(state?.settings.showAnimations ?? true, state?.settings.ignoreReducedMotion ?? false);
+  useCustomTheme(!!state, !state?.safeMode, notify);
+  const { pages, settingsPages, slots } = useWidgetRegistry();
+  const load = async () => {
+    try { setState(await bridge.getAppState()); setLoadError(""); }
+    catch (error) { setLoadError(`The widget failed to load. Does reopening its window help? (${String(error)})`); }
+  };
+  useEffect(() => {
+    void load();
+    const onFocus = () => void load();
+    window.addEventListener("focus", onFocus);
+    const stopListening = bridge.onWidgetsChanged(() => void load());
+    return () => { window.removeEventListener("focus", onFocus); stopListening(); };
+  }, []);
+  const widget = state?.installedWidgets.find(({ id }) => id === widgetId);
+  const moduleKey = state ? JSON.stringify([state.safeMode, widget?.enabled, widget?.moduleUrl]) : "";
+  useEffect(() => { if (state) void syncWidgetModules(widget ? [widget] : [], state.safeMode); }, [moduleKey]);
+  useEffect(() => {
+    if (state) syncWidgetHost(state, {
+      navigate: () => undefined,
+      notify,
+      refresh: load,
+      join: (accountIds) => void bridge.joinAccounts(accountIds).then(load).catch((error) => notify(failure("Join failed. Is Roblox installed and the account signed in?", error))),
+    });
+  });
+  if (!state || !widget) return <main className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground" aria-live="polite">
+    {loadError ? <p className="max-w-sm text-destructive">{loadError}</p> : <><Spinner className="size-5" />Loading…</>}
+  </main>;
+
+  const Page = pages.get(widget.id);
+  const hasSettings = widget.hasSettings || settingsPages.has(widget.id);
+  const settings = view === "settings" && hasSettings;
+  const tools = <>
+    {!settings && slots.get("page.topbar")?.some((item) => item.widgetId === widget.id) && <WidgetSlot name="page.topbar" props={{}} widgetId={widget.id} />}
+    {hasSettings && (settings
+      ? <IconButton label={`Back to ${widget.name}`} className="text-muted-foreground" onClick={() => setView("page")}><ArrowLeft /></IconButton>
+      : <IconButton label={`${widget.name} settings`} className="text-muted-foreground" onClick={() => setView("settings")}><SettingsIcon /></IconButton>)}
+  </>;
+  return <TooltipProvider delay={400}><ScreenTools.Provider value={(pageTools, iconTools) => <>{pageTools}{iconTools}</>}>
+    <WidgetPageContext.Provider value={{ widgetId: widget.id, popout: true }}>
+      <main className="h-full" id="main-content">
+        <Screen title={settings ? `${widget.name} settings` : widget.name} className="h-full px-4" iconTools={tools}>
+          {settings ? <WidgetSettingsTab widget={widget} state={state} notify={notify} popout />
+            : Page ? <WidgetBoundary widgetId={widget.id}><Page /></WidgetBoundary>
+            : <EmptyState icon={<Puzzle />} title="No widget page" />}
+        </Screen>
+      </main>
+    </WidgetPageContext.Provider>
+    <Toaster {...toasts} side="right" />
+  </ScreenTools.Provider></TooltipProvider>;
 }
 
 export default App;

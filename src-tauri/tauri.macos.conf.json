@@ -1,4 +1,7 @@
 {
+  "build": {
+    "runner": "../scripts/cargo-macos.sh"
+  },
   "bundle": {
     "targets": ["app", "dmg"],
     "resources": [],

@@ -1,4 +1,4 @@
-import { discordRequest } from "./discord.ts";
+import { discordRequest, findChannel } from "./discord.ts";
 
 /** GitHub endpoint listing the files in `changelogs/` on main. */
 const CHANGELOGS_URL = "https://api.github.com/repos/BakedAleska/Toolblox/contents/changelogs?ref=main";
@@ -72,22 +72,6 @@ async function fetchChangelogFiles(token?: string): Promise<ChangelogFile[]> {
     .map(({ name, sha, download_url }) => ({ version: name.slice(0, -".md".length), sha, url: download_url }));
 }
 
-/** Finds the changelogs channel in the bot's servers, remembering its ID. */
-async function changelogChannel(token: string, state: KVNamespace): Promise<string> {
-  const saved = await state.get(CHANNEL_KEY);
-  if (saved) return saved;
-  const guilds = await (await discordRequest(token, "GET", "/users/@me/guilds")).json<{ id: string }[]>();
-  for (const guild of guilds) {
-    const channels = await (await discordRequest(token, "GET", `/guilds/${guild.id}/channels`)).json<{ id: string; name: string; type: number }[]>();
-    const channel = channels.find(({ name, type }) => name === CHANNEL_NAME && (type === 0 || type === 5));
-    if (channel) {
-      await state.put(CHANNEL_KEY, channel.id);
-      return channel.id;
-    }
-  }
-  throw new Error(`The #${CHANNEL_NAME} channel wasn't found. Is the bot in the server and allowed to see it?`);
-}
-
 /**
  * Posts each released changelog that isn't in the channel yet, oldest first, and edits the
  * messages of one whose file changed, adding or deleting messages when its part count changed.
@@ -106,7 +90,7 @@ export async function syncChangelogs(token: string, state: KVNamespace, githubTo
     const previous = posted[file.version];
     const messageIds = previous?.messageIds ?? (previous?.messageId ? [previous.messageId] : []);
     if (changelog.released) {
-      channel ??= await changelogChannel(token, state);
+      channel ??= await findChannel(token, state, CHANNEL_NAME, CHANNEL_KEY);
       const embeds = changelogEmbeds(changelog);
       for (const [index, embed] of embeds.entries()) {
         const body = { embeds: [embed], allowed_mentions: { parse: [] } };

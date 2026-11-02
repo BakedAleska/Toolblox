@@ -6,7 +6,8 @@ use tauri::Manager;
 
 use crate::app_commands::Runtime;
 
-/// Serves `widget://<id>/<path>` from the widget's install folder to the main window only.
+/// Serves `widget://<id>/<path>` from the widget's install folder to the main window and widget
+/// popouts only.
 ///
 /// Rejects invalid IDs, non-normal path components, and files that resolve outside the widget
 /// folder, and serves assets under a restrictive Content Security Policy.
@@ -14,7 +15,7 @@ pub fn response(
     context: tauri::UriSchemeContext<'_, tauri::Wry>,
     request: tauri::http::Request<Vec<u8>>,
 ) -> tauri::http::Response<Vec<u8>> {
-    if context.webview_label() != crate::lifecycle::MAIN_WINDOW_LABEL {
+    if !crate::lifecycle::is_app_window(context.webview_label()) {
         return error(
             tauri::http::StatusCode::FORBIDDEN,
             "Widget assets aren't available here.",

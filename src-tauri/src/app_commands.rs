@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::credentials::{CredentialStore, OsCredentialStore, Secret};
 use crate::login::{AccountIdentity, LoginError, LoginNotice};
@@ -177,12 +177,12 @@ pub struct WidgetSummary {
     permissions: Vec<crate::widgets::WidgetPermission>,
     /// Permissions of the newer catalogue version, when one is available.
     available_permissions: Option<Vec<crate::widgets::WidgetPermission>>,
+    /// Toolblox version the newer catalogue version needs, when this build is older.
+    available_needs_app: Option<String>,
     has_settings: bool,
     has_dashboard_tile: bool,
     has_page_frame: bool,
     module_url: Option<String>,
-    can_start_on_launch: bool,
-    start_on_launch: bool,
     host_url: String,
 }
 
@@ -197,6 +197,10 @@ pub struct CatalogueSummary {
     logo_url: Option<String>,
     banner_url: Option<String>,
     permissions: Vec<crate::widgets::WidgetPermission>,
+    /// Oldest Toolblox version the widget runs on.
+    min_app_version: Option<String>,
+    /// Whether this build meets `min_app_version`.
+    supported: bool,
 }
 
 /// Everything the interface needs to render, without secrets.
@@ -217,6 +221,8 @@ pub struct AppStateDto {
     settings: SettingsDto,
     recent_places: Vec<crate::models::RecentPlace>,
     safe_mode: bool,
+    /// IDs of widgets open in their own window.
+    popouts: Vec<String>,
 }
 
 /// Whether a Roblox response shows the session expired (`Some(true)`), valid (`Some(false)`), or
@@ -325,7 +331,7 @@ fn installed_widgets(runtime: &Runtime, settings: &Settings) -> Vec<WidgetSummar
             catalogue
                 .entries
                 .into_iter()
-                .map(|entry| (entry.id, (entry.version, entry.permissions)))
+                .map(|entry| (entry.id.clone(), entry))
                 .collect()
         })
         .unwrap_or_default();
@@ -340,11 +346,11 @@ fn installed_widgets(runtime: &Runtime, settings: &Settings) -> Vec<WidgetSummar
 fn widget_summary(
     widget: InstalledWidget,
     settings: &Settings,
-    catalogue_entries: &HashMap<String, (String, Vec<crate::widgets::WidgetPermission>)>,
+    catalogue_entries: &HashMap<String, crate::widgets::CatalogueEntry>,
 ) -> WidgetSummary {
     let id = widget.id;
-    let available = catalogue_entries.get(&id).filter(|(version, _)| {
-        semver::Version::parse(version)
+    let available = catalogue_entries.get(&id).filter(|entry| {
+        semver::Version::parse(&entry.version)
             .ok()
             .zip(semver::Version::parse(&widget.version).ok())
             .is_some_and(|(available, installed)| available > installed)
@@ -364,9 +370,12 @@ fn widget_summary(
             .map(|banner| widget_asset_url(&id, banner)),
         icon: widget.manifest.icon,
         enabled: !settings.disabled_widgets.contains(&id),
-        available_version: available.map(|(version, _)| version.clone()),
+        available_version: available.map(|entry| entry.version.clone()),
         permissions: widget.manifest.permissions.clone(),
-        available_permissions: available.map(|(_, permissions)| permissions.clone()),
+        available_permissions: available.map(|entry| entry.permissions.clone()),
+        available_needs_app: available
+            .and_then(|entry| entry.min_app_version.clone())
+            .filter(|minimum| !crate::widgets::app_supports(Some(minimum))),
         has_settings: widget.manifest.settings_entry.is_some(),
         has_dashboard_tile: widget.manifest.dashboard_entry.is_some(),
         has_page_frame: widget.manifest.entry.is_some(),
@@ -374,9 +383,7 @@ fn widget_summary(
             .manifest
             .module
             .as_deref()
-            .map(|module| widget_asset_url(&id, module)),
-        can_start_on_launch: !widget.manifest.processes.is_empty(),
-        start_on_launch: settings.widgets_start_on_launch.contains(&id),
+            .map(|module| module_url(&id, module, &widget.sha256, &widget.version)),
         host_url: widget_asset_url(&id, "index.html"),
         version: widget.version,
         id,
@@ -518,7 +525,10 @@ async fn name_recent_places(runtime: &Runtime, settings: Settings) -> Settings {
 /// Returns the full interface state, loading the catalogue first if it hasn't been tried.
 /// Development builds without a catalogue URL rebuild it from the working tree on every call.
 #[tauri::command]
-pub async fn get_app_state(runtime: State<'_, Runtime>) -> Result<AppStateDto, String> {
+pub async fn get_app_state(
+    app: AppHandle,
+    runtime: State<'_, Runtime>,
+) -> Result<AppStateDto, String> {
     let catalogue_unset = runtime
         .catalogue
         .lock()
@@ -556,6 +566,8 @@ pub async fn get_app_state(runtime: State<'_, Runtime>) -> Result<AppStateDto, S
                     logo_url: entry.icon_url,
                     banner_url: entry.banner_url,
                     permissions: entry.permissions,
+                    supported: crate::widgets::app_supports(entry.min_app_version.as_deref()),
+                    min_app_version: entry.min_app_version,
                 })
                 .collect()
         })
@@ -597,6 +609,7 @@ pub async fn get_app_state(runtime: State<'_, Runtime>) -> Result<AppStateDto, S
             .cloned()
             .collect(),
         safe_mode: runtime.safe_mode,
+        popouts: open_popouts(&app, None),
         settings: SettingsDto::from(&settings),
     })
 }
@@ -720,48 +733,6 @@ pub async fn search_places(
     runtime: State<'_, Runtime>,
 ) -> Result<Vec<crate::roblox::PlaceMatch>, String> {
     Ok(crate::roblox::search_places(&runtime.client, &query).await)
-}
-
-/// Toolblox bot endpoint that sends beta survey answers to the developer on Discord. Remove with
-/// the survey after the beta.
-const SURVEY_URL: &str = "https://toolblox-bot.al3velazquez2007.workers.dev/survey";
-
-/// Validates survey answers and builds the request body, with the app version.
-fn survey_body(rating: u8, comment: &str) -> Result<serde_json::Value, String> {
-    if !(1..=5).contains(&rating) || comment.chars().count() > 2000 {
-        return Err(
-            "The survey answers aren't valid. Is the comment under 2,000 characters?".into(),
-        );
-    }
-    Ok(serde_json::json!({
-        "rating": rating,
-        "comment": comment.trim(),
-        "version": env!("CARGO_PKG_VERSION"),
-    }))
-}
-
-/// Sends the optional beta survey. Only the submitted answers are sent.
-#[tauri::command]
-pub async fn submit_survey(
-    rating: u8,
-    comment: String,
-    runtime: State<'_, Runtime>,
-) -> Result<(), String> {
-    let body = survey_body(rating, &comment)?;
-    let response = runtime
-        .client
-        .post(SURVEY_URL)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|_| "The survey couldn't be sent. Is the connection working?".to_string())?;
-    match response.status() {
-        status if status.is_success() => Ok(()),
-        reqwest::StatusCode::TOO_MANY_REQUESTS => {
-            Err("The survey wasn't sent because answers were sent recently. Can you try again in an hour?".into())
-        }
-        _ => Err("The survey couldn't be sent. Can you try again later?".into()),
-    }
 }
 
 /// Sets or clears the place a single account joins instead of the default place.
@@ -1119,6 +1090,13 @@ async fn download_package(entry: &CatalogueEntry, runtime: &Runtime) -> Result<V
 /// Downloads and installs a widget from the verified catalogue.
 async fn install_catalogue_widget(widget_id: &str, runtime: &Runtime) -> Result<(), String> {
     let entry = catalogue_entry(runtime, widget_id)?;
+    if let Some(minimum) = entry
+        .min_app_version
+        .as_deref()
+        .filter(|minimum| !crate::widgets::app_supports(Some(minimum)))
+    {
+        return Err(crate::widgets::needs_newer_app(&entry.name, minimum));
+    }
     let bytes = download_package(&entry, runtime).await?;
     crate::widgets::install_archive(
         &bytes,
@@ -1150,7 +1128,11 @@ pub async fn install_widget(widget_id: String, runtime: State<'_, Runtime>) -> R
 
 /// Stops a widget's processes and installs its newer catalogue version.
 #[tauri::command]
-pub async fn update_widget(widget_id: String, runtime: State<'_, Runtime>) -> Result<(), String> {
+pub async fn update_widget(
+    app: AppHandle,
+    widget_id: String,
+    runtime: State<'_, Runtime>,
+) -> Result<(), String> {
     let installed = find_installed_widget(&runtime, &widget_id)?;
     let entry = catalogue_entry(&runtime, &widget_id)?;
     let installed_version = semver::Version::parse(&installed.version).map_err(|_| {
@@ -1163,6 +1145,7 @@ pub async fn update_widget(widget_id: String, runtime: State<'_, Runtime>) -> Re
             "The catalogue doesn't contain a newer widget version. Can you refresh it?".into(),
         );
     }
+    close_popout(&app, &widget_id);
     runtime
         .processes
         .lock()
@@ -1173,7 +1156,12 @@ pub async fn update_widget(widget_id: String, runtime: State<'_, Runtime>) -> Re
 
 /// Stops a widget's processes, removes it, and clears its settings.
 #[tauri::command]
-pub fn uninstall_widget(widget_id: String, runtime: State<'_, Runtime>) -> Result<(), String> {
+pub fn uninstall_widget(
+    app: AppHandle,
+    widget_id: String,
+    runtime: State<'_, Runtime>,
+) -> Result<(), String> {
+    close_popout(&app, &widget_id);
     runtime
         .processes
         .lock()
@@ -1183,9 +1171,6 @@ pub fn uninstall_widget(widget_id: String, runtime: State<'_, Runtime>) -> Resul
     log::info!("Uninstalled widget {widget_id}");
     let mut settings = runtime.storage.load_settings().map_err(command_error)?;
     settings.disabled_widgets.retain(|id| id != &widget_id);
-    settings
-        .widgets_start_on_launch
-        .retain(|id| id != &widget_id);
     settings.widget_settings.remove(&widget_id);
     runtime
         .storage
@@ -1196,6 +1181,7 @@ pub fn uninstall_widget(widget_id: String, runtime: State<'_, Runtime>) -> Resul
 /// Turns an installed widget on or off, stopping its processes when turned off.
 #[tauri::command]
 pub fn set_widget_enabled(
+    app: AppHandle,
     widget_id: String,
     enabled: bool,
     runtime: State<'_, Runtime>,
@@ -1211,34 +1197,12 @@ pub fn set_widget_enabled(
     );
     if !enabled {
         settings.disabled_widgets.push(widget_id.clone());
+        close_popout(&app, &widget_id);
         runtime
             .processes
             .lock()
             .map_err(|_| "The widget process manager is busy. Can you try again?".to_string())?
             .stop_widget(&widget_id);
-    }
-    runtime
-        .storage
-        .save_settings(&settings)
-        .map_err(command_error)
-}
-
-/// Sets whether a widget's processes start with the app.
-#[tauri::command]
-pub fn set_widget_start_on_launch(
-    widget_id: String,
-    enabled: bool,
-    runtime: State<'_, Runtime>,
-) -> Result<(), String> {
-    if !runtime.widgets_root.join(&widget_id).is_dir() {
-        return Err("The widget isn't installed. Can you refresh the list?".into());
-    }
-    let mut settings = runtime.storage.load_settings().map_err(command_error)?;
-    settings
-        .widgets_start_on_launch
-        .retain(|id| id != &widget_id);
-    if enabled {
-        settings.widgets_start_on_launch.push(widget_id);
     }
     runtime
         .storage
@@ -1262,6 +1226,14 @@ const WIDGET_ORIGIN: &str = "widget://localhost";
 /// Returns the URL of a file in an installed widget.
 fn widget_asset_url(widget_id: &str, path: &str) -> String {
     format!("{WIDGET_ORIGIN}/{widget_id}/{path}")
+}
+
+/// A module's URL, tagged with the installed package's hash, or its version when no install record
+/// exists. The page keeps each imported module by URL until it reloads, so a reinstall or update
+/// needs a new URL to load the new code.
+fn module_url(widget_id: &str, module: &str, sha256: &str, version: &str) -> String {
+    let tag = sha256.get(..16).unwrap_or(version);
+    format!("{}?v={tag}", widget_asset_url(widget_id, module))
 }
 
 /// Downloads and verifies the signed widget catalogue, recording any error for the interface.
@@ -1672,6 +1644,140 @@ pub fn show_notification(app: AppHandle, title: String, body: String) -> Result<
 }
 
 /// Ends a widget session.
+/// Event sent to every window after development builds reinstall widgets from the working tree.
+#[cfg(debug_assertions)]
+pub const WIDGETS_CHANGED: &str = "widgets-changed";
+
+/// Reinstalls installed widgets whose folder under `widgets/` in the working tree changed since the
+/// last call, stopping their processes first. `seen` keeps each folder's fingerprint between calls.
+/// Returns whether any widget was reinstalled. Development builds only.
+#[cfg(debug_assertions)]
+pub fn sync_local_widgets(runtime: &Runtime, seen: &mut HashMap<String, u64>) -> bool {
+    let Ok(entries) = std::fs::read_dir(crate::widgets::LOCAL_CATALOGUE[0]) else {
+        return false;
+    };
+    let mut changed = false;
+    for entry in entries.flatten() {
+        let id = entry.file_name().to_string_lossy().into_owned();
+        let folder = entry.path();
+        if id.starts_with('.') || !folder.is_dir() {
+            continue;
+        }
+        let fingerprint = crate::widgets::folder_fingerprint(&folder);
+        if seen.insert(id.clone(), fingerprint) == Some(fingerprint) {
+            continue;
+        }
+        let Ok(installed) = find_installed_widget(runtime, &id) else {
+            continue;
+        };
+        let stop = || {
+            if let Ok(mut processes) = runtime.processes.lock() {
+                processes.stop_widget(&id);
+            }
+        };
+        match crate::widgets::reinstall_from_folder(
+            &folder,
+            &installed.sha256,
+            &runtime.widgets_root,
+            stop,
+        ) {
+            Ok(true) => {
+                log::info!("Reinstalled widget {id} from the working tree");
+                changed = true;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                log::warn!("Widget {id} wasn't reinstalled from the working tree: {error}")
+            }
+        }
+    }
+    changed
+}
+
+/// Event sent to every window with the open popouts' widget IDs whenever one opens or closes.
+const POPOUTS_CHANGED: &str = "widget-popouts-changed";
+
+/// IDs of widgets open in their own window, sorted, leaving out `closing`.
+fn open_popouts(app: &AppHandle, closing: Option<&str>) -> Vec<String> {
+    let mut ids: Vec<String> = app
+        .webview_windows()
+        .keys()
+        .filter(|label| Some(label.as_str()) != closing)
+        .filter_map(|label| crate::lifecycle::popout_widget_id(label))
+        .map(str::to_owned)
+        .collect();
+    ids.sort();
+    ids
+}
+
+/// Closes a widget's popout window, if one is open.
+fn close_popout(app: &AppHandle, widget_id: &str) {
+    let label = format!("{}{widget_id}", crate::lifecycle::POPOUT_WINDOW_PREFIX);
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.destroy();
+    }
+}
+
+/// Opens an enabled module widget in its own window, or shows the window when it's already open.
+///
+/// The window loads the app's own interface, which then runs only that widget's module. Async,
+/// because creating a window from a synchronous command can deadlock on Windows.
+#[tauri::command]
+pub async fn open_widget_popout(
+    app: AppHandle,
+    widget_id: String,
+    runtime: State<'_, Runtime>,
+) -> Result<(), String> {
+    crate::widgets::validate_widget_id(&widget_id)?;
+    if runtime.safe_mode {
+        return Err("Widgets are off in safe mode. Can you restart Toolblox normally?".into());
+    }
+    let settings = runtime.storage.load_settings().map_err(command_error)?;
+    if settings.disabled_widgets.contains(&widget_id) {
+        return Err("The widget is disabled. Can you enable it first?".into());
+    }
+    let widget = find_installed_widget(&runtime, &widget_id)?;
+    if widget.manifest.module.is_none() {
+        return Err("The widget can't open in its own window. Does it have a module?".into());
+    }
+    let label = format!("{}{widget_id}", crate::lifecycle::POPOUT_WINDOW_PREFIX);
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        return window
+            .set_focus()
+            .map_err(|_| "The widget window couldn't be shown. Is it still open?".to_string());
+    }
+    let ((width, height), (min_width, min_height)) = match widget.manifest.popout {
+        crate::widgets::PopoutShape::Portrait => ((380.0, 520.0), (320.0, 400.0)),
+        crate::widgets::PopoutShape::Landscape => ((600.0, 320.0), (520.0, 280.0)),
+    };
+    let window =
+        tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
+            .title(&widget.manifest.name)
+            .inner_size(width, height)
+            .min_inner_size(min_width, min_height)
+            .build()
+            .map_err(|_| "The widget window didn't open. Does retrying help?".to_string())?;
+    let handle = app.clone();
+    window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            let _ = handle.emit(POPOUTS_CHANGED, open_popouts(&handle, Some(&label)));
+        }
+    });
+    log::info!("Opened widget {widget_id} in its own window");
+    let _ = app.emit(POPOUTS_CHANGED, open_popouts(&app, None));
+    Ok(())
+}
+
+/// Closes a widget's own window, returning the widget to the main window.
+#[tauri::command]
+pub fn close_widget_popout(app: AppHandle, widget_id: String) -> Result<(), String> {
+    crate::widgets::validate_widget_id(&widget_id)?;
+    close_popout(&app, &widget_id);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn close_widget_session(session_id: String, runtime: State<'_, Runtime>) {
     if let Ok(mut sessions) = runtime.widget_sessions.lock() {
@@ -2219,14 +2325,12 @@ pub fn export_theme(app: AppHandle, runtime: State<'_, Runtime>) -> Result<Strin
 mod tests {
 
     #[test]
-    fn survey_answers_are_validated() {
-        assert!(super::survey_body(0, "").is_err());
-        assert!(super::survey_body(6, "").is_err());
-        assert!(super::survey_body(3, &"a".repeat(2001)).is_err());
-        let body = super::survey_body(5, "  Good  ").unwrap();
-        assert_eq!(body["rating"], 5);
-        assert_eq!(body["comment"], "Good");
-        assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+    fn module_urls_change_with_the_installed_package() {
+        let first = module_url("sample", "main.js", "0123456789abcdef0123", "1.0.0");
+        let second = module_url("sample", "main.js", "fedcba98765432100123", "1.0.0");
+        assert!(first.ends_with("/sample/main.js?v=0123456789abcdef"));
+        assert_ne!(first, second);
+        assert!(module_url("sample", "main.js", "", "1.0.0").ends_with("?v=1.0.0"));
     }
 
     #[test]

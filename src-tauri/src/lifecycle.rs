@@ -10,6 +10,21 @@ use tauri::{Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 /// Window label of the main app window.
 pub const MAIN_WINDOW_LABEL: &str = "main";
+/// Window label prefix for a widget shown in its own window: `popout-<widget id>`.
+pub const POPOUT_WINDOW_PREFIX: &str = "popout-";
+
+/// The widget ID a popout window label names, or `None` for other windows.
+pub fn popout_widget_id(label: &str) -> Option<&str> {
+    label
+        .strip_prefix(POPOUT_WINDOW_PREFIX)
+        .filter(|id| crate::widgets::validate_widget_id(id).is_ok())
+}
+
+/// Whether a window shows Toolblox's own interface: the main window or a widget popout.
+pub fn is_app_window(label: &str) -> bool {
+    label == MAIN_WINDOW_LABEL || popout_widget_id(label).is_some()
+}
+
 /// ID of the system tray or menu bar icon.
 pub const TRAY_ID: &str = "toolblox-tray";
 /// Tray menu item that shows the main window.
@@ -297,5 +312,15 @@ mod tests {
         state.pending_activation.store(true, Ordering::SeqCst);
         assert!(state.take_pending_activation());
         assert!(!state.take_pending_activation());
+    }
+
+    #[test]
+    fn only_main_and_popout_windows_show_the_app() {
+        assert!(is_app_window("main"));
+        assert!(is_app_window("popout-autoclicker"));
+        assert_eq!(popout_widget_id("popout-autoclicker"), Some("autoclicker"));
+        assert!(!is_app_window("popout-"));
+        assert!(!is_app_window("popout-Bad-Id"));
+        assert!(!is_app_window("roblox-login"));
     }
 }

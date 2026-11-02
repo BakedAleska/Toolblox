@@ -1,4 +1,4 @@
-import { ArrowLeft, Code, Copy, ExternalLink, FolderOpen, RefreshCw } from "lucide-react";
+import { ArrowLeft, Code, Copy, ExternalLink, FolderOpen, PictureInPicture2, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -6,9 +6,13 @@ import { bridge, describeError, isDemo, previewUpdater } from "@/bridge";
 import type { ThemeStore } from "@/lib/theme";
 import { newestFirst } from "@/logic";
 import { ThemesTab } from "@/screens/Themes";
-import { ChoiceRow, Group, IconButton, Panel, Screen, SettingRow, Spinner, SwitchRow, type ScreenProps } from "@/shared";
+import { useWidgetHasSettings } from "@/screens/WidgetMenu";
+import { ChoiceRow, Group, IconButton, Panel, Screen, SettingRow, Spinner, SwitchRow, WidgetFrame, failure, type ScreenProps } from "@/shared";
+import { WidgetBoundary, useWidgetRegistry } from "@/widgets/host";
+import type { WidgetSummary } from "@/types";
 
-type Tab = "general" | "accounts" | "themes";
+/** A core tab, or `widget:<id>` for a widget's settings. */
+type Tab = "general" | "accounts" | "themes" | `widget:${string}`;
 /** The last open tab, so returning from a settings subpage shows the tab it was opened from. */
 let lastTab: Tab = "general";
 
@@ -16,10 +20,15 @@ let lastTab: Tab = "general";
 const columns = "grid items-start gap-4 @5xl:grid-cols-2";
 
 
-export function SettingsScreen({ themes, ...props }: ScreenProps & { themes: ThemeStore }) {
+/** Toolblox settings, with a tab for each enabled widget that has settings. `widgetId` opens that widget's tab. */
+export function SettingsScreen({ themes, widgetId, ...props }: ScreenProps & { themes: ThemeStore; widgetId?: string }) {
   const { state, patchSettings } = props;
-  const [tab, setTab] = useState<Tab>(lastTab);
+  const hasSettings = useWidgetHasSettings(state);
+  const widgets = state.installedWidgets.filter(hasSettings);
+  const [tab, setTab] = useState<Tab>(widgetId ? `widget:${widgetId}` : lastTab);
+  useEffect(() => { if (widgetId) setTab(`widget:${widgetId}`); }, [widgetId]);
   useEffect(() => { lastTab = tab; }, [tab]);
+  useEffect(() => { if (tab.startsWith("widget:") && !widgets.some(({ id }) => tab === `widget:${id}`)) setTab("general"); }, [tab, widgets.map(({ id }) => id).join()]);
   const { settings } = state;
 
   return <Screen title="Settings" tools={tab === "themes" && <IconButton label="Custom CSS" className="text-muted-foreground" onClick={() => props.navigate("/settings/css")}><Code /></IconButton>}>
@@ -28,6 +37,7 @@ export function SettingsScreen({ themes, ...props }: ScreenProps & { themes: The
         <TabsTrigger value="general" className="flex-none px-3">General</TabsTrigger>
         <TabsTrigger value="accounts" className="flex-none px-3">Accounts</TabsTrigger>
         <TabsTrigger value="themes" className="flex-none px-3">Themes</TabsTrigger>
+        {widgets.map((widget) => <TabsTrigger key={widget.id} value={`widget:${widget.id}`} className="flex-none px-3">{widget.name}</TabsTrigger>)}
       </TabsList>
 
       <TabsContent value="general" className={columns}>
@@ -81,8 +91,29 @@ export function SettingsScreen({ themes, ...props }: ScreenProps & { themes: The
       <TabsContent value="themes" className="flex flex-col gap-4">
         <ThemesTab {...props} themes={themes} />
       </TabsContent>
+
+      {widgets.map((widget) => <TabsContent key={widget.id} value={`widget:${widget.id}`} className="flex flex-col gap-4">
+        <WidgetSettingsTab widget={widget} {...props} />
+      </TabsContent>)}
     </Tabs>
   </Screen>;
+}
+
+/**
+ * A widget's settings: its own settings page or frame. In the main
+ * window, a widget in its own window shows a link to that window instead, because its module runs there.
+ */
+export function WidgetSettingsTab({ widget, state, notify, popout = false }: Pick<ScreenProps, "state" | "notify"> & { widget: WidgetSummary; popout?: boolean }) {
+  const { settingsPages } = useWidgetRegistry();
+  const Custom = settingsPages.get(widget.id);
+  const poppedOut = !popout && state.popouts.includes(widget.id);
+  return <>
+    {poppedOut ? <Panel><SettingRow title={`${widget.name} is in its own window`} description="Its other settings are in that window." control={() =>
+      <Button variant="outline" size="sm" onClick={() => void bridge.openWidgetPopout(widget.id).catch((error) => notify(failure("The window couldn't be shown. Does retrying help?", error)))}><PictureInPicture2 />Show window</Button>} /></Panel>
+      : Custom ? <WidgetBoundary widgetId={widget.id}><Custom /></WidgetBoundary>
+      : widget.hasSettings ? <WidgetFrame widget={widget} surface="settings" title={`${widget.name} settings`} />
+      : null}
+  </>;
 }
 
 function LogGroup({ navigate }: Pick<ScreenProps, "navigate">) {

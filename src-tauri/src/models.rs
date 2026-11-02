@@ -53,8 +53,6 @@ pub struct Settings {
     pub open_on_launch: bool,
     /// Closing the window hides to the tray instead of quitting.
     pub run_in_background: bool,
-    /// IDs of widgets whose processes start with the app.
-    pub widgets_start_on_launch: Vec<String>,
     /// Minimize the window after a manual join.
     pub minimize_on_join: bool,
     /// Look up and show game names for accounts in game.
@@ -104,7 +102,6 @@ impl Default for Settings {
             auto_rejoin: false,
             open_on_launch: false,
             run_in_background: true,
-            widgets_start_on_launch: Vec::new(),
             minimize_on_join: false,
             show_game_names: true,
             notify_on_drop: false,
@@ -138,7 +135,6 @@ impl Settings {
         for id in self
             .disabled_widgets
             .iter()
-            .chain(&self.widgets_start_on_launch)
             .chain(self.widget_settings.keys())
         {
             validate_widget_id(id)?;

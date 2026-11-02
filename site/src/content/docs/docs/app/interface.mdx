@@ -350,14 +350,10 @@ first of these that exists:
 The header shows a settings `IconButton` labelled "`name` settings" when the widget has an iframe
 settings page, can start on launch (declares processes), or registered a settings component.
 
-`WidgetSettings` renders `/widgets/<id>/settings` in a `Screen` titled "`name` settings", with an
-**Open widget** button when the widget has a page. Its body stacks, in order:
-
-1. A **Start with Toolblox** `SwitchRow` when `canStartOnLaunch` is true, saved with
-   `bridge.setWidgetStartOnLaunch`.
-2. The `registerSettings` component, inside a `WidgetBoundary`.
-3. The iframe settings page (`hasSettings`) on the `settings` surface.
-4. "No settings. This widget has no settings." when none of the above apply.
+`/widgets/<id>/settings` opens `SettingsScreen` on the widget's tab. `WidgetSettingsTab` renders
+the `registerSettings` component inside a `WidgetBoundary`, or the iframe settings page
+(`hasSettings`) on the `settings` surface. While the widget is in its own window, it shows a
+**Show window** button instead.
 
 Widget settings are kept apart from the Toolblox Settings page. See
 [Pages and screens](/docs/widgets/tutorials/pages-and-screens/) for a walkthrough.
@@ -420,7 +416,7 @@ groups. The
 header ends with the app-wide tools from the `ScreenTools` context: **Theme**, which cycles
 System, Light, and Dark, then **Resize to default aspect ratio** and **Open mini mode**, which the browser
 demo hides. A hairline separates them from the page's own actions. A screen can pass its own
-`tools` to `Screen`; they sit before the app-wide tools with the beta survey button, past a
+`tools` to `Screen`; they sit before the app-wide tools, past a
 hairline of their own. Settings uses this for **Custom CSS** while the Themes tab is open.
 
 ### Slots on each screen
@@ -569,6 +565,8 @@ the `ui` object that `host.tsx` passes to widgets.
 | `SwitchRow` | Settings row with title, description, and a `Switch` labelled by them | `title`, `description?`, `checked`, `change` | Yes |
 | `ChoiceRow` | Settings row with a single-choice outline `ToggleGroup` | `title`, `description?`, `value`, `options`, `change` | Yes |
 | `StatTile` | Icon, large tabular number, and label; a `<button>` when `onClick` is set | `icon`, `label`, `value`, `onClick?` | Yes |
+| `SettingRow` | Settings row with title, description, and any control | `title`, `description?`, `control` | Yes |
+| `system.*` | Control-surface style for system widgets, in `src/widgets/kit.tsx`: `Console` (power control, status dot and label, monospaced readout, detail; `stacked` for a landscape column), `PowerButton`, `Split` (two columns from `@5xl`, or always with `landscape`), `Tiles`, `Tile`, `TileRow`, `SwitchField`, `SliderField`, `Stepper`, `Segmented`, `Keycap`, `AddButton`, `RemoveButton`, `SelectButton`, and the `usePopout` hook | See `kit.tsx` | Yes, as `ui.system` |
 | `EmptyState` | Centred icon, title, optional text, and optional action | `icon`, `title`, `text?`, `action?` | Yes |
 | `WidgetFrame` | Sandboxed iframe for a legacy widget surface, with session setup and the `postMessage` bridge | `widget`, `surface` (`main`, `settings`, `dashboard`), `title` | No |
 | `placeLabel` | Game name from `recentPlaces`, or the place ID | `(state, placeId)` | No |
@@ -576,7 +574,7 @@ the `ui` object that `host.tsx` passes to widgets.
 | `permissionSummary` | Comma-separated plain-language permissions | `(permissions)` | No |
 | `ScreenProps`, `ConfirmRequest`, `PlaceRequest` | Types | — | No |
 
-`SettingRow`, the private base of `SwitchRow` and `ChoiceRow`, uses `useId` to wire the control's
+`SettingRow`, the base of `SwitchRow` and `ChoiceRow`, uses `useId` to wire the control's
 `aria-labelledby` and `aria-describedby` to the title and description, so these rows are
 accessible without extra work. `WidgetFrame` is covered in
 [Iframe widgets](/docs/widgets/reference/iframe-widgets/).

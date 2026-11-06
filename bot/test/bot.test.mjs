@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { byVersion, changelogEmbeds, parseChangelog, pendingChangelogs, syncChangelogs } from "../src/changelogs.ts";
 import { COMMANDS, respond } from "../src/commands.ts";
 import { verifyInteraction } from "../src/discord.ts";
+import { INFO_CHANNELS, syncInfo } from "../src/info.ts";
 import { formatVersion } from "../src/releases.ts";
 
 const toHex = (bytes) => Buffer.from(bytes).toString("hex");
@@ -144,6 +145,52 @@ test("posts released changelogs once, edits changed ones, and skips unreleased o
     await syncChangelogs("token", state);
     assert.ok(calls.includes("PATCH https://discord.com/api/v10/channels/c1/messages/100"));
     assert.equal(calls.filter((call) => call.startsWith("POST")).length, 0);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("keeps info messages within Discord's limits", () => {
+  for (const { messages } of INFO_CHANNELS) {
+    for (const { content = "", embeds = [] } of messages) {
+      assert.ok(content.length <= 2000);
+      for (const embed of embeds) assert.ok(embed.description.length <= 4096);
+    }
+  }
+});
+
+test("posts info messages once, in order, and edits them when they change", async () => {
+  const values = new Map();
+  const state = {
+    get: async (key, type) => (values.has(key) ? (type === "json" ? JSON.parse(values.get(key)) : values.get(key)) : null),
+    put: async (key, value) => void values.set(key, value),
+  };
+  const requests = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    requests.push({ method: init.method, path: new URL(url).pathname, body: JSON.parse(init.body) });
+    return Response.json({ id: `m${requests.length}` });
+  };
+  const total = INFO_CHANNELS.reduce((sum, { messages }) => sum + messages.length, 0);
+  try {
+    await syncInfo("token", state);
+    assert.equal(requests.length, total);
+    assert.ok(requests.every(({ method }) => method === "POST"));
+    assert.match(requests[0].body.content, /you agree to these guidelines/);
+    assert.equal(requests[0].path, "/api/v10/channels/1566577082476265543/messages");
+    assert.equal(requests[1].body.embeds[0].title, "Rules");
+
+    await syncInfo("token", state);
+    assert.equal(requests.length, total);
+
+    const posted = JSON.parse(values.get("info"));
+    posted.rules.content = "older text";
+    values.set("info", JSON.stringify(posted));
+    await syncInfo("token", state);
+    assert.deepEqual(requests.slice(total).map(({ method, path }) => `${method} ${path}`), [
+      "PATCH /api/v10/channels/1566577082476265543/messages/m1",
+      "PATCH /api/v10/channels/1566577082476265543/messages/m2",
+    ]);
   } finally {
     globalThis.fetch = original;
   }

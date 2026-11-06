@@ -1,4 +1,4 @@
-import { discordRequest, findChannel } from "./discord.ts";
+import { findChannel, syncMessages } from "./discord.ts";
 
 /** GitHub endpoint listing the files in `changelogs/` on main. */
 const CHANGELOGS_URL = "https://api.github.com/repos/BakedAleska/Toolblox/contents/changelogs?ref=main";
@@ -91,16 +91,8 @@ export async function syncChangelogs(token: string, state: KVNamespace, githubTo
     const messageIds = previous?.messageIds ?? (previous?.messageId ? [previous.messageId] : []);
     if (changelog.released) {
       channel ??= await findChannel(token, state, CHANNEL_NAME, CHANNEL_KEY);
-      const embeds = changelogEmbeds(changelog);
-      for (const [index, embed] of embeds.entries()) {
-        const body = { embeds: [embed], allowed_mentions: { parse: [] } };
-        const id = messageIds[index];
-        const edited = id && (await discordRequest(token, "PATCH", `/channels/${channel}/messages/${id}`, body, [404])).ok;
-        if (!edited) messageIds[index] = (await (await discordRequest(token, "POST", `/channels/${channel}/messages`, body)).json<{ id: string }>()).id;
-        posted[file.version] = { sha: previous?.sha ?? "", messageIds };
-        await state.put(POSTED_KEY, JSON.stringify(posted));
-      }
-      for (const id of messageIds.splice(embeds.length)) await discordRequest(token, "DELETE", `/channels/${channel}/messages/${id}`, undefined, [404]);
+      posted[file.version] = { sha: previous?.sha ?? "", messageIds };
+      await syncMessages(token, channel, changelogEmbeds(changelog).map((embed) => ({ embeds: [embed] })), messageIds, () => state.put(POSTED_KEY, JSON.stringify(posted)));
     }
     posted[file.version] = messageIds.length ? { sha: file.sha, messageIds } : { sha: file.sha };
     await state.put(POSTED_KEY, JSON.stringify(posted));

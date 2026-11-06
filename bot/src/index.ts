@@ -1,6 +1,7 @@
 import { respond } from "./commands.ts";
 import { syncChangelogs } from "./changelogs.ts";
 import { verifyInteraction } from "./discord.ts";
+import { syncInfo } from "./info.ts";
 
 /** Worker bindings, set in `wrangler.toml` and with `wrangler secret put`. */
 export interface Env {
@@ -39,10 +40,16 @@ export default {
   },
 
   /**
-   * Posts new released changelogs to the #changelogs channel. Secrets are trimmed, because a
-   * secret piped from `echo` ends with a newline.
+   * Posts new released changelogs to the #changelogs channel and keeps #rules and #faq current.
+   * Each runs even if the other fails. Secrets are trimmed, because a secret piped from `echo`
+   * ends with a newline.
    */
   async scheduled(_controller, env) {
-    await syncChangelogs(env.DISCORD_BOT_TOKEN.trim(), env.STATE, env.GITHUB_TOKEN?.trim());
+    const token = env.DISCORD_BOT_TOKEN.trim();
+    try {
+      await syncChangelogs(token, env.STATE, env.GITHUB_TOKEN?.trim());
+    } finally {
+      await syncInfo(token, env.STATE);
+    }
   },
 } satisfies ExportedHandler<Env>;

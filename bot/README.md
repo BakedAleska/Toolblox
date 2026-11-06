@@ -2,8 +2,9 @@
 
 The Toolblox Discord bot has two parts that share one Discord application and token:
 
-- **Worker** (`src/`): a Cloudflare Worker that answers slash commands and posts released
-  changelogs to #changelogs every five minutes. It stays up without a server.
+- **Worker** (`src/`): a Cloudflare Worker that answers slash commands and, every five minutes,
+  posts released changelogs to #changelogs and keeps #rules and #faq current. It stays up without
+  a server.
 - **Gateway** (`gateway/`): a small Node process, run on an always-on server, that greets new
   members in #welcome and rotates the bot's status. Discord sends member joins only over a
   persistent Gateway connection, which a Worker can't keep open.
@@ -30,7 +31,8 @@ read from GitHub's release statistics in the browser.
 3. **Install the bot.** In **Installation**, enable **Guild Install** with the
    `applications.commands` and `bot` scopes, then open the install link and add the bot to the
    server. Enabling **User Install** also lets you use the commands anywhere.
-4. **Give the bot access** to #changelogs and #welcome: **View Channel** and **Send Messages**.
+4. **Give the bot access** to #changelogs, #welcome, #rules, and #faq: **View Channel**,
+   **Send Messages**, and **Embed Links**.
 
 ## Worker setup
 
@@ -96,3 +98,6 @@ npm run dev     # local Worker; add secrets to .dev.vars (ignored by git)
 ```
 
 Add a command in `src/commands.ts` (definition and reply), then run `npm run register`.
+
+Edit the #rules and #faq text in `INFO_CHANNELS` in `src/info.ts`, then run `npm run deploy`. The
+bot edits its existing messages within five minutes.

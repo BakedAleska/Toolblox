@@ -62,3 +62,19 @@ export async function findChannel(token: string, state: KVNamespace, name: strin
   }
   throw new Error(`The #${name} channel wasn't found. Is the bot in the server and allowed to see it?`);
 }
+
+/**
+ * Makes a channel's messages match `bodies`: edits those in `messageIds`, posts any that are
+ * missing, and deletes extras. `messageIds` is updated in place and `save` runs after each
+ * message, so a failure doesn't post the same message twice.
+ */
+export async function syncMessages(token: string, channel: string, bodies: object[], messageIds: string[], save: () => Promise<void>): Promise<void> {
+  for (const [index, message] of bodies.entries()) {
+    const body = { ...message, allowed_mentions: { parse: [] } };
+    const id = messageIds[index];
+    const edited = id && (await discordRequest(token, "PATCH", `/channels/${channel}/messages/${id}`, body, [404])).ok;
+    if (!edited) messageIds[index] = (await (await discordRequest(token, "POST", `/channels/${channel}/messages`, body)).json<{ id: string }>()).id;
+    await save();
+  }
+  for (const id of messageIds.splice(bodies.length)) await discordRequest(token, "DELETE", `/channels/${channel}/messages/${id}`, undefined, [404]);
+}

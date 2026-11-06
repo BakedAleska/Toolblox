@@ -69,8 +69,9 @@ static int placed_version = -1;
                                                : [NSColor colorWithWhite:0.55 alpha:1];
     [dot setFill];
     [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(12, NSMidY(bounds) - 4, 8, 8)] fill];
-    NSString *text = state == INDICATOR_ON
+    NSString *text = state == INDICATOR_ON && core_indicator_cps()
                          ? [NSString stringWithFormat:@"On · %d CPS", core_indicator_cps()]
+                     : state == INDICATOR_ON     ? @"On"
                      : state == INDICATOR_PAUSED ? @"Paused"
                                                  : @"Off";
     NSDictionary *attributes = @{

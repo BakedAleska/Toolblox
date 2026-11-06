@@ -20,6 +20,7 @@
 #define MAX_FIELDS 16
 #define MAX_VALUE 1024
 #define CPS_LIMIT 1000
+#define INTERVAL_LIMIT_MS 60000
 #define CALIBRATION_WAITS 100
 #define STATUS_INTERVAL_NS 250000000ull
 #define SECOND_NS 1000000000ull
@@ -89,6 +90,7 @@ static atomic_int roblox_focused;
 static atomic_int only_roblox = 1;
 static atomic_int button = 1;
 static atomic_int target_cps = 10;
+static atomic_int interval_ms;
 static atomic_int measured_cps;
 /* The indicator position in ten-thousandths of the screen, or -1 for the default spot. */
 static atomic_int position_x = -1;
@@ -268,7 +270,8 @@ static void *click_loop(void *unused) {
     for (;;) {
         uint64_t now = platform_now_ns();
         if (clicking()) {
-            uint64_t period = SECOND_NS / (uint64_t)atomic_load(&target_cps);
+            int interval = atomic_load(&interval_ms);
+            uint64_t period = interval ? (uint64_t)interval * 1000000ull : SECOND_NS / (uint64_t)atomic_load(&target_cps);
             if (!next || now > next + period) next = now;
             if (now >= next) {
                 if (platform_click(atomic_load(&button))) {
@@ -481,6 +484,10 @@ static void handle(const char *line) {
         if ((value = get(fields, count, "cps"))) {
             int cps = atoi(value);
             atomic_store(&target_cps, cps < 1 ? 1 : cps > max_cps ? max_cps : cps);
+        }
+        if ((value = get(fields, count, "intervalMs"))) {
+            int interval = atoi(value), shortest = (1000 + max_cps - 1) / max_cps;
+            atomic_store(&interval_ms, interval <= 0 ? 0 : interval < shortest ? shortest : interval > INTERVAL_LIMIT_MS ? INTERVAL_LIMIT_MS : interval);
         }
         if ((value = get(fields, count, "button"))) atomic_store(&button, !strcmp(value, "right") ? 2 : !strcmp(value, "middle") ? 3 : 1);
         if ((value = get(fields, count, "onlyRoblox"))) atomic_store(&only_roblox, strcmp(value, "false") != 0);

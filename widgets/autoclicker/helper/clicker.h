@@ -10,7 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define CLICKER_VERSION "1.9.0"
+#define CLICKER_VERSION "1.10.0"
 
 /* Bind codes for mouse buttons, above every keyboard code. Mouse1 is the left button. */
 #define MOUSE_CODE(n) (0x1000 + (n))

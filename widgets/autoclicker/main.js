@@ -9,8 +9,10 @@ const MODES = [
   { value: "disable", label: "Disable", description: "Turns clicking off." },
   { value: "hold", label: "Hold", description: "Clicks while held." },
 ];
-const DEFAULTS = { cps: 10, button: "left", onlyRoblox: true, position: null, indicator: { transparency: 10, visible: true }, binds: [{ key: "F6", mode: "toggle" }] };
+const DEFAULTS = { cps: 10, unit: "cps", intervalMs: 100, button: "left", onlyRoblox: true, position: null, indicator: { transparency: 10, visible: true }, binds: [{ key: "F6", mode: "toggle" }] };
 const MAX_BINDS = 16;
+/** Longest interval in milliseconds. Matches `INTERVAL_LIMIT_MS` in `helper/clicker.c`. */
+const MAX_INTERVAL = 60_000;
 
 /** Keys the helper can bind, by `KeyboardEvent.code`. Matches the table in `helper/clicker.c`. */
 const KEYS = new Set([
@@ -29,6 +31,7 @@ const MOUSE = { Mouse1: "Left mouse", Mouse2: "Right mouse", Mouse3: "Middle mou
 /** `MouseEvent.button` to bind names. */
 const BUTTONS = ["Mouse1", "Mouse3", "Mouse2", "Mouse4", "Mouse5"];
 
+const shortestInterval = (maxCps) => Math.ceil(1000 / maxCps);
 const keyLabel = (key) => MOUSE[key] ?? SYMBOLS[key] ?? key.replace(/^Key|^Digit/, "").replace(/^Arrow(.+)/, "$1 arrow").replace(/^Numpad(.+)/, "Numpad $1");
 
 let cleanup = () => {};
@@ -52,6 +55,8 @@ function readConfig(stored) {
   const binds = Array.isArray(value.binds) ? value.binds.filter((bind) => KEYS.has(bind?.key) && MODES.some((mode) => mode.value === bind?.mode)) : DEFAULTS.binds;
   return {
     cps: Number.isInteger(value.cps) && value.cps >= 1 ? value.cps : DEFAULTS.cps,
+    unit: value.unit === "interval" ? "interval" : DEFAULTS.unit,
+    intervalMs: Number.isInteger(value.intervalMs) && value.intervalMs >= 1 && value.intervalMs <= MAX_INTERVAL ? value.intervalMs : DEFAULTS.intervalMs,
     button: ["right", "middle"].includes(value.button) ? value.button : "left",
     onlyRoblox: typeof value.onlyRoblox === "boolean" ? value.onlyRoblox : DEFAULTS.onlyRoblox,
     position: readPosition(value.position),
@@ -85,6 +90,7 @@ export async function activate(toolblox) {
       if (message?.type === "ready") {
         helper.set({ status: "running", maxCps: Number(message.maxCps) || 1 });
         if (config.get().cps > helper.get().maxCps) save({ cps: helper.get().maxCps });
+        if (config.get().intervalMs < shortestInterval(helper.get().maxCps)) save({ intervalMs: shortestInterval(helper.get().maxCps) });
       } else if (message?.type === "status") {
         clicker.set({ state: String(message.state), reason: String(message.reason ?? ""), cps: Number(message.cps) || 0, target: Number(message.target) || 0 });
       } else if (message?.type === "permissions") {
@@ -116,8 +122,9 @@ export async function activate(toolblox) {
   }
 
   const configure = () => {
-    const { cps, button, onlyRoblox, position, indicator } = config.get();
-    return send({ type: "configure", cps, button, onlyRoblox, x: position?.x ?? -1, y: position?.y ?? -1, transparency: indicator.transparency, indicator: indicator.visible });
+    const { cps, unit, intervalMs, button, onlyRoblox, position, indicator } = config.get();
+    const interval = unit === "interval";
+    return send({ type: "configure", cps: interval ? Math.max(1, Math.round(1000 / intervalMs)) : cps, intervalMs: interval ? intervalMs : 0, button, onlyRoblox, x: position?.x ?? -1, y: position?.y ?? -1, transparency: indicator.transparency, indicator: indicator.visible });
   };
   const sendBinds = () => send({ type: "binds", value: config.get().binds.map((bind) => `${bind.key}:${bind.mode}`).join(",") });
 
@@ -155,6 +162,7 @@ export async function activate(toolblox) {
 
   const BUTTON_OPTIONS = [{ value: "left", label: "Left" }, { value: "middle", label: "Middle" }, { value: "right", label: "Right" }];
   const { system } = ui;
+  const BIND_ROW = "rounded-lg bg-background px-2";
 
   /** Power, status, and target speed. Turning on starts the helper first when it isn't running. `stacked` fills a landscape column. */
   function Status({ stacked = false }) {
@@ -172,10 +180,11 @@ export async function activate(toolblox) {
     const tone = !running ? "muted" : state === "on" ? "success" : state === "paused" ? "warning" : "muted";
     const bind = current.binds.find((item) => item.mode === "toggle" || item.mode === "enable" || item.mode === "hold");
     const button = BUTTON_OPTIONS.find((item) => item.value === current.button).label;
-    const detail = active ? `${cps} measured · ${button} button`
+    const interval = current.unit === "interval";
+    const detail = active ? (interval ? `${button} button` : `${cps} measured · ${button} button`)
       : bind ? `${bind.mode === "hold" ? "Hold" : "Press"} ${keyLabel(bind.key)} to start · ${button} button`
       : `${button} button`;
-    return h(system.Console, { status: label, tone, value: `${current.cps} CPS`, detail, stacked,
+    return h(system.Console, { status: label, tone, value: interval ? `${current.intervalMs} ms` : `${current.cps} CPS`, detail, stacked,
       control: h(system.PowerButton, { on: active, label: "Autoclicker", disabled: status === "starting", onClick: () => void toggle() }) });
   }
 
@@ -189,12 +198,16 @@ export async function activate(toolblox) {
         h("p", { className: "text-sm text-warning", role: "alert" }, macos ? `Toolblox needs ${missing} permission.` : "Windows refused the input hook. Does restarting Toolblox help?")));
   }
 
-  /** Clicks per second, from 1 to the device's measured limit. */
+  /** Clicks per second, from 1 to the device's measured limit, or the time between clicks. The button beside the label switches between them. */
   function Speed() {
     const current = use(config);
     const { maxCps } = use(helper);
-    return h(system.Tile, { label: "Clicks per second" },
-      h(system.Stepper, { label: "Clicks per second", value: current.cps, min: 1, max: maxCps || current.cps, change: (cps) => changeConfig({ cps }) }));
+    const interval = current.unit === "interval";
+    const label = interval ? "Interval in milliseconds" : "Clicks per second";
+    const labelAction = h(system.LabelButton, { onClick: () => changeConfig({ unit: interval ? "cps" : "interval" }) }, interval ? "CPS" : "Interval");
+    return h(system.Tile, { label, labelAction }, interval
+      ? h(system.Stepper, { label, value: current.intervalMs, min: maxCps ? shortestInterval(maxCps) : 1, max: MAX_INTERVAL, change: (intervalMs) => changeConfig({ intervalMs }) })
+      : h(system.Stepper, { label, value: current.cps, min: 1, max: maxCps || current.cps, change: (cps) => changeConfig({ cps }) }));
   }
 
   /** The mouse button each click presses. */
@@ -236,10 +249,10 @@ export async function activate(toolblox) {
       };
     }, [recording]);
     return h(system.Tile, { label: "Keybinds", wide: true, action: !recording && h(system.AddButton, { disabled: current.binds.length >= MAX_BINDS, onClick: () => setRecording(true) }, "Add keybind") },
-      h("div", null,
+      h("div", { className: "flex flex-col gap-2" },
         current.binds.map((bind) => {
           const mode = MODES.find((item) => item.value === bind.mode);
-          return h(system.TileRow, { key: bind.key, actions: h(React.Fragment, null,
+          return h("div", { key: bind.key, className: BIND_ROW }, h(system.TileRow, { actions: h(React.Fragment, null,
             h(ui.DropdownMenu, null,
               h(ui.DropdownMenuTrigger, { render: h(system.SelectButton, { className: "w-24", "aria-label": `Mode for ${keyLabel(bind.key)}: ${mode.label}` }) }, mode.label),
               h(ui.DropdownMenuContent, { align: "end", className: "min-w-40" },
@@ -247,10 +260,10 @@ export async function activate(toolblox) {
                   h("span", { className: "flex flex-col" }, h("span", { className: item.value === bind.mode ? "font-medium" : undefined }, item.label), h("span", { className: "text-xs text-muted-foreground" }, item.description)))))),
             h(system.RemoveButton, { label: `Remove ${keyLabel(bind.key)}`, onClick: () => update(current.binds.filter((other) => other.key !== bind.key)) })) },
             h(system.Keycap, null, keyLabel(bind.key)),
-            h("span", { className: "truncate text-xs text-muted-foreground" }, mode.description));
+            h("span", { className: "truncate text-xs text-muted-foreground" }, mode.description)));
         }),
-        recording && h(system.TileRow, { actions: h(ui.Button, { variant: "outline", size: "sm", onClick: () => setRecording(false) }, "Cancel") },
-          h("p", { className: "text-sm text-muted-foreground", role: "status" }, "Press a key or mouse button.")),
+        recording && h("div", { className: BIND_ROW }, h(system.TileRow, { actions: h(ui.Button, { variant: "outline", size: "sm", onClick: () => setRecording(false) }, "Cancel") },
+          h("p", { className: "text-sm text-muted-foreground", role: "status" }, "Press a key or mouse button."))),
         !recording && !current.binds.length && h(system.TileRow, null, h("p", { className: "text-sm text-muted-foreground" }, "No keybinds"))));
   }
 
@@ -269,12 +282,12 @@ export async function activate(toolblox) {
   toolblox.registerSettings(function AutoclickerSettings() {
     const current = use(config);
     const indicator = (changes) => changeConfig({ indicator: { ...config.get().indicator, ...changes } });
-    return h(system.Tiles, null,
-      h(system.Tile, { label: "Clicking" },
-        h(system.SwitchField, { title: "Only in Roblox", description: "Pauses while another window is focused.", checked: current.onlyRoblox, change: (onlyRoblox) => changeConfig({ onlyRoblox }) })),
-      h(system.Tile, { label: "Indicator" },
-        h(system.SliderField, { title: "Background transparency", value: current.indicator.transparency, min: 0, max: 100, step: 5, unit: "%", change: (transparency) => indicator({ transparency }) }),
-        h(system.SwitchField, { title: "Show indicator", description: "Drag it to move it.", checked: current.indicator.visible, change: (visible) => indicator({ visible }) })));
+    return h("div", { className: "grid items-start gap-4 @5xl:grid-cols-2" },
+      h(ui.Group, { title: "Clicking" }, h(ui.Panel, { className: "divide-y" },
+        h(ui.SwitchRow, { title: "Only in Roblox", description: "Pauses while another window is focused.", checked: current.onlyRoblox, change: (onlyRoblox) => changeConfig({ onlyRoblox }) }))),
+      h(ui.Group, { title: "Indicator" }, h(ui.Panel, { className: "divide-y" },
+        h(ui.SwitchRow, { title: "Show indicator", description: "Drag it to move it.", checked: current.indicator.visible, change: (visible) => indicator({ visible }) }),
+        h(ui.SliderRow, { title: "Background transparency", value: current.indicator.transparency, min: 0, max: 100, step: 5, unit: "%", change: (transparency) => indicator({ transparency }) }))));
   });
 
   void startHelper();

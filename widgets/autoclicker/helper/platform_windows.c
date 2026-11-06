@@ -162,8 +162,8 @@ static void render_indicator(void) {
 
     enum indicator_state state = core_indicator_state();
     wchar_t text[32];
-    if (state == INDICATOR_ON) _snwprintf(text, 32, L"On \x00B7 %d CPS", core_indicator_cps());
-    else wcscpy(text, state == INDICATOR_PAUSED ? L"Paused" : L"Off");
+    if (state == INDICATOR_ON && core_indicator_cps()) _snwprintf(text, 32, L"On \x00B7 %d CPS", core_indicator_cps());
+    else wcscpy(text, state == INDICATOR_ON ? L"On" : state == INDICATOR_PAUSED ? L"Paused" : L"Off");
     text[31] = 0;
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, RGB(255, 255, 255));

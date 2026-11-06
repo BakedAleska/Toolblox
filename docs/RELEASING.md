@@ -2,17 +2,19 @@
 
 ## Publish a release
 
-1. Open **Actions → Release → Run workflow** on `main`.
-2. Enter the new version without the leading `v`, such as `0.3.0-beta`. It must be newer than
+1. Check that `changelogs/<version>.md` on `main` is marked `*Unreleased*` and describes what's
+   on `main`. The workflow stops if the file is missing or already dated.
+2. Open **Actions → Release → Run workflow** on `main`.
+3. Enter the new version without the leading `v`, such as `0.3.0-beta`. It must be newer than
    the current one.
-3. Run it. Tick **Build only** first to test a build without publishing anything.
+4. Run it. Tick **Build only** first to test a build without publishing anything.
 
-The workflow sets the version in every file, runs the checks, builds and signs the Windows
-installer on Windows and the universal macOS app on macOS in parallel, commits
+The workflow sets the version in every file, replaces `*Unreleased*` in the changelog with the
+date, runs the checks, builds and signs the Windows installer on Windows and the universal macOS app on macOS in parallel, commits
 `chore(release): <version>`, tags `v<version>`, and publishes a GitHub release with
 `Toolblox-Setup.exe`, `Toolblox.dmg`, their updater files, notes generated from `feat`, `fix`,
 and `perf` commits, and both SHA-256 digests. It then deploys the update manifest, so installed apps update the next
-time they open.
+time they open. The bot posts the dated changelog to #changelogs within five minutes.
 
 Use Conventional Commits so the notes stay accurate. `scripts/set-version.mjs` and
 `scripts/release-notes.mjs` can also run locally.

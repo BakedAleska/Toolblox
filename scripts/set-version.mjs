@@ -1,11 +1,13 @@
 /**
  * Sets the app version everywhere it's declared: `node scripts/set-version.mjs 0.3.0-beta`.
- * With `--check`, only verifies that the version is newer than the current one.
+ * With `--check`, only verifies that the version is newer than the current one and has an
+ * unreleased changelog.
  *
  * The startup update check compares the Cargo version with the signed manifest, so every file
- * must agree.
+ * must agree. The Discord bot posts a changelog only once it has a date, so this also replaces
+ * the changelog's *Unreleased* line with today's date in UTC.
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const check = process.argv[2] === "--check";
 const version = process.argv[check ? 3 : 2]?.replace(/^v/, "");
@@ -23,10 +25,17 @@ const compare = (a, b) => {
   return preA.localeCompare(preB, "en", { numeric: true });
 };
 
+const changelog = `changelogs/${version}.md`;
+const unreleased = /^\*Unreleased\*(?=\r?$)/m;
+
 if (check) {
   const current = JSON.parse(readFileSync("package.json", "utf8")).version;
   if (compare(version, current) <= 0) {
     console.error(`${version} must be newer than ${current}.`);
+    process.exit(1);
+  }
+  if (!existsSync(changelog) || !unreleased.test(readFileSync(changelog, "utf8"))) {
+    console.error(`${changelog} must exist and be marked *Unreleased*.`);
     process.exit(1);
   }
   process.exit(0);
@@ -43,6 +52,7 @@ const json = (path, update) => {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 };
 
+replace(changelog, unreleased, `*${new Date().toLocaleDateString("en-US", { dateStyle: "long", timeZone: "UTC" })}*`);
 json("package.json", (value) => { value.version = version; });
 json("package-lock.json", (value) => { value.version = version; value.packages[""].version = version; });
 json("src-tauri/tauri.conf.json", (value) => { value.version = version; });

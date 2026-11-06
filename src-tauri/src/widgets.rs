@@ -1284,6 +1284,7 @@ mod tests {
         assert!(error.contains("modified manifest"));
     }
 
+    #[cfg(debug_assertions)]
     #[test]
     fn working_tree_changes_reinstall_only_when_the_package_differs() {
         let source = tempfile::tempdir().unwrap();

@@ -1,8 +1,7 @@
-import { useEffect, useId, useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { ChevronDown, Minus, Plus, Power, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -50,22 +49,28 @@ function Tiles({ children, className }: { children: ReactNode; className?: strin
 }
 
 /**
- * Two columns that use the width of large pages: they stack below the `@5xl` container width.
- * `landscape` always shows both columns and fills the height, for a landscape window.
+ * Two columns that use the width of large pages: they stack below the `@5xl` container width,
+ * and the last item of `end` fills the rest of the height. `landscape` always shows both columns
+ * and fills the height, with the items of `end` sharing it, for a landscape window.
  */
 function Split({ start, end, landscape = false }: { start: ReactNode; end: ReactNode; landscape?: boolean }) {
-  return <div className={cn("grid gap-2", landscape ? "flex-1 grid-cols-[minmax(0,2fr)_minmax(0,3fr)]" : "@5xl:grid-cols-2 @5xl:items-start")}>
+  return <div className={cn("grid flex-1 gap-2", landscape ? "grid-cols-[minmax(0,2fr)_minmax(0,3fr)]" : "grid-rows-[auto_1fr] @5xl:grid-cols-2 @5xl:grid-rows-none @5xl:items-start")}>
     <div className="flex min-w-0 flex-col gap-2">{start}</div>
-    <div className="flex min-w-0 flex-col gap-2">{end}</div>
+    <div className={cn("flex min-w-0 flex-col gap-2", landscape ? "*:flex-1 *:justify-between" : "*:last:flex-1")}>{end}</div>
   </div>;
 }
 
-/** A tinted tile with its label inside. `wide` spans the whole grid. */
-function Tile({ label, action, wide = false, children }: { label: string; action?: ReactNode; wide?: boolean; children: ReactNode }) {
+/** A tinted tile with its label inside. `labelAction` sits beside the label and `action` at the far end. `wide` spans the whole grid. */
+function Tile({ label, labelAction, action, wide = false, children }: { label: string; labelAction?: ReactNode; action?: ReactNode; wide?: boolean; children: ReactNode }) {
   return <section className={cn("flex min-w-0 flex-col gap-2 rounded-xl bg-muted/60 p-3", wide && "col-span-full")}>
-    <div className="flex min-h-7 items-center justify-between gap-2"><h2 className={eyebrow}>{label}</h2>{action}</div>
+    <div className="flex min-h-7 items-center justify-between gap-2"><div className="flex min-w-0 items-center gap-1"><h2 className={eyebrow}>{label}</h2>{labelAction}</div>{action}</div>
     {children}
   </section>;
+}
+
+/** A small button in the tile label's text style, for `labelAction`. */
+function LabelButton(props: ComponentProps<"button">) {
+  return <button type="button" className={`${eyebrow} rounded-lg bg-background px-2 py-1 outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none`} {...props} />;
 }
 
 /** A row inside a tile: leading content, then trailing controls. Rows in one tile are separated by dividers. */
@@ -73,30 +78,6 @@ function TileRow({ children, actions }: { children: ReactNode; actions?: ReactNo
   return <div className="flex min-h-9 items-center gap-2 border-foreground/8 py-2 first:pt-0 last:pb-0 not-first:border-t">
     <div className="flex min-w-0 flex-1 items-center gap-2">{children}</div>
     {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
-  </div>;
-}
-
-/** A tile row with a title, an optional description, and a switch labelled by them. */
-function SwitchField({ title, description, checked, change }: { title: string; description?: string; checked: boolean; change: (value: boolean) => void }) {
-  const id = useId();
-  return <TileRow actions={<Switch checked={checked} onCheckedChange={(value) => change(value)} aria-labelledby={`${id}-t`} aria-describedby={description ? `${id}-d` : undefined} />}>
-    <span className="min-w-0">
-      <span id={`${id}-t`} className="block text-sm font-medium">{title}</span>
-      {description && <span id={`${id}-d`} className="block text-xs text-muted-foreground">{description}</span>}
-    </span>
-  </TileRow>;
-}
-
-/** A tile row with a title, the current value, and a full-width slider below. */
-function SliderField({ title, value, min, max, step = 1, unit = "", change }: { title: string; value: number; min: number; max: number; step?: number; unit?: string; change: (value: number) => void }) {
-  const id = useId();
-  return <div className="flex flex-col gap-2 border-foreground/8 py-2 first:pt-0 last:pb-0 not-first:border-t">
-    <div className="flex items-center justify-between gap-2">
-      <label htmlFor={id} className="text-sm font-medium">{title}</label>
-      <span className="font-mono text-sm tabular-nums" aria-hidden="true">{value}{unit}</span>
-    </div>
-    <input id={id} type="range" min={min} max={max} step={step} value={value} aria-valuetext={`${value}${unit}`} onChange={(event) => change(Number(event.target.value))}
-      className="h-5 w-full cursor-pointer accent-primary outline-none focus-visible:ring-2 focus-visible:ring-ring" />
   </div>;
 }
 
@@ -147,4 +128,4 @@ function SelectButton({ children, className, ...props }: ComponentProps<typeof B
   return <Button variant="outline" size="sm" className={cn("justify-between gap-2", className)} {...props}>{children}<ChevronDown className="text-muted-foreground" /></Button>;
 }
 
-export const system = { AddButton, Console, Keycap, PowerButton, RemoveButton, Segmented, SelectButton, SliderField, Split, Stepper, SwitchField, Tile, TileRow, Tiles };
+export const system = { AddButton, Console, Keycap, LabelButton, PowerButton, RemoveButton, Segmented, SelectButton, Split, Stepper, Tile, TileRow, Tiles };

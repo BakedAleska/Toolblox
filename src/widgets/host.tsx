@@ -13,7 +13,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { bridge, describeError } from "@/bridge";
 import { cn } from "@/lib/utils";
-import { AccountCard, AccountName, Avatar, ChoiceRow, EmptyState, IconButton, Modal, Panel, SectionTitle, SettingRow, Spinner, StatTile, SwitchRow } from "@/shared";
+import { AccountCard, AccountName, Avatar, ChoiceRow, EmptyState, Group, IconButton, Modal, Panel, SectionTitle, SettingRow, SliderRow, Spinner, StatTile, SwitchRow } from "@/shared";
 import { system } from "@/widgets/kit";
 import type { Account, AppRoute, AppState, LogLevel, WidgetSummary } from "@/types";
 
@@ -94,7 +94,7 @@ const WidgetModal = (props: ComponentProps<typeof Modal>) => <Modal scale="small
 /** Shared UI so widget interfaces match the rest of the app. */
 const ui = {
   AccountCard, AccountName, Avatar, Badge, Button, Checkbox, ChoiceRow, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
-  EmptyState, IconButton, Input, Modal: WidgetModal, Panel, PopoutButton, SectionTitle, SettingRow, Spinner, StatTile, Switch, SwitchRow, Tabs, TabsContent, TabsList, TabsTrigger,
+  EmptyState, Group, IconButton, Input, Modal: WidgetModal, Panel, PopoutButton, SectionTitle, SettingRow, SliderRow, Spinner, StatTile, Switch, SwitchRow, Tabs, TabsContent, TabsList, TabsTrigger,
   ToggleGroup, ToggleGroupItem, Tooltip, TooltipContent, TooltipTrigger, cn,
   /** The control-surface style for system widgets. See `src/widgets/kit.tsx`. `usePopout` reports whether the page is in the widget's own window. */
   system: { ...system, usePopout: () => useContext(WidgetPageContext)?.popout ?? false },

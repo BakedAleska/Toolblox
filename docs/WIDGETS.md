@@ -44,7 +44,7 @@ builds add the `examples/hello_world/` widget to the widgets folder once, as a s
 | Member | Purpose |
 | --- | --- |
 | `widget` | This widget's `id`, `name`, and `version`. |
-| `React`, `ui` | The app's React instance and components: `AccountCard`, `AccountName`, `Avatar`, `Badge`, `Button`, `Checkbox`, `ChoiceRow`, `DropdownMenu*`, `EmptyState`, `IconButton`, `Input`, `Modal`, `Panel`, `PopoutButton`, `SectionTitle`, `SettingRow`, `Spinner`, `StatTile`, `Switch`, `SwitchRow`, `Tabs*`, `ToggleGroup*`, `Tooltip*`, `cn`, and `system`, the control-surface style for system widgets: `Console`, `PowerButton`, `Split`, `Tiles`, `Tile`, `TileRow`, `SwitchField`, `SliderField`, `Stepper`, `Segmented`, `Keycap`, `AddButton`, `RemoveButton`, `SelectButton`, and `usePopout`. |
+| `React`, `ui` | The app's React instance and components: `AccountCard`, `AccountName`, `Avatar`, `Badge`, `Button`, `Checkbox`, `ChoiceRow`, `DropdownMenu*`, `EmptyState`, `Group`, `IconButton`, `Input`, `Modal`, `Panel`, `PopoutButton`, `SectionTitle`, `SettingRow`, `SliderRow`, `Spinner`, `StatTile`, `Switch`, `SwitchRow`, `Tabs*`, `ToggleGroup*`, `Tooltip*`, `cn`, and `system`, the control-surface style for system widgets: `Console`, `PowerButton`, `Split`, `Tiles`, `Tile`, `LabelButton`, `TileRow`, `Stepper`, `Segmented`, `Keycap`, `AddButton`, `RemoveButton`, `SelectButton`, and `usePopout`. |
 | `getState()`, `useAppState()`, `onStateChange(listener)` | Current app state: accounts, settings, widgets, and recent places. |
 | `navigate(route)`, `notify(message, kind)`, `refresh()`, `join(accountIds)` | App actions, including the Join flow with its place prompt. |
 | `registerPage(Component)` | The widget's page at `/widgets/<id>`. |

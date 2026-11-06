@@ -3,7 +3,7 @@ import { useEffect, useState, type PointerEvent } from "react";
 import { bridge } from "@/bridge";
 import { cn } from "@/lib/utils";
 import { accountName, relativeTime, sortAccounts } from "@/logic";
-import { Avatar, IconButton, Spinner, placeLabel, type ScreenProps } from "@/shared";
+import { Avatar, DiscordButton, IconButton, Spinner, placeLabel, type ScreenProps } from "@/shared";
 
 /** Heights in logical pixels: the bar, each account row, the list's padding, and the most rows
  * shown before the list scrolls. */
@@ -36,6 +36,7 @@ export function MiniWindow({ state, join, joining, signIn, exit, notify }: Pick<
         <span className="truncate"><span className="font-medium tabular-nums">{playing}</span> of {accounts.length} in game</span>
         <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} aria-hidden="true" />
       </button>
+      <DiscordButton size="icon-sm" />
       <IconButton label="Restore window" size="icon-sm" className="text-muted-foreground" onClick={exit}><Maximize2 /></IconButton>
     </div>
     {open && <ul id="mini-accounts" className="flex-1 overflow-y-auto border-t px-1 py-1">

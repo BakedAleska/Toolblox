@@ -5,9 +5,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { bridge, describeError, isDemo, previewUpdater } from "@/bridge";
 import type { ThemeStore } from "@/lib/theme";
 import { newestFirst } from "@/logic";
-import { ThemesTab } from "@/screens/Themes";
+import { ThemeFileTools, ThemesTab } from "@/screens/Themes";
 import { useWidgetHasSettings } from "@/screens/WidgetMenu";
-import { ChoiceRow, Group, IconButton, Panel, Screen, SettingRow, Spinner, SwitchRow, WidgetFrame, failure, type ScreenProps } from "@/shared";
+import { ChoiceRow, DISCORD_URL, Group, IconButton, Panel, Screen, SettingRow, Spinner, SwitchRow, WidgetFrame, failure, type ScreenProps } from "@/shared";
 import { WidgetBoundary, useWidgetRegistry } from "@/widgets/host";
 import type { WidgetSummary } from "@/types";
 
@@ -31,7 +31,10 @@ export function SettingsScreen({ themes, widgetId, ...props }: ScreenProps & { t
   useEffect(() => { if (tab.startsWith("widget:") && !widgets.some(({ id }) => tab === `widget:${id}`)) setTab("general"); }, [tab, widgets.map(({ id }) => id).join()]);
   const { settings } = state;
 
-  return <Screen title="Settings" tools={tab === "themes" && <IconButton label="Custom CSS" className="text-muted-foreground" onClick={() => props.navigate("/settings/css")}><Code /></IconButton>}>
+  return <Screen title="Settings" tools={tab === "themes" && <>
+    <ThemeFileTools notify={props.notify} confirm={props.confirm} themes={themes} />
+    <IconButton label="Custom CSS" className="text-muted-foreground" onClick={() => props.navigate("/settings/css")}><Code /></IconButton>
+  </>}>
     <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)} className="gap-4">
       <TabsList className="bg-transparent p-0">
         <TabsTrigger value="general" className="flex-none px-3">General</TabsTrigger>
@@ -58,6 +61,10 @@ export function SettingsScreen({ themes, widgetId, ...props }: ScreenProps & { t
             <Button variant="ghost" size="sm" onClick={() => previewUpdater("update")}>Update</Button>
             <Button variant="ghost" size="sm" onClick={() => previewUpdater("failure")}>Failure</Button>
           </div>}
+          <div className="flex items-center gap-2 px-4 py-3">
+            <p className="mr-auto text-sm font-medium">Discord server</p>
+            <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge.openExternal(DISCORD_URL)}>Open<ExternalLink /></Button>
+          </div>
           <div className="space-y-1 px-4 py-3">
             <p className="text-sm font-medium">Legal</p>
             <p className="text-xs text-muted-foreground">Toolblox isn't affiliated with or endorsed by Roblox Corporation. It's provided as is, without warranty, under the MIT License.</p>

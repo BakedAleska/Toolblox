@@ -63,8 +63,7 @@ function WidgetCard({ name, logoUrl, bannerUrl, meta, description, permissions, 
   const banner = bannerUrl && !bannerFailed ? bannerUrl : undefined;
   return <Panel className="flex flex-col overflow-hidden">
     <div className={cn("relative h-20 overflow-hidden bg-muted transition-[filter]", !active && "grayscale")} aria-hidden="true">
-      {banner ? <img src={banner} alt="" className="absolute inset-0 size-full object-cover" onError={() => setBannerFailed(true)} />
-        : logo && <img src={logo} alt="" className="absolute inset-0 size-full scale-150 object-cover opacity-60 blur-2xl" />}
+      {banner && <img src={banner} alt="" className="absolute inset-0 size-full object-cover" onError={() => setBannerFailed(true)} />}
       <div className="absolute inset-0 bg-linear-to-t from-card to-transparent" />
     </div>
     <div className="flex flex-1 flex-col gap-3 px-4 pb-4">

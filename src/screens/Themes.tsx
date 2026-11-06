@@ -15,12 +15,12 @@ const SAVE_DELAY = 400;
 
 const colorProperties = colorGroups.flatMap(({ tokens }) => tokens.map(([token]) => `--${token}`));
 
-export function ThemesTab({ state, notify, confirm, patchSettings, themes }: ScreenProps & { themes: ThemeStore }) {
+/** Theme file import and export buttons for the page header. */
+export function ThemeFileTools({ notify, confirm, themes }: Pick<ScreenProps, "notify" | "confirm"> & { themes: ThemeStore }) {
   const { css, save } = themes;
   const [busy, setBusy] = useState<"import" | "export">();
   const importInput = useRef<HTMLInputElement>(null);
 
-  const editCss = (edit: (css: string) => string) => void save(edit(css), SAVE_DELAY);
   const importFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -44,16 +44,22 @@ export function ThemesTab({ state, notify, confirm, patchSettings, themes }: Scr
   };
 
   return <>
+    <IconButton label="Import theme" className="text-muted-foreground" disabled={!!busy} onClick={() => importInput.current?.click()}>{busy === "import" ? <Spinner /> : <Upload />}</IconButton>
+    <IconButton label="Export theme" className="text-muted-foreground" disabled={!!busy} onClick={() => void exportFile()}>{busy === "export" ? <Spinner /> : <Download />}</IconButton>
+    <input ref={importInput} type="file" accept=".css,text/css" hidden onChange={(event) => void importFile(event)} />
+  </>;
+}
+
+export function ThemesTab({ state, patchSettings, themes }: ScreenProps & { themes: ThemeStore }) {
+  const { css, save } = themes;
+  const editCss = (edit: (css: string) => string) => void save(edit(css), SAVE_DELAY);
+
+  return <>
     {state.safeMode && <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
       <ShieldAlert className="size-4 shrink-0 text-warning" aria-hidden="true" />The custom theme is disabled in safe mode.
     </p>}
     <Group title="Theme"><Panel className="divide-y">
       <ChoiceRow title="Mode" value={state.settings.themeMode} options={[{ value: "system", label: "System" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} change={(value) => void patchSettings("themeMode", value)} />
-      <SettingRow title="Theme file" control={() => <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" disabled={!!busy} onClick={() => importInput.current?.click()}>{busy === "import" ? <Spinner /> : <Upload />}Import</Button>
-        <Button variant="outline" size="sm" disabled={!!busy} onClick={() => void exportFile()}>{busy === "export" ? <Spinner /> : <Download />}Export</Button>
-        <input ref={importInput} type="file" accept=".css,text/css" hidden onChange={(event) => void importFile(event)} />
-      </div>} />
     </Panel></Group>
 
     <Colors css={css} editCss={editCss} />

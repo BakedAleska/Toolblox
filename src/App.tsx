@@ -16,7 +16,7 @@ import { CustomCssScreen } from "@/screens/Themes";
 import { LogScreen, SettingsScreen, WidgetSettingsTab } from "@/screens/Settings";
 import { WidgetContextMenu, useWidgetActions, useWidgetHasSettings } from "@/screens/WidgetMenu";
 import { Widgets } from "@/screens/Widgets";
-import { EmptyState, IconButton, Modal, PlaceInput, Screen, ScreenTools, Spinner, WidgetFrame, type ConfirmRequest, type PlaceRequest, type ScreenProps, failure } from "@/shared";
+import { DiscordButton, EmptyState, IconButton, Modal, PlaceInput, Screen, ScreenTools, Spinner, WidgetFrame, type ConfirmRequest, type PlaceRequest, type ScreenProps, failure } from "@/shared";
 import { WidgetBoundary, WidgetPageContext, WidgetSlot, syncWidgetHost, syncWidgetModules, useWidgetRegistry, type CoreScreen } from "@/widgets/host";
 import type { AppRoute, AppState, RecentPlace, Settings, StartupStatus, ThemeMode, WidgetSummary } from "@/types";
 
@@ -247,7 +247,7 @@ const themeModes: { mode: ThemeMode; label: string; icon: ReactNode }[] = [
   { mode: "dark", label: "Dark", icon: <Moon /> },
 ];
 
-/** Theme, window snap, and mini mode, at the right end of every page header. `icons` sit just before them, and `extra` before that, past a separator. */
+/** Discord, theme, window snap, and mini mode, at the right end of every page header. `icons` sit just before them, and `extra` before that, past a separator. */
 function HeaderTools({ themeMode, patchSettings, openMini, icons, extra }: Pick<ScreenProps, "patchSettings" | "openMini"> & { themeMode?: ThemeMode; icons?: ReactNode; extra?: ReactNode }) {
   const themeIndex = Math.max(0, themeModes.findIndex(({ mode }) => mode === themeMode));
   const theme = themeModes[themeIndex];
@@ -255,6 +255,7 @@ function HeaderTools({ themeMode, patchSettings, openMini, icons, extra }: Pick<
   return <div className="flex shrink-0 items-center">
     {extra && <>{extra}<span className="mx-1 h-4 w-px bg-border" aria-hidden="true" /></>}
     {icons}
+    <DiscordButton />
     <IconButton label={`Theme: ${theme.label}`} className="text-muted-foreground" onClick={() => void patchSettings("themeMode", nextTheme.mode)}>{theme.icon}</IconButton>
     {!isDemo() && <IconButton label="Resize to default aspect ratio" className="text-muted-foreground" onClick={() => void bridge.snapWindow()}><Proportions /></IconButton>}
     {!isDemo() && <IconButton label="Open mini mode" className="text-muted-foreground" onClick={openMini}><Minimize2 /></IconButton>}

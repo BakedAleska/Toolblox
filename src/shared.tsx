@@ -105,6 +105,15 @@ export function IconButton({ label, children, variant = "ghost", size = "icon", 
   </Tooltip>;
 }
 
+export const DISCORD_URL = "https://discord.gg/VkFad5fGB6";
+
+/** Opens the Toolblox Discord server in the browser. Lucide has no brand icons, so the mark is drawn here. */
+export function DiscordButton({ size }: { size?: ComponentProps<typeof Button>["size"] }) {
+  return <IconButton label="Discord server" size={size} className="text-muted-foreground" onClick={() => void bridge.openExternal(DISCORD_URL)}>
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.32 4.37a19.8 19.8 0 0 0-4.93-1.51 13.78 13.78 0 0 0-.64 1.28 18.27 18.27 0 0 0-5.5 0 12.64 12.64 0 0 0-.64-1.28h-.05A19.74 19.74 0 0 0 3.64 4.4 20.26 20.26 0 0 0 .11 18.09l.02.02a19.9 19.9 0 0 0 6.04 3.03l.04-.02a14.24 14.24 0 0 0 1.23-2.03.08.08 0 0 0-.05-.07 13.1 13.1 0 0 1-1.9-.92.08.08 0 0 1 .02-.1 10.2 10.2 0 0 0 .41-.31h.04a14.2 14.2 0 0 0 12.1 0l.04.01a9.63 9.63 0 0 0 .4.32.08.08 0 0 1-.03.1 12.29 12.29 0 0 1-1.9.91.08.08 0 0 0-.02.1 15.97 15.97 0 0 0 1.27 2.01h.04a19.84 19.84 0 0 0 6.03-3.05v-.03a20.12 20.12 0 0 0-3.57-13.69ZM8.02 15.33c-1.18 0-2.16-1.08-2.16-2.42 0-1.33.96-2.42 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.34-.96 2.42-2.16 2.42Zm7.97 0c-1.18 0-2.15-1.08-2.15-2.42 0-1.33.95-2.42 2.15-2.42 1.22 0 2.18 1.1 2.16 2.42 0 1.34-.94 2.42-2.16 2.42Z" /></svg>
+  </IconButton>;
+}
+
 /** The two dialog sizes. Portrait holds forms and lists, and landscape holds short messages. */
 /** Dialog shapes, each in two scales. `small` is for dialogs about widgets and dialogs widgets open. */
 const modalSizes = {
@@ -304,6 +313,15 @@ export function ChoiceRow<T extends string>({ title, description, value, options
   return <SettingRow title={title} description={description} control={(labelId) => <ToggleGroup variant="outline" size="sm" value={[value]} onValueChange={(values) => { if (values[0]) change(values[0] as T); }} aria-labelledby={labelId}>
     {options.map((option) => <ToggleGroupItem key={option.value} value={option.value} className="px-3">{option.label}</ToggleGroupItem>)}
   </ToggleGroup>} />;
+}
+
+/** A setting with a slider and its current value. */
+export function SliderRow({ title, description, value, min, max, step = 1, unit = "", change }: { title: string; description?: string; value: number; min: number; max: number; step?: number; unit?: string; change: (value: number) => void }) {
+  return <SettingRow title={title} description={description} control={(labelId, descriptionId) => <div className="flex w-40 items-center gap-2">
+    <input type="range" min={min} max={max} step={step} value={value} aria-labelledby={labelId} aria-describedby={descriptionId} aria-valuetext={`${value}${unit}`} onChange={(event) => change(Number(event.target.value))}
+      className="h-5 min-w-0 flex-1 cursor-pointer accent-primary outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+    <span className="w-10 text-right font-mono text-sm tabular-nums" aria-hidden="true">{value}{unit}</span>
+  </div>} />;
 }
 
 export function StatTile({ icon, label, value, onClick }: { icon: ReactNode; label: string; value: ReactNode; onClick?: () => void }) {

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_CSS_BYTES","MAX_IMPORT_DEPTH"],"fn":["check_size","css_is_local","data_url","embed","embed_files","embed_urls","import_target","inline_imports","local_path","normalize_css","read_file","split_url","validate"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["SAFE_MODE_MARKER"],"fn":["move_beta_data","run","set_safe_mode_marker","take_safe_mode","toolblox_data_root"],"mod":["app_commands","auto_rejoin","credentials","lifecycle","login","logs","models","multi_instance","roblox","roblox_process","startup","storage","theme","update","widget_ipc","widget_process","widget_protocol","widgets"]};

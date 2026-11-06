@@ -186,7 +186,7 @@ description doesn't state, so the description is also a disclosure.
 ### `icon`
 
 An optional path to an image in the package, such as `icon.svg`. Installed widget cards show it as
-the logo and blur it into the card's banner, and widgets without one show a generic icon. Paths
+the logo, and widgets without one show a generic icon. Paths
 that don't resolve to a file in the package also show the generic icon. The catalogue's `iconUrl`
 is what appears on catalogue cards. See
 [Catalogue](/docs/widgets/publishing/catalogue/).
@@ -196,7 +196,7 @@ is what appears on catalogue cards. See
 An optional path to an image in the package, such as `banner.png`, shown across the top of the
 widget's card. The catalogue's `bannerUrl` is what appears on catalogue cards. It's cropped to fill a wide strip, so a 7:3 image of at least 700×300
 pixels fits best. Animated GIFs play. Widgets without one, or with a path that doesn't resolve,
-show their `icon` blurred instead.
+show a plain strip.
 
 ### `permissions`
 
@@ -303,10 +303,10 @@ comparing, so `0.4.6` accepts `0.4.6-beta`. An invalid version fails with:
 > The widget's minimum Toolblox version isn't valid SemVer.
 
 The catalogue entry carries the same value. The catalogue card shows **Requires Toolblox
-<version> or later.**, and on an older version it disables **Install**, or **Update** for an
+\<version> or later.**, and on an older version it disables **Install**, or **Update** for an
 installed widget whose newer version needs it. Installing anyway fails with:
 
-> <name> needs Toolblox <version> or later. Can you update Toolblox first?
+> \<name> needs Toolblox \<version> or later. Can you update Toolblox first?
 
 Toolblox updates itself on launch, so this is rare. Debug builds run unreleased code and accept
 every minimum.

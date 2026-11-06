@@ -211,11 +211,13 @@ component references the app renders, built on [Base UI](https://base-ui.com/) i
 | `Modal` | `src/shared.tsx` | `{ open, close, title, description?, action, submit, busy?, disabled?, danger?, size, scale?, children? }`. `size` is `portrait` (1:1) for forms and lists, or `landscape` for short messages. `scale` defaults to `small` in widgets. |
 | `PopoutButton` | `src/widgets/host.tsx` | No props. A topbar entry for `page.topbar` that opens the widget's page in its own window, or returns it to the main window. Renders nothing outside the widget's page. |
 | `Panel` | `src/shared.tsx` | `<div>` props. The app's 12 px rounded, hairline-ringed surface. Add `divide-y` for row groups. |
+| `Group` | `src/shared.tsx` | `{ title, action?, children }`. A titled section of related settings. Wrap its rows in a `Panel`. |
 | `SectionTitle` | `src/shared.tsx` | `{ children, action? }`. The small heading above a group. |
 | `Spinner` | `src/shared.tsx` | `{ className? }`. |
 | `StatTile` | `src/shared.tsx` | `{ icon, label, value, onClick? }`. Matches the Dashboard stat tiles. |
 | `Switch` | `src/components/ui/switch.tsx` | Base UI switch root props, such as `checked` and `onCheckedChange`. |
 | `SwitchRow` | `src/shared.tsx` | `{ title, description?, checked, change }`. A labelled settings row with a switch. |
+| `SliderRow` | `src/shared.tsx` | `{ title, description?, value, min, max, step?, unit?, change }`. A labelled settings row with a slider and its current value. |
 | `Tabs`, `TabsContent`, `TabsList`, `TabsTrigger` | `src/components/ui/tabs.tsx` | Base UI tabs parts. |
 | `ToggleGroup`, `ToggleGroupItem` | `src/components/ui/toggle-group.tsx` | Base UI toggle group parts with `variant` and `size`. |
 | `Tooltip`, `TooltipContent`, `TooltipTrigger` | `src/components/ui/tooltip.tsx` | The app already renders a `TooltipProvider` around every screen. |

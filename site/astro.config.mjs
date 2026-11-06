@@ -16,7 +16,10 @@ export default defineConfig({
       title: "Toolblox",
       logo: { src: "./public/logo.svg" },
       favicon: "/logo.svg",
-      social: [{ icon: "github", label: "GitHub", href: "https://github.com/BakedAleska/Toolblox" }],
+      social: [
+        { icon: "discord", label: "Discord", href: "https://discord.gg/VkFad5fGB6" },
+        { icon: "github", label: "GitHub", href: "https://github.com/BakedAleska/Toolblox" },
+      ],
       editLink: { baseUrl: "https://github.com/BakedAleska/Toolblox/edit/main/site/" },
       sidebar: [
         { label: "Introduction", link: "/docs/" },

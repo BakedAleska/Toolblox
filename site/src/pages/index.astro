@@ -1,6 +1,8 @@
 ---
 import Site from "../layouts/Site.astro";
+import DiscordIcon from "../components/DiscordIcon.astro";
 import GitHubIcon from "../components/GitHubIcon.astro";
+import { discord } from "../links";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowRight, ChevronDown, CircleHelp, Download, Eye, Hammer, HardDrive, Laptop, Monitor, Puzzle, ShieldCheck } from "lucide-react";
@@ -44,10 +46,11 @@ const titles = ["Toolblox, your new best friend.", "Sign in once. That's it.", "
         <p class="rise max-w-2xl text-lg text-pretty text-muted-foreground" style="--i: 1">
           A free desktop app for managing Roblox accounts. Run several at once, tune how each one launches, and add widgets for the games you play as they're released.
         </p>
-        <div class="rise grid w-full max-w-md grid-cols-1 gap-3 sm:grid-cols-2" style="--i: 2">
+        <div class="rise grid w-full max-w-md grid-cols-1 gap-3 sm:max-w-2xl sm:grid-cols-3" style="--i: 2">
           <span class="contents mac:hidden"><a href={installer} class={buttonVariants({ size: "lg", className: "h-10 w-full px-4" })}><Download />Download for Windows</a></span>
           <span class="hidden mac:contents"><a href={macInstaller} data-mac-hero class={buttonVariants({ size: "lg", className: "h-10 w-full px-4" })}><Download />Download for macOS</a></span>
           <a href={repo} class={buttonVariants({ size: "lg", variant: "outline", className: "h-10 w-full px-4" })}><GitHubIcon />View source code</a>
+          <a href={discord} class={buttonVariants({ size: "lg", variant: "outline", className: "h-10 w-full px-4" })}><DiscordIcon />Join the Discord</a>
         </div>
         <ul class="rise flex justify-center gap-3" style="--i: 3" aria-label="Commitments">
           {commitments.map(({ icon: Icon, title }) => (
@@ -154,6 +157,10 @@ const titles = ["Toolblox, your new best friend.", "Sign in once. That's it.", "
                 <p class="px-4 pb-4 text-pretty text-muted-foreground">{answer}</p>
               </details>
             ))}
+          </div>
+          <div class="flex flex-col items-center gap-3 text-center">
+            <p class="text-pretty text-muted-foreground">Still have a question? Ask in the Toolblox Discord server.</p>
+            <a href={discord} class={buttonVariants({ variant: "outline" })}><DiscordIcon />Join the Discord</a>
           </div>
         </div>
       </section>

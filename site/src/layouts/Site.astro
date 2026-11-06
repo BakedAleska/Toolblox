@@ -1,6 +1,8 @@
 ---
 import "../styles/global.css";
+import DiscordIcon from "../components/DiscordIcon.astro";
 import GitHubIcon from "../components/GitHubIcon.astro";
+import { discord } from "../links";
 import { buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { CircleAlert, Monitor, Moon, Star, Sun } from "lucide-react";
@@ -13,7 +15,6 @@ interface Props {
 
 const { title, description = "A free, open-source Roblox account manager. No injection, and your data stays on your device." } = Astro.props;
 const repo = "https://github.com/BakedAleska/Toolblox";
-const discord = "https://discord.gg/pxBhrjEJM";
 ---
 
 <!doctype html>
@@ -47,7 +48,7 @@ const discord = "https://discord.gg/pxBhrjEJM";
     <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-background focus:px-3 focus:py-2">Skip to content</a>
 
     <header class="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
-      <nav class="mx-auto flex h-14 max-w-5xl items-center gap-4 px-4" aria-label="Main">
+      <nav class="mx-auto flex h-14 max-w-5xl items-center gap-2 px-4 sm:gap-4" aria-label="Main">
         <a href="/" class="mr-auto flex items-center gap-2 font-semibold">
           <img src="/logo.svg" alt="" width="24" height="24" />
           Toolblox
@@ -61,7 +62,8 @@ const discord = "https://discord.gg/pxBhrjEJM";
           <Sun className="hidden in-data-[theme=light]:block" aria-hidden="true" />
           <Moon className="hidden in-data-[theme=dark]:block" aria-hidden="true" />
         </button>
-        <a href={repo} class={buttonVariants({ size: "sm", variant: "ghost" })} aria-label="Toolblox on GitHub"><GitHubIcon /><span data-stars hidden class="inline-flex items-center gap-1"><Star className="size-3.5" aria-hidden="true" /><span data-stars-count></span></span></a>
+        <a href={discord} class={buttonVariants({ size: "icon-sm", variant: "ghost" })} aria-label="Toolblox on Discord" title="Toolblox on Discord"><DiscordIcon /></a>
+        <a href={repo} class={buttonVariants({ size: "sm", variant: "ghost" })} aria-label="Toolblox on GitHub"><GitHubIcon /><span data-stars hidden class="inline-flex items-center gap-1 max-sm:hidden"><Star className="size-3.5" aria-hidden="true" /><span data-stars-count></span></span></a>
         <a href="/#download" class={buttonVariants({ size: "sm" })}>Download</a>
       </nav>
     </header>
@@ -78,6 +80,7 @@ const discord = "https://discord.gg/pxBhrjEJM";
           <a href="/stats/" class="hover:text-foreground">Stats</a>
           <a href="/legal/" class="hover:text-foreground">Legal</a>
           <a href={repo} class="hover:text-foreground">Source code</a>
+          <a href={discord} class="hover:text-foreground">Discord</a>
         </nav>
         <Separator />
         <p>Toolblox isn't affiliated with or endorsed by Roblox Corporation. Roblox is a trademark of Roblox Corporation.</p>

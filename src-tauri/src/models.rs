@@ -242,15 +242,20 @@ impl StoredAccount {
         {
             return Err("A saved account has an invalid last place. Can you join again?".into());
         }
-        if self.extra.keys().any(|key| {
-            let key = key.to_ascii_lowercase();
-            key.contains("cookie") || key.contains("secret") || key.contains("ticket")
-        }) {
+        if self.extra.keys().any(|key| is_secret_key(key)) {
             return Err(
                 "A saved account contains session data. Can you add the account again?".into(),
             );
         }
         Ok(())
+    }
+
+    /// Removes unknown fields that look like secrets, such as the cookies older versions saved
+    /// with each account. Returns whether any were removed.
+    pub fn remove_secrets(&mut self) -> bool {
+        let count = self.extra.len();
+        self.extra.retain(|key, _| !is_secret_key(key));
+        self.extra.len() != count
     }
 
     /// Records a manual join at `timestamp` (Unix seconds) to `place_id`.
@@ -263,6 +268,14 @@ impl StoredAccount {
         self.last_place_id = Some(place_id.to_owned());
         Ok(())
     }
+}
+
+/// Whether an unknown account field name looks like it holds a session secret.
+fn is_secret_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    ["cookie", "secret", "security", "ticket"]
+        .iter()
+        .any(|word| key.contains(word))
 }
 
 /// The account fields sent to the interface. Never includes the session or widget data.

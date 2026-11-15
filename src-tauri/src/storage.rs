@@ -175,14 +175,22 @@ impl Storage {
         Ok(settings)
     }
 
-    /// Loads accounts without taking the lock. Callers must hold it.
+    /// Loads accounts without taking the lock. Callers must hold it. Secret-like fields saved by
+    /// older versions are removed and the file is rewritten without them.
     fn load_accounts_unlocked(&self) -> Result<Vec<StoredAccount>, StorageError> {
         let path = self.root.join("accounts.json");
         if !path.exists() {
             return Ok(Vec::new());
         }
-        let accounts: Vec<StoredAccount> = read_json(&path)?;
+        let mut accounts: Vec<StoredAccount> = read_json(&path)?;
+        let mut scrubbed = false;
+        for account in &mut accounts {
+            scrubbed |= account.remove_secrets();
+        }
         validate_accounts(&accounts)?;
+        if scrubbed {
+            write_json_atomic(&path, &accounts)?;
+        }
         Ok(accounts)
     }
 }
@@ -378,6 +386,25 @@ mod tests {
                 .is_err()
         );
         assert_eq!(store.load_theme().unwrap(), css);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_session_fields_are_removed_on_load() {
+        let root = test_root("legacy");
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("accounts.json");
+        fs::write(
+            &path,
+            r#"[{"id":1,"name":"builderman","display_name":"Builderman","avatar_url":null,"added_at":1.0,"cookie":"_|WARNING:-DO-NOT-SHARE","ROBLOSECURITY":"x","note":"kept"}]"#,
+        )
+        .unwrap();
+        let store = Storage::new(root.clone());
+        let accounts = store.load_accounts().unwrap();
+        assert_eq!(accounts[0].name, "builderman");
+        assert_eq!(accounts[0].extra.keys().collect::<Vec<_>>(), ["note"]);
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(!saved.contains("WARNING") && !saved.to_lowercase().contains("security"));
         fs::remove_dir_all(root).unwrap();
     }
 

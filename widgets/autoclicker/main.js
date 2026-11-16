@@ -4,12 +4,14 @@
  * `helper/`.
  */
 const MODES = [
-  { value: "toggle", label: "Toggle", description: "Turns clicking on or off." },
-  { value: "enable", label: "Enable", description: "Turns clicking on." },
-  { value: "disable", label: "Disable", description: "Turns clicking off." },
+  { value: "toggle", label: "Toggle", description: "Turns the autoclicker on or off, like the power button." },
+  { value: "pause", label: "Pause", description: "Starts or pauses clicking." },
+  { value: "enable", label: "Enable", description: "Starts clicking." },
+  { value: "disable", label: "Disable", description: "Pauses clicking." },
   { value: "hold", label: "Hold", description: "Clicks while held." },
+  { value: "spam", label: "Spam", description: "Clicks while this key is spammed." },
 ];
-const DEFAULTS = { cps: 10, unit: "cps", intervalMs: 100, button: "left", onlyRoblox: true, position: null, indicator: { transparency: 10, visible: true }, binds: [{ key: "F6", mode: "toggle" }] };
+const DEFAULTS = { on: true, alwaysOn: false, cps: 10, unit: "cps", intervalMs: 100, button: "left", onlyRoblox: true, position: null, indicator: { transparency: 10, visible: true }, binds: [{ key: "F6", mode: "toggle" }] };
 const MAX_BINDS = 16;
 /** Longest interval in milliseconds. Matches `INTERVAL_LIMIT_MS` in `helper/clicker.c`. */
 const MAX_INTERVAL = 60_000;
@@ -54,6 +56,8 @@ function readConfig(stored) {
   const value = stored && typeof stored === "object" ? stored : {};
   const binds = Array.isArray(value.binds) ? value.binds.filter((bind) => KEYS.has(bind?.key) && MODES.some((mode) => mode.value === bind?.mode)) : DEFAULTS.binds;
   return {
+    on: typeof value.on === "boolean" ? value.on : DEFAULTS.on,
+    alwaysOn: typeof value.alwaysOn === "boolean" ? value.alwaysOn : DEFAULTS.alwaysOn,
     cps: Number.isInteger(value.cps) && value.cps >= 1 ? value.cps : DEFAULTS.cps,
     unit: value.unit === "interval" ? "interval" : DEFAULTS.unit,
     intervalMs: Number.isInteger(value.intervalMs) && value.intervalMs >= 1 && value.intervalMs <= MAX_INTERVAL ? value.intervalMs : DEFAULTS.intervalMs,
@@ -65,6 +69,7 @@ function readConfig(stored) {
       visible: typeof value.indicator?.visible === "boolean" ? value.indicator.visible : DEFAULTS.indicator.visible,
     },
     binds: binds.filter((bind, index) => binds.findIndex((other) => other.key === bind.key) === index).slice(0, MAX_BINDS),
+    pauseWhen: Array.isArray(value.pauseWhen) ? value.pauseWhen.filter((key) => typeof key === "string" && /^[a-z0-9_]+:[a-z0-9_-]+$/.test(key)).slice(0, 32) : [],
   };
 }
 
@@ -80,7 +85,21 @@ export async function activate(toolblox) {
   const clicker = createStore({ state: "off", reason: "", cps: 0, target: 0 });
   const permissions = createStore({ keybinds: true, clicks: true });
 
-  const stopped = () => { helper.set({ ...helper.get(), status: "stopped" }); clicker.set({ state: "off", reason: "", cps: 0, target: 0 }); };
+  const stopped = () => { helper.set({ ...helper.get(), status: "stopped" }); clicker.set({ state: "off", reason: "", cps: 0, target: 0 }); watch(); };
+
+  /**
+   * Reasons to pause that other widgets share on the `autoclicker.pause` topic, each as
+   * `{ id, label, active }`. Turned on ones are listed on `autoclicker.pause.watch` as
+   * `widgetId:id` while the helper runs, so the widget behind each keeps checking. Toolblox 0.4.6
+   * can't share, and then there are none.
+   */
+  const share = toolblox.share;
+  const reasons = () => (share?.get("autoclicker.pause") ?? []).flatMap(({ widgetId, widgetName, value }) => Array.isArray(value)
+    ? value.filter((item) => typeof item?.id === "string" && typeof item.label === "string").map((item) => ({ key: `${widgetId}:${item.id}`, widgetName, label: item.label.slice(0, 120), active: item.active === true }))
+    : []);
+  const pausing = () => reasons().find((reason) => reason.active && config.get().pauseWhen.includes(reason.key));
+  let wasPaused = false;
+  const watch = () => share?.set("autoclicker.pause.watch", helper.get().status === "running" ? config.get().pauseWhen : []);
 
   function handle(events) {
     for (const event of events) {
@@ -89,12 +108,15 @@ export async function activate(toolblox) {
       try { message = JSON.parse(event.line); } catch { void toolblox.log.warn(`Ignored helper output that isn't JSON: ${event.line.slice(0, 200)}`); continue; }
       if (message?.type === "ready") {
         helper.set({ status: "running", maxCps: Number(message.maxCps) || 1 });
+        watch();
         if (config.get().cps > helper.get().maxCps) save({ cps: helper.get().maxCps });
         if (config.get().intervalMs < shortestInterval(helper.get().maxCps)) save({ intervalMs: shortestInterval(helper.get().maxCps) });
       } else if (message?.type === "status") {
         clicker.set({ state: String(message.state), reason: String(message.reason ?? ""), cps: Number(message.cps) || 0, target: Number(message.target) || 0 });
       } else if (message?.type === "permissions") {
         permissions.set({ keybinds: message.keybinds === true, clicks: message.clicks === true });
+      } else if (message?.type === "power") {
+        save({ on: message.on === true });
       } else if (message?.type === "position") {
         save({ position: readPosition(message) });
       } else if (message?.type === "error") {
@@ -122,9 +144,10 @@ export async function activate(toolblox) {
   }
 
   const configure = () => {
-    const { cps, unit, intervalMs, button, onlyRoblox, position, indicator } = config.get();
+    const { on, alwaysOn, cps, unit, intervalMs, button, onlyRoblox, position, indicator } = config.get();
     const interval = unit === "interval";
-    return send({ type: "configure", cps: interval ? Math.max(1, Math.round(1000 / intervalMs)) : cps, intervalMs: interval ? intervalMs : 0, button, onlyRoblox, x: position?.x ?? -1, y: position?.y ?? -1, transparency: indicator.transparency, indicator: indicator.visible });
+    wasPaused = pausing() !== undefined;
+    return send({ type: "configure", blocked: wasPaused, on, alwaysOn, cps: interval ? Math.max(1, Math.round(1000 / intervalMs)) : cps, intervalMs: interval ? intervalMs : 0, button, onlyRoblox, x: position?.x ?? -1, y: position?.y ?? -1, transparency: indicator.transparency, indicator: indicator.visible });
   };
   const sendBinds = () => send({ type: "binds", value: config.get().binds.map((bind) => `${bind.key}:${bind.mode}`).join(",") });
 
@@ -153,39 +176,52 @@ export async function activate(toolblox) {
   let lastStart = Date.now();
   const interval = setInterval(() => {
     const { status } = helper.get();
-    if (status === "running") void poll();
+    if (status !== "stopped") void poll();
     else if (status === "stopped" && Date.now() - lastStart > 5_000) { lastStart = Date.now(); void startHelper(true); }
   }, 250);
-  cleanup = () => { clearInterval(interval); };
+  /** Sends a pause or resume as soon as another widget's reason starts or stops applying. */
+  const stopPausing = share?.subscribe(() => {
+    if ((pausing() !== undefined) === wasPaused) return;
+    wasPaused = !wasPaused;
+    if (helper.get().status === "running") void configure();
+  });
+  cleanup = () => { clearInterval(interval); stopPausing?.(); };
 
-  const changeConfig = (changes) => { save(changes); if (helper.get().status === "running") void configure(); };
+  const changeConfig = (changes) => { save(changes); watch(); if (helper.get().status === "running") void configure(); };
 
   const BUTTON_OPTIONS = [{ value: "left", label: "Left" }, { value: "middle", label: "Middle" }, { value: "right", label: "Right" }];
   const { system } = ui;
   const BIND_ROW = "rounded-lg bg-background px-2";
 
-  /** Power, status, and target speed. Turning on starts the helper first when it isn't running. `stacked` fills a landscape column. */
+  /**
+   * Power, status, and target speed. Off means keybinds do nothing. On, it's paused until a keybind
+   * starts clicking. Turning on starts the helper first when it isn't running. `stacked` fills a
+   * landscape column.
+   */
   function Status({ stacked = false }) {
     const { status } = use(helper);
-    const { state, cps } = use(clicker);
+    const { state, reason, cps } = use(clicker);
     const current = use(config);
     const running = status === "running";
-    const active = running && state !== "off";
+    const on = current.on || current.alwaysOn;
     const toggle = async () => {
-      if (active) return void send({ type: "action", action: "disable" });
+      if (current.on) return changeConfig({ on: false });
       if (helper.get().status !== "running") await startHelper();
-      if (helper.get().status === "running") await send({ type: "action", action: "enable" });
+      changeConfig({ on: true });
     };
-    const label = status === "starting" ? "Starting" : !running ? "Stopped" : state === "on" ? "Clicking" : state === "paused" ? "Paused outside Roblox" : "Off";
-    const tone = !running ? "muted" : state === "on" ? "success" : state === "paused" ? "warning" : "muted";
-    const bind = current.binds.find((item) => item.mode === "toggle" || item.mode === "enable" || item.mode === "hold");
+    const by = reason === "blocked" ? pausing()?.widgetName : undefined;
+    const label = status === "starting" ? "Starting" : !running ? "Stopped" : !on ? "Off" : state === "on" ? "Clicking" : by ? `Paused by ${by}` : reason === "focus" ? "Paused outside Roblox" : "Paused";
+    const tone = !running || !on ? "muted" : state === "on" ? "success" : "warning";
+    const power = current.binds.find((item) => item.mode === "toggle");
+    const bind = current.binds.find((item) => item.mode !== "disable" && (current.alwaysOn || item.mode !== "toggle"));
     const button = BUTTON_OPTIONS.find((item) => item.value === current.button).label;
     const interval = current.unit === "interval";
-    const detail = active ? (interval ? `${button} button` : `${cps} measured · ${button} button`)
-      : bind ? `${bind.mode === "hold" ? "Hold" : "Press"} ${keyLabel(bind.key)} to start · ${button} button`
+    const detail = running && on && state === "on" ? (interval ? `${button} button` : `${cps} measured · ${button} button`)
+      : running && !on ? (power ? `Press ${keyLabel(power.key)} to turn on · ${button} button` : `Keybinds are off · ${button} button`)
+      : bind ? `${bind.mode === "spam" ? "Spam" : bind.mode === "hold" ? "Hold" : "Press"} ${keyLabel(bind.key)} to start · ${button} button`
       : `${button} button`;
     return h(system.Console, { status: label, tone, value: interval ? `${current.intervalMs} ms` : `${current.cps} CPS`, detail, stacked,
-      control: h(system.PowerButton, { on: active, label: "Autoclicker", disabled: status === "starting", onClick: () => void toggle() }) });
+      control: h(system.PowerButton, { on: running && on, label: "Autoclicker", disabled: status === "starting" || (running && current.alwaysOn), onClick: () => void toggle() }) });
   }
 
   function PermissionsNotice() {
@@ -252,19 +288,34 @@ export async function activate(toolblox) {
       h("div", { className: "flex flex-col gap-2" },
         current.binds.map((bind) => {
           const mode = MODES.find((item) => item.value === bind.mode);
+          const describe = (item) => item.value === "toggle" && current.alwaysOn ? "Starts or pauses clicking." : item.description;
           return h("div", { key: bind.key, className: BIND_ROW }, h(system.TileRow, { actions: h(React.Fragment, null,
             h(ui.DropdownMenu, null,
               h(ui.DropdownMenuTrigger, { render: h(system.SelectButton, { className: "w-24", "aria-label": `Mode for ${keyLabel(bind.key)}: ${mode.label}` }) }, mode.label),
               h(ui.DropdownMenuContent, { align: "end", className: "min-w-40" },
                 MODES.map((item) => h(ui.DropdownMenuItem, { key: item.value, onClick: () => update(current.binds.map((other) => other.key === bind.key ? { ...other, mode: item.value } : other)) },
-                  h("span", { className: "flex flex-col" }, h("span", { className: item.value === bind.mode ? "font-medium" : undefined }, item.label), h("span", { className: "text-xs text-muted-foreground" }, item.description)))))),
+                  h("span", { className: "flex flex-col" }, h("span", { className: item.value === bind.mode ? "font-medium" : undefined }, item.label), h("span", { className: "text-xs text-muted-foreground" }, describe(item))))))),
             h(system.RemoveButton, { label: `Remove ${keyLabel(bind.key)}`, onClick: () => update(current.binds.filter((other) => other.key !== bind.key)) })) },
             h(system.Keycap, null, keyLabel(bind.key)),
-            h("span", { className: "truncate text-xs text-muted-foreground" }, mode.description)));
+            h("span", { className: "truncate text-xs text-muted-foreground" }, describe(mode))));
         }),
         recording && h("div", { className: BIND_ROW }, h(system.TileRow, { actions: h(ui.Button, { variant: "outline", size: "sm", onClick: () => setRecording(false) }, "Cancel") },
           h("p", { className: "text-sm text-muted-foreground", role: "status" }, "Press a key or mouse button."))),
-        !recording && !current.binds.length && h(system.TileRow, null, h("p", { className: "text-sm text-muted-foreground" }, "No keybinds"))));
+        !recording && !current.binds.length && h(system.TileRow, null, h("p", { className: "text-sm text-muted-foreground" }, "No keybinds")),
+        h(PauseReasons)));
+  }
+
+  /** A switch for each reason to pause that another installed widget offers. */
+  function PauseReasons() {
+    const current = use(config);
+    share?.use("autoclicker.pause");
+    return reasons().map((reason) => {
+      const on = current.pauseWhen.includes(reason.key);
+      return h("div", { key: reason.key, className: BIND_ROW }, h(system.TileRow, { actions: h(ui.Switch, { checked: on, "aria-label": `${reason.label}, from ${reason.widgetName}`,
+        onCheckedChange: (checked) => changeConfig({ pauseWhen: checked ? [...current.pauseWhen, reason.key] : current.pauseWhen.filter((key) => key !== reason.key) }) }) },
+        ui.FromWidget ? h(ui.FromWidget, { name: reason.widgetName }) : h("span", { className: "text-xs text-muted-foreground" }, reason.widgetName),
+        h("span", { className: "truncate text-sm" }, reason.label)));
+    });
   }
 
   toolblox.addToSlot("page.topbar", function Popout() { return h(ui.PopoutButton); });
@@ -284,6 +335,7 @@ export async function activate(toolblox) {
     const indicator = (changes) => changeConfig({ indicator: { ...config.get().indicator, ...changes } });
     return h("div", { className: "grid items-start gap-4 @5xl:grid-cols-2" },
       h(ui.Group, { title: "Clicking" }, h(ui.Panel, { className: "divide-y" },
+        h(ui.SwitchRow, { title: "Always on", description: "Every keybind always works, and Toggle starts or pauses clicking.", checked: current.alwaysOn, change: (alwaysOn) => changeConfig({ alwaysOn }) }),
         h(ui.SwitchRow, { title: "Only in Roblox", description: "Pauses while another window is focused.", checked: current.onlyRoblox, change: (onlyRoblox) => changeConfig({ onlyRoblox }) }))),
       h(ui.Group, { title: "Indicator" }, h(ui.Panel, { className: "divide-y" },
         h(ui.SwitchRow, { title: "Show indicator", description: "Drag it to move it.", checked: current.indicator.visible, change: (visible) => indicator({ visible }) }),

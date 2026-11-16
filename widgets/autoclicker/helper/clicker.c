@@ -24,13 +24,21 @@
 #define CALIBRATION_WAITS 100
 #define STATUS_INTERVAL_NS 250000000ull
 #define SECOND_NS 1000000000ull
+/* A spam keybind starts when pressed again within this long of its release, and stops after this long without a press or release. */
+#define SPAM_GAP_NS 130000000ull
+/* A hold keybind starts clicking once held this long, so a single click passes through alone. */
+#define HOLD_DELAY_NS 120000000ull
 
-enum mode { MODE_TOGGLE, MODE_ENABLE, MODE_DISABLE, MODE_HOLD };
+enum mode { MODE_TOGGLE, MODE_ENABLE, MODE_DISABLE, MODE_HOLD, MODE_PAUSE, MODE_SPAM };
 
 struct bind {
     int code;
     enum mode mode;
     int down;
+    /* When a hold or spam keybind was pressed (0 while up). For spam, also when last released and whether presses are coming in a burst. */
+    uint64_t since;
+    uint64_t released;
+    int burst;
 };
 
 struct field {
@@ -84,10 +92,18 @@ static pthread_cond_t wake = PTHREAD_COND_INITIALIZER;
 static struct bind binds[MAX_BINDS];
 static int bind_count;
 
+/* Whether the autoclicker is on. While off, keybinds do nothing and nothing clicks. */
+static atomic_int armed = 1;
+/* Set by the Always on setting: the autoclicker counts as on, and toggle keybinds start or pause clicking. */
+static atomic_int always_on;
 static atomic_int latched;
 static atomic_int held;
+/* Spam keybinds that are running, by bind index. */
+static atomic_int spammed;
 static atomic_int roblox_focused;
 static atomic_int only_roblox = 1;
+/* Set while another widget reports a reason to pause, such as an open game inventory. */
+static atomic_int blocked;
 static atomic_int button = 1;
 static atomic_int target_cps = 10;
 static atomic_int interval_ms;
@@ -169,13 +185,17 @@ static void signal_change(void) {
     platform_indicator_changed();
 }
 
+static int powered(void) { return atomic_load(&armed) || atomic_load(&always_on); }
+
+static int active(void) { return atomic_load(&latched) || atomic_load(&held) || atomic_load(&spammed); }
+
 static int clicking(void) {
-    return (atomic_load(&latched) || atomic_load(&held)) &&
+    return powered() && active() && !atomic_load(&blocked) &&
            (atomic_load(&roblox_focused) || !atomic_load(&only_roblox));
 }
 
 enum indicator_state core_indicator_state(void) {
-    if (!atomic_load(&latched) && !atomic_load(&held)) return INDICATOR_OFF;
+    if (!powered()) return INDICATOR_OFF;
     return clicking() ? INDICATOR_ON : INDICATOR_PAUSED;
 }
 
@@ -202,6 +222,23 @@ void core_indicator_moved(double x, double y) {
               atomic_load(&position_y) / 10000.0);
 }
 
+/* Turns the autoclicker on or off. Turning it off also pauses clicking and forgets keys held so far. Hold `lock`. */
+static void arm(int on) {
+    if (!on) {
+        atomic_store(&latched, 0);
+        atomic_store(&held, 0);
+        atomic_store(&spammed, 0);
+        for (int i = 0; i < bind_count; i++) binds[i].since = binds[i].released = 0, binds[i].burst = 0;
+    }
+    atomic_store(&armed, on);
+}
+
+static void set_armed(int on) {
+    pthread_mutex_lock(&lock);
+    arm(on);
+    pthread_mutex_unlock(&lock);
+}
+
 void core_input(int code, int down) {
     int changed = 0;
     pthread_mutex_lock(&lock);
@@ -210,14 +247,41 @@ void core_input(int code, int down) {
         if (bind->code != code) continue;
         int pressed = down && !bind->down;
         bind->down = down;
-        if (bind->mode == MODE_HOLD) {
-            int bit = 1 << i;
-            int before = atomic_load(&held);
-            atomic_store(&held, down ? before | bit : before & ~bit);
-            changed |= before != atomic_load(&held);
+        if (bind->mode == MODE_TOGGLE && !atomic_load(&always_on)) {
+            if (pressed) {
+                arm(!atomic_load(&armed));
+                core_emit("{\"type\":\"power\",\"on\":%s}", atomic_load(&armed) ? "true" : "false");
+                changed = 1;
+            }
+            continue;
+        }
+        if (!powered()) continue;
+        if (bind->mode == MODE_SPAM) {
+            uint64_t now = platform_now_ns();
+            if (pressed) {
+                bind->burst = bind->released && now - bind->released < SPAM_GAP_NS;
+                bind->since = now;
+                pthread_cond_signal(&wake);
+            } else if (!down && bind->since) {
+                bind->since = 0;
+                bind->released = now;
+                int before = atomic_load(&spammed);
+                if (!bind->burst) atomic_store(&spammed, before & ~(1 << i));
+                changed |= before != atomic_load(&spammed);
+            }
+        } else if (bind->mode == MODE_HOLD) {
+            if (pressed) {
+                bind->since = platform_now_ns();
+                pthread_cond_signal(&wake);
+            } else if (!down) {
+                int before = atomic_load(&held);
+                bind->since = 0;
+                atomic_store(&held, before & ~(1 << i));
+                changed |= before != atomic_load(&held);
+            }
         } else if (pressed) {
             int before = atomic_load(&latched);
-            atomic_store(&latched, bind->mode == MODE_TOGGLE ? !before : bind->mode == MODE_ENABLE);
+            atomic_store(&latched, bind->mode == MODE_PAUSE || bind->mode == MODE_TOGGLE ? !before : bind->mode == MODE_ENABLE);
             changed |= before != atomic_load(&latched);
         }
     }
@@ -258,6 +322,38 @@ static void timed_wait(uint64_t nanoseconds) {
 }
 
 /*
+ * Runs hold keybinds held past HOLD_DELAY_NS and spam keybinds pressed in a burst, and stops bursts
+ * that went SPAM_GAP_NS without a press or release, so holding a spam key stops it. Returns the
+ * earliest time this can next change, or 0.
+ */
+static uint64_t update_timed(uint64_t now) {
+    uint64_t earliest = 0;
+    pthread_mutex_lock(&lock);
+    int before = atomic_load(&spammed), next = 0, held_before = atomic_load(&held), next_held = 0;
+    for (int i = 0; i < bind_count; i++) {
+        struct bind *bind = &binds[i];
+        int live = 0;
+        uint64_t due = 0;
+        if (bind->mode == MODE_HOLD && bind->since) {
+            if (now >= bind->since + HOLD_DELAY_NS) next_held |= 1 << i;
+            else due = bind->since + HOLD_DELAY_NS;
+        } else if (bind->mode == MODE_SPAM && bind->burst) {
+            uint64_t last = bind->since > bind->released ? bind->since : bind->released;
+            live = now < last + SPAM_GAP_NS;
+            if (live) due = last + SPAM_GAP_NS;
+            else bind->burst = 0;
+        }
+        if (live) next |= 1 << i;
+        if (due && (!earliest || due < earliest)) earliest = due;
+    }
+    atomic_store(&spammed, next);
+    atomic_store(&held, next_held);
+    pthread_mutex_unlock(&lock);
+    if (next != before || next_held != held_before) platform_indicator_changed();
+    return earliest;
+}
+
+/*
  * Clicks at the target rate on fixed deadlines. After a stall longer than one period it starts
  * over instead of sending a burst to catch up.
  */
@@ -269,6 +365,7 @@ static void *click_loop(void *unused) {
     char last[128] = "";
     for (;;) {
         uint64_t now = platform_now_ns();
+        uint64_t pending = update_timed(now);
         if (clicking()) {
             int interval = atomic_load(&interval_ms);
             uint64_t period = interval ? (uint64_t)interval * 1000000ull : SECOND_NS / (uint64_t)atomic_load(&target_cps);
@@ -300,7 +397,7 @@ static void *click_loop(void *unused) {
             last_status = now;
             static const char *states[] = {"off", "on", "paused"};
             enum indicator_state state = core_indicator_state();
-            const char *reason = state == INDICATOR_PAUSED ? "focus" : "";
+            const char *reason = state != INDICATOR_PAUSED || !active() ? "" : atomic_load(&blocked) ? "blocked" : "focus";
             char status[128];
             snprintf(status, sizeof status,
                      "{\"type\":\"status\",\"state\":\"%s\",\"reason\":\"%s\",\"cps\":%d,\"target\":%d}",
@@ -313,9 +410,9 @@ static void *click_loop(void *unused) {
         }
         if (clicking()) {
             uint64_t due = next < now + STATUS_INTERVAL_NS ? next : now + STATUS_INTERVAL_NS;
-            platform_wait_until_ns(due);
+            platform_wait_until_ns(pending && pending < due ? pending : due);
         } else {
-            timed_wait(STATUS_INTERVAL_NS);
+            timed_wait(pending && pending - now < STATUS_INTERVAL_NS ? pending - now : STATUS_INTERVAL_NS);
         }
     }
     return NULL;
@@ -432,9 +529,9 @@ static void emit_error(const char *message) {
     core_emit("{\"type\":\"error\",\"message\":%s}", quoted);
 }
 
-/* Replaces every keybind from a list such as "F6:toggle,Mouse5:hold". */
+/* Replaces every keybind from a list such as "F6:toggle,Mouse5:hold,KeyE:spam". */
 static void set_binds(const char *list) {
-    static const char *modes[] = {"toggle", "enable", "disable", "hold"};
+    static const char *modes[] = {"toggle", "enable", "disable", "hold", "pause", "spam"};
     struct bind next[MAX_BINDS];
     int next_count = 0, rejected = 0;
     char copy[MAX_VALUE];
@@ -443,17 +540,18 @@ static void set_binds(const char *list) {
         char *mode = strchr(item, ':');
         int found = -1;
         if (mode) *mode++ = 0;
-        for (int i = 0; mode && i < 4; i++) {
+        for (int i = 0; mode && i < 6; i++) {
             if (strcmp(mode, modes[i]) == 0) found = i;
         }
         int code = platform_key_code(item);
         if (code < 0 || found < 0 || next_count == MAX_BINDS) rejected++;
-        else next[next_count++] = (struct bind){code, (enum mode)found, 0};
+        else next[next_count++] = (struct bind){.code = code, .mode = (enum mode)found};
     }
     pthread_mutex_lock(&lock);
     memcpy(binds, next, (size_t)next_count * sizeof next[0]);
     bind_count = next_count;
     atomic_store(&held, 0);
+    atomic_store(&spammed, 0);
     pthread_mutex_unlock(&lock);
     signal_change();
     if (rejected) emit_error("A keybind wasn't added. Is its key supported on this device?");
@@ -490,7 +588,13 @@ static void handle(const char *line) {
             atomic_store(&interval_ms, interval <= 0 ? 0 : interval < shortest ? shortest : interval > INTERVAL_LIMIT_MS ? INTERVAL_LIMIT_MS : interval);
         }
         if ((value = get(fields, count, "button"))) atomic_store(&button, !strcmp(value, "right") ? 2 : !strcmp(value, "middle") ? 3 : 1);
+        if ((value = get(fields, count, "on"))) set_armed(strcmp(value, "false") != 0);
+        if ((value = get(fields, count, "alwaysOn"))) {
+            atomic_store(&always_on, strcmp(value, "true") == 0);
+            if (!powered()) set_armed(0);
+        }
         if ((value = get(fields, count, "onlyRoblox"))) atomic_store(&only_roblox, strcmp(value, "false") != 0);
+        if ((value = get(fields, count, "blocked"))) atomic_store(&blocked, strcmp(value, "true") == 0);
         if ((value = get(fields, count, "transparency"))) {
             int percent = atoi(value);
             atomic_store(&transparency, percent < 0 ? 0 : percent > 100 ? 100 : percent);
@@ -505,13 +609,6 @@ static void handle(const char *line) {
         signal_change();
     } else if (strcmp(type, "binds") == 0) {
         set_binds(get(fields, count, "value"));
-    } else if (strcmp(type, "action") == 0) {
-        const char *action = get(fields, count, "action");
-        if (!action) return;
-        if (strcmp(action, "toggle") == 0) atomic_store(&latched, !atomic_load(&latched));
-        else if (strcmp(action, "enable") == 0) atomic_store(&latched, 1);
-        else if (strcmp(action, "disable") == 0) atomic_store(&latched, 0);
-        signal_change();
     } else if (strcmp(type, "describe") == 0) {
         describe();
     } else if (strcmp(type, "permissions") == 0) {

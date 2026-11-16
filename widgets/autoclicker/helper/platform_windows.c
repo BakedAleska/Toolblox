@@ -23,6 +23,7 @@
 #endif
 
 #define WM_INDICATOR (WM_APP + 1)
+#define FOCUS_CHECK_MS 50
 /* Marks clicks this helper sends, alongside the system's injected flag. */
 #define SYNTHETIC_TAG 0x546F6F6C
 
@@ -113,9 +114,15 @@ static int is_roblox(HWND window) {
 
 static void CALLBACK on_foreground(HWINEVENTHOOK hook, DWORD event, HWND window, LONG object, LONG child,
                                    DWORD thread, DWORD time) {
-    (void)hook, (void)event, (void)object, (void)child, (void)thread, (void)time;
-    core_focus(is_roblox(window));
+    (void)hook, (void)event, (void)window, (void)object, (void)child, (void)thread, (void)time;
+    core_focus(is_roblox(GetForegroundWindow()));
     SetWindowPos(indicator, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+/* Foreground events can be missed, such as when a minimized window is restored, so focus is also re-read on a timer. */
+static void CALLBACK on_focus_timer(HWND window, UINT message, UINT_PTR id, DWORD time) {
+    (void)window, (void)message, (void)id, (void)time;
+    core_focus(is_roblox(GetForegroundWindow()));
 }
 
 static int scaled(int value) { return MulDiv(value, (int)dpi, 96); }
@@ -162,8 +169,8 @@ static void render_indicator(void) {
 
     enum indicator_state state = core_indicator_state();
     wchar_t text[32];
-    if (state == INDICATOR_ON && core_indicator_cps()) _snwprintf(text, 32, L"On \x00B7 %d CPS", core_indicator_cps());
-    else wcscpy(text, state == INDICATOR_ON ? L"On" : state == INDICATOR_PAUSED ? L"Paused" : L"Off");
+    if (state == INDICATOR_ON && core_indicator_cps()) _snwprintf(text, 32, L"%d CPS", core_indicator_cps());
+    else wcscpy(text, state == INDICATOR_ON ? L"Clicking" : state == INDICATOR_PAUSED ? L"Paused" : L"Off");
     text[31] = 0;
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, RGB(255, 255, 255));
@@ -292,6 +299,7 @@ void platform_run(void) {
     int hooked = SetWindowsHookExW(WH_KEYBOARD_LL, on_key, instance, 0) && SetWindowsHookExW(WH_MOUSE_LL, on_mouse, instance, 0);
     core_permissions(hooked, 1);
     SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, NULL, on_foreground, 0, 0, WINEVENT_OUTOFCONTEXT);
+    SetTimer(NULL, 0, FOCUS_CHECK_MS, on_focus_timer);
     core_focus(is_roblox(GetForegroundWindow()));
     placed_version = core_indicator_position_version();
     place_indicator();

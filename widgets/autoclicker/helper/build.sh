@@ -7,6 +7,13 @@ out=../optional-bin
 mkdir -p "$out"
 flags="-std=c11 -O2 -Wall -Wextra"
 case "$(uname -s)" in
+Darwin) host_cc=clang ;;
+*) host_cc=gcc ;;
+esac
+"$host_cc" -std=c11 test.c -o clicker-test
+./clicker-test
+rm -f clicker-test clicker-test.exe
+case "$(uname -s)" in
 Darwin)
   for arch in arm64 x86_64; do
     clang $flags -fobjc-arc -arch "$arch" -mmacosx-version-min=11.0 \

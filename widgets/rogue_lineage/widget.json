@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "rogue_lineage",
+  "name": "Rogue Lineage",
+  "version": "1.4.2",
+  "description": "Shows mana as a percentage over the mana bar, marks spell ranges, warns when Gate is cast outside its range, and shades hotbar skills while they cool down. Reads the screen on this device, on Windows, and the hotbar keys and left clicks while the cooldown overlay is on. Nothing is sent anywhere.",
+  "icon": "icon.png",
+  "banner": "banner.png",
+  "module": "main.js",
+  "minAppVersion": "0.4.6",
+  "permissions": ["process.spawn"],
+  "processes": [
+    { "id": "manabar-windows", "executable": "optional-bin/manabar.exe" }
+  ]
+}

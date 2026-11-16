@@ -18,6 +18,10 @@ const AUTH_URL: &str = "https://users.roblox.com/v1/users/authenticated";
 const USERS_URL: &str = "https://users.roblox.com/v1/users";
 /// Avatar headshot images.
 const THUMBNAIL_URL: &str = "https://thumbnails.roblox.com/v1/users/avatar-headshot";
+/// Friends of a user, by ID. The online list requires that user's session.
+const FRIENDS_URL: &str = "https://friends.roblox.com/v1/users";
+/// Most online friends shown. Roblox's batch lookups accept about this many IDs.
+const FRIENDS_LIMIT: usize = 100;
 /// User presence. Requires a signed-in session.
 const PRESENCE_URL: &str = "https://presence.roblox.com/v1/presence/users";
 /// Game details, by universe ID.
@@ -92,6 +96,43 @@ struct UserResponse {
     name: String,
     #[serde(rename = "displayName")]
     display_name: Option<String>,
+}
+
+/// The batch users API response.
+#[derive(Deserialize)]
+struct UsersEnvelope {
+    #[serde(default)]
+    data: Vec<UserResponse>,
+}
+
+/// The online friends API response. Only IDs are read. Other details come from the users and
+/// presence APIs.
+#[derive(Deserialize)]
+struct FriendsEnvelope {
+    #[serde(default)]
+    data: Vec<FriendResponse>,
+}
+
+/// One online friend.
+#[derive(Deserialize)]
+struct FriendResponse {
+    id: u64,
+}
+
+/// A friend who is online, as the dashboard shows it.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OnlineFriend {
+    pub id: u64,
+    pub name: String,
+    pub display_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+    pub in_game: bool,
+    pub in_studio: bool,
+    /// The game name, or `Studio - <place>` in Roblox Studio.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub game_name: Option<String>,
 }
 
 /// The thumbnails API response.
@@ -487,6 +528,150 @@ fn clean_game_name(name: String) -> Option<String> {
     (!name.is_empty()).then(|| name.chars().take(100).collect())
 }
 
+/// Returns the online friends of the user a session belongs to, in-game friends first.
+pub async fn fetch_online_friends(
+    client: &reqwest::Client,
+    session: &Secret,
+    user_id: u64,
+    show_game_names: bool,
+) -> Result<Vec<OnlineFriend>, RobloxError> {
+    let response = client
+        .get(format!("{FRIENDS_URL}/{user_id}/friends/online"))
+        .header(COOKIE, cookie_header(session)?)
+        .send()
+        .await
+        .map_err(|_| RobloxError::Network)?;
+    if !response.status().is_success() {
+        return Err(RobloxError::Rejected(response.status().as_u16()));
+    }
+    let body = response.text().await.map_err(|_| RobloxError::Network)?;
+    let ids = parse_friend_ids(&body)?;
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let details = fetch_presence_details(client, session, &ids).await?;
+    let users = fetch_users(client, &ids).await?;
+    let avatars = fetch_avatars(client, &ids).await;
+    let unnamed: BTreeSet<_> = details
+        .values()
+        .filter(|detail| show_game_names && detail.in_game() && detail.location.is_none())
+        .filter_map(|detail| detail.universe_id)
+        .collect();
+    let game_names = fetch_game_names(client, &unnamed).await;
+    Ok(merge_friends(
+        users,
+        &details,
+        &avatars,
+        &game_names,
+        show_game_names,
+    ))
+}
+
+/// Reads friend IDs, dropping duplicates and keeping at most `FRIENDS_LIMIT`.
+fn parse_friend_ids(body: &str) -> Result<Vec<u64>, RobloxError> {
+    let response: FriendsEnvelope =
+        serde_json::from_str(body).map_err(|_| RobloxError::InvalidResponse)?;
+    let mut seen = BTreeSet::new();
+    Ok(response
+        .data
+        .into_iter()
+        .map(|friend| friend.id)
+        .filter(|id| *id > 0 && seen.insert(*id))
+        .take(FRIENDS_LIMIT)
+        .collect())
+}
+
+/// Looks up public profiles by ID. Roblox leaves out banned users.
+async fn fetch_users(
+    client: &reqwest::Client,
+    user_ids: &[u64],
+) -> Result<Vec<UserResponse>, RobloxError> {
+    let response = client
+        .post(USERS_URL)
+        .json(&json!({ "userIds": user_ids, "excludeBannedUsers": true }))
+        .send()
+        .await
+        .map_err(|_| RobloxError::Network)?;
+    if !response.status().is_success() {
+        return Err(RobloxError::Rejected(response.status().as_u16()));
+    }
+    let users: UsersEnvelope = response
+        .json()
+        .await
+        .map_err(|_| RobloxError::InvalidResponse)?;
+    Ok(users.data)
+}
+
+/// Looks up avatar headshots by user ID. Failures return no avatars because they're display-only.
+async fn fetch_avatars(client: &reqwest::Client, user_ids: &[u64]) -> BTreeMap<u64, String> {
+    let ids = user_ids
+        .iter()
+        .map(u64::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let response = client
+        .get(THUMBNAIL_URL)
+        .query(&[
+            ("userIds", ids.as_str()),
+            ("size", "150x150"),
+            ("format", "Png"),
+            ("isCircular", "false"),
+        ])
+        .send()
+        .await;
+    let Ok(response) = response else {
+        return BTreeMap::new();
+    };
+    match response.text().await {
+        Ok(body) => parse_icon_response(&body),
+        Err(_) => BTreeMap::new(),
+    }
+}
+
+/// Combines profiles with presence, dropping friends who have since gone offline. Friends in game
+/// come first, then the rest, each sorted by name.
+fn merge_friends(
+    users: Vec<UserResponse>,
+    details: &BTreeMap<u64, PresenceDetail>,
+    avatars: &BTreeMap<u64, String>,
+    game_names: &BTreeMap<u64, String>,
+    show_game_names: bool,
+) -> Vec<OnlineFriend> {
+    let mut friends: Vec<_> = users
+        .into_iter()
+        .filter_map(|user| {
+            let detail = details.get(&user.id)?;
+            if detail.state == PresenceState::Offline {
+                return None;
+            }
+            let in_game = detail.in_game();
+            let game_name = (show_game_names && in_game)
+                .then(|| {
+                    detail.activity(detail.location.clone().or_else(|| {
+                        detail
+                            .universe_id
+                            .and_then(|id| game_names.get(&id).cloned())
+                    }))
+                })
+                .flatten();
+            Some(OnlineFriend {
+                id: user.id,
+                display_name: user
+                    .display_name
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or_else(|| user.name.clone()),
+                name: user.name,
+                avatar_url: avatars.get(&user.id).cloned(),
+                in_game,
+                in_studio: detail.state == PresenceState::InStudio,
+                game_name,
+            })
+        })
+        .collect();
+    friends.sort_by_cached_key(|friend| (!friend.in_game, friend.display_name.to_lowercase()));
+    friends
+}
+
 /// Looks up game names by universe ID. Failures return no names because they're display-only.
 pub async fn fetch_game_names(
     client: &reqwest::Client,
@@ -659,7 +844,7 @@ async fn fetch_game_icons(
     }
 }
 
-/// Keeps `https:` icon URLs, by universe ID.
+/// Keeps `https:` image URLs, by universe or user ID.
 fn parse_icon_response(body: &str) -> BTreeMap<u64, String> {
     serde_json::from_str::<ThumbnailEnvelope>(body)
         .map(|envelope| envelope.data)
@@ -809,6 +994,62 @@ mod tests {
         assert!(parse_place_id("http://www.roblox.com/games/1818").is_err());
         assert!(parse_place_id("https://example.com/games/1818").is_err());
         assert!(parse_place_id("https://roblox.com/users/1818").is_err());
+    }
+
+    #[test]
+    fn friend_ids_are_unique_positive_and_capped() {
+        assert_eq!(
+            parse_friend_ids(r#"{"data":[{"id":2,"name":""},{"id":2},{"id":0},{"id":1}]}"#)
+                .unwrap(),
+            [2, 1]
+        );
+        let many: Vec<_> = (1..=150).map(|id| json!({ "id": id })).collect();
+        let body = json!({ "data": many }).to_string();
+        assert_eq!(parse_friend_ids(&body).unwrap().len(), FRIENDS_LIMIT);
+        assert!(parse_friend_ids("not json").is_err());
+    }
+
+    #[test]
+    fn friends_merge_sorts_in_game_first_and_drops_offline_and_hidden_names() {
+        let user = |id, name: &str, display: Option<&str>| UserResponse {
+            id,
+            name: name.into(),
+            display_name: display.map(Into::into),
+        };
+        let users = || {
+            vec![
+                user(1, "alpha", Some("Alpha")),
+                user(2, "zed", Some("")),
+                user(3, "gone", None),
+                user(4, "missing", None),
+            ]
+        };
+        let detail = |state, universe_id| PresenceDetail {
+            state,
+            place_id: None,
+            universe_id,
+            location: None,
+        };
+        let details = BTreeMap::from([
+            (1, detail(PresenceState::Online, None)),
+            (2, detail(PresenceState::InGame, Some(9))),
+            (3, detail(PresenceState::Offline, None)),
+        ]);
+        let avatars = BTreeMap::from([(2, "https://example.test/a.png".to_string())]);
+        let games = BTreeMap::from([(9, "Crossroads".to_string())]);
+
+        let friends = merge_friends(users(), &details, &avatars, &games, true);
+        assert_eq!(friends.len(), 2);
+        assert_eq!(friends[0].id, 2);
+        assert_eq!(friends[0].display_name, "zed");
+        assert_eq!(friends[0].game_name.as_deref(), Some("Crossroads"));
+        assert!(friends[0].avatar_url.is_some());
+        assert_eq!(friends[1].id, 1);
+        assert!(!friends[1].in_game);
+
+        let hidden = merge_friends(users(), &details, &avatars, &games, false);
+        assert_eq!(hidden[0].game_name, None);
+        assert!(hidden[0].in_game);
     }
 
     #[test]

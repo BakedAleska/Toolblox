@@ -174,7 +174,7 @@ pub(crate) mod tests {
     const SECRET_ACCESS: &[(&str, &[(&str, usize)])] = &[
         (".expose()", &[("app_commands.rs", 1), ("roblox.rs", 1)]),
         (".expose_secret()", &[("app_commands.rs", 2)]),
-        ("cookie_header(", &[("roblox.rs", 4)]),
+        ("cookie_header(", &[("roblox.rs", 5)]),
         ("keyring::", &[("credentials.rs", 4)]),
         ("get_password", &[("credentials.rs", 1)]),
         (".cookies()", &[("login.rs", 1)]),

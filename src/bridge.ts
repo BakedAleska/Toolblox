@@ -1,9 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { version } from "../package.json";
-import type { Account, AppState, CatalogueEntry, LogLevel, PlaceMatch, Settings, StartupStatus, WidgetSummary } from "./types";
+import type { ShareMessage, ShareTransport } from "./widgets/share";
+import type { Account, AppState, CatalogueEntry, LogLevel, OnlineFriend, PlaceMatch, Settings, StartupStatus, WidgetSummary } from "./types";
 
 const minutesAgo = (minutes: number) => Date.now() - minutes * 60_000;
 const demoAccount = (id: number, name: string, displayName: string, extra: Partial<Account> = {}): Account =>
@@ -52,6 +53,7 @@ const demoState: AppState = {
     sortOrder: "last_played",
     placeId: "",
     multiInstance: false,
+    joinDelaySeconds: 1,
     autoRejoin: false,
     openOnLaunch: false,
     runInBackground: true,
@@ -258,6 +260,14 @@ export const bridge = {
         creatorName: "Demo Studio", creatorVerified: index === 0, visits: 68_648_562 >> index,
         favorites: 172_633 >> index, updated: new Date(minutesAgo(90)).toISOString(), genre: "Action RPG", maturity: "minimal" }))),
 
+  /** The account's online friends, in-game friends first. */
+  getOnlineFriends: (accountId: number) =>
+    call<OnlineFriend[]>("get_online_friends", { accountId }, () => [
+      { id: 201, name: "obby_runner", displayName: "Obby Runner", inGame: true, inStudio: false, gameName: "Pet Simulator 99" },
+      { id: 202, name: "studio_sam", displayName: "Studio Sam", inGame: true, inStudio: true, gameName: "Studio - Obby Prototype" },
+      { id: 203, name: "quiet_friend", displayName: "Quiet Friend", inGame: false, inStudio: false },
+    ]),
+
   forgetRecentPlace: (placeId: string) =>
     call<void>("forget_recent_place", { placeId }, () => {
       demoState.recentPlaces = demoState.recentPlaces.filter((place) => place.placeId !== placeId);
@@ -316,6 +326,12 @@ export const bridge = {
     const stop = listen<string[]>("widget-popouts-changed", (event) => listener(event.payload));
     return () => void stop.then((unlisten) => unlisten());
   },
+  /** Carries values widgets share between every window with app events. The browser build has one window. */
+  shareTransport: (): ShareTransport => {
+    if (isTauri()) return { send: (message) => void emit("widget-share", message), listen: (listener) => void listen<ShareMessage>("widget-share", (event) => listener(event.payload)) };
+    const listeners: ((message: ShareMessage) => void)[] = [];
+    return { send: (message) => listeners.forEach((listener) => listener(message)), listen: (listener) => void listeners.push(listener) };
+  },
   /** Calls `listener` after a development build reinstalls widgets from the working tree. Returns a function that stops listening. */
   onWidgetsChanged: (listener: () => void) => {
     if (!isTauri()) return () => {};
@@ -337,6 +353,7 @@ export const bridge = {
   /** Every line of the current and rotated log files, oldest first. */
   readFullLog: () => call<string>("read_log", { lines: null, all: true }, () => demoLog.join("\n")),
   openLogFolder: () => call<void>("open_log_folder", {}, () => undefined),
+  openDataFolder: () => call<void>("open_data_folder", {}, () => undefined),
   writeLog,
   /** The custom theme CSS. */
   getTheme: () => call<string>("get_theme", {}, () => demoTheme),

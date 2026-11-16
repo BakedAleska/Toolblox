@@ -44,7 +44,7 @@ builds add the `examples/hello_world/` widget to the widgets folder once, as a s
 | Member | Purpose |
 | --- | --- |
 | `widget` | This widget's `id`, `name`, and `version`. |
-| `React`, `ui` | The app's React instance and components: `AccountCard`, `AccountName`, `Avatar`, `Badge`, `Button`, `Checkbox`, `ChoiceRow`, `DropdownMenu*`, `EmptyState`, `Group`, `IconButton`, `Input`, `Modal`, `Panel`, `PopoutButton`, `SectionTitle`, `SettingRow`, `SliderRow`, `Spinner`, `StatTile`, `Switch`, `SwitchRow`, `Tabs*`, `ToggleGroup*`, `Tooltip*`, `cn`, and `system`, the control-surface style for system widgets: `Console`, `PowerButton`, `Split`, `Tiles`, `Tile`, `LabelButton`, `TileRow`, `Stepper`, `Segmented`, `Keycap`, `AddButton`, `RemoveButton`, `SelectButton`, and `usePopout`. |
+| `React`, `ui` | The app's React instance and components: `AccountCard`, `AccountName`, `Avatar`, `Badge`, `Button`, `Checkbox`, `ChoiceRow`, `DropdownMenu*`, `EmptyState`, `Group`, `IconButton`, `Input`, `Modal`, `Panel`, `PopoutButton`, `SectionTitle`, `SettingRow`, `SliderRow`, `Spinner`, `StatTile`, `Switch`, `SwitchRow`, `Tabs*`, `ToggleGroup*`, `FromWidget` (the mark for anything from another widget), `Tooltip*`, `cn`, and `system`, the control-surface style for system widgets: `Console`, `PowerButton`, `Split`, `Tiles`, `Tile`, `LabelButton`, `TileRow`, `Stepper`, `Segmented`, `Keycap`, `AddButton`, `RemoveButton`, `SelectButton`, and `usePopout`. |
 | `getState()`, `useAppState()`, `onStateChange(listener)` | Current app state: accounts, settings, widgets, and recent places. |
 | `navigate(route)`, `notify(message, kind)`, `refresh()`, `join(accountIds)` | App actions, including the Join flow with its place prompt. |
 | `registerPage(Component)` | The widget's page at `/widgets/<id>`. |
@@ -53,6 +53,7 @@ builds add the `examples/hello_world/` widget to the widgets folder once, as a s
 | `addToSlot(slot, Component, { order })` | Adds to a slot. See the table below. |
 | `addStyles(css)` | Adds a stylesheet to the whole app, for example to override theme tokens on `:root`. |
 | `storage.get()`, `storage.set(value)` | One JSON value for the widget, up to 1 MB. |
+| `share.set(topic, value)`, `share.get(topic)`, `share.use(topic)`, `share.subscribe(listener)` | Values shared with other widgets by topic, in every Toolblox window. Added in 0.4.7. |
 | `log.debug(message)`, `log.info`, `log.warn`, `log.error` | Writes to the Toolblox log under `widget:<id>`. |
 | `request(method, params)` | Every IPC method below, with all permissions granted. |
 
@@ -63,8 +64,8 @@ contributions when it's disabled, updated, or uninstalled.
 | --- | --- | --- |
 | `accounts.row` | `{ account }` | Under each account's name on the Accounts page. |
 | `accounts.toolbar` | none | Start of the Accounts page toolbar. |
-| `dashboard.stats` | none | After the Dashboard stat tiles. `ui.StatTile` matches them. |
-| `dashboard.sections` | none | Below the Dashboard stats. |
+| `dashboard.stats` | none | Below the **Continue as** card on the Dashboard. Use `ui.StatTile`. |
+| `dashboard.sections` | none | Below the Dashboard's online friends and issues. |
 | `sidebar.footer` | `{ collapsed }` | Bottom of the sidebar. |
 | `page.topbar` | none | The header of this widget's own page, in the main window and in its own window. Other widgets' entries don't appear there. |
 

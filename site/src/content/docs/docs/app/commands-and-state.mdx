@@ -111,6 +111,7 @@ The account flows are explained in depth on [Accounts](/docs/app/accounts/).
 | `remove_account` | `account_id: u64` | `()` | Removes the account, then deletes its session. Puts the account back if the session can't be deleted. | `removeAccount(accountId)` |
 | `reorder_accounts` | `account_ids: Vec<u64>` | `()` | Saves a manual order. The list must contain every saved account exactly once. | `reorderAccounts(accountIds)` |
 | `set_account_pinned` | `account_id: u64`, `pinned: bool` | `()` | Pins the account to the dashboard, or unpins it. | `setAccountPinned(accountId, pinned)` |
+| `get_online_friends` | `account_id: u64` | `OnlineFriend[]` (async) | Returns the account's online friends, in-game friends first, using that account's session. Game names follow **Show game names**. | `getOnlineFriends(accountId)` |
 | `join_accounts` | `account_ids: Vec<u64>`, `place_id: Option<String>` | `()` (async) | Launches each account in order, at `place_id` when given, otherwise at its override or the default place. Records each join and minimizes the window afterwards when **minimize on join** is on. Rejects an empty list. | `joinAccounts(accountIds, placeId?)` |
 
 ### Widgets
@@ -136,6 +137,7 @@ The widget lifecycle is covered in the widget reference; this table lists the co
 | --- | --- | --- | --- | --- |
 | `read_log` | `lines: Option<usize>`, `all: Option<bool>` | `String` | The most recent log lines, 300 by default, or the whole log with `all`. | `readLog(lines?)`, `readFullLog()` |
 | `open_log_folder` | — | `()` | Opens the log folder in Explorer or Finder. | `openLogFolder()` |
+| `open_data_folder` | — | `()` | Opens the app folder, which holds the `widgets` folder, in Explorer or Finder. | `openDataFolder()` |
 | `get_theme` | — | `String` | Loads the custom theme CSS from `theme.css`, or an empty string when there's none. | `getTheme()` |
 | `save_theme` | `css: String` | `()` | Validates and saves the custom theme CSS. It must be under 16 MB and can't load anything except data URLs. | `saveTheme(css)` |
 | `embed_theme_files` | `css: String` | `String` | Inlines each unconditional `@import` of a local CSS file and replaces each `url()` that names a local image or font file with a data URL. Absolute paths and `file:` URLs are local, and paths inside an imported file resolve against its folder. Other URLs are left unchanged. | `embedThemeFiles(css)` |

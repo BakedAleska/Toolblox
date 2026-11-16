@@ -1,13 +1,14 @@
-import { ArrowLeft, Code, Copy, ExternalLink, FolderOpen, PictureInPicture2, RefreshCw } from "lucide-react";
+import { ArrowLeft, ChevronDown, Code, Copy, ExternalLink, FolderOpen, PictureInPicture2, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { bridge, describeError, isDemo, previewUpdater } from "@/bridge";
 import type { ThemeStore } from "@/lib/theme";
-import { newestFirst } from "@/logic";
+import { filterLog, logWidgets, newestFirst } from "@/logic";
 import { ThemeFileTools, ThemesTab } from "@/screens/Themes";
 import { useWidgetHasSettings } from "@/screens/WidgetMenu";
-import { ChoiceRow, DISCORD_URL, Group, IconButton, Panel, Screen, SettingRow, Spinner, SwitchRow, WidgetFrame, failure, type ScreenProps } from "@/shared";
+import { ChoiceRow, DISCORD_URL, Group, IconButton, Panel, Screen, SettingRow, SliderRow, Spinner, SwitchRow, WidgetFrame, failure, type ScreenProps } from "@/shared";
 import { WidgetBoundary, useWidgetRegistry } from "@/widgets/host";
 import type { WidgetSummary } from "@/types";
 
@@ -31,7 +32,7 @@ export function SettingsScreen({ themes, widgetId, ...props }: ScreenProps & { t
   useEffect(() => { if (tab.startsWith("widget:") && !widgets.some(({ id }) => tab === `widget:${id}`)) setTab("general"); }, [tab, widgets.map(({ id }) => id).join()]);
   const { settings } = state;
 
-  return <Screen title="Settings" tools={tab === "themes" && <>
+  return <Screen title="Settings" tools={tab === "general" ? <IconButton label="Open app folder" className="text-muted-foreground" onClick={() => void bridge.openDataFolder().catch((error) => props.notify(failure("The app folder couldn't be opened. Does it still exist?", error)))}><FolderOpen /></IconButton> : tab === "themes" && <>
     <ThemeFileTools notify={props.notify} confirm={props.confirm} themes={themes} />
     <IconButton label="Custom CSS" className="text-muted-foreground" onClick={() => props.navigate("/settings/css")}><Code /></IconButton>
   </>}>
@@ -86,6 +87,7 @@ export function SettingsScreen({ themes, widgetId, ...props }: ScreenProps & { t
           <SwitchRow title="Show game names" checked={settings.showGameNames} change={(value) => void patchSettings("showGameNames", value)} />
         </Panel></Group>
         <Group title="Joining"><Panel className="divide-y">
+          <SliderRow title="Join delay" description="Seconds between accounts when joining several at once." value={settings.joinDelaySeconds} min={0} max={60} unit="s" change={(value) => void patchSettings("joinDelaySeconds", value)} />
           <SwitchRow title="Minimize on join" checked={settings.minimizeOnJoin} change={(value) => void patchSettings("minimizeOnJoin", value)} />
           <SwitchRow title="Multiple instances" checked={settings.multiInstance} change={(value) => void patchSettings("multiInstance", value)} />
         </Panel></Group>
@@ -130,30 +132,51 @@ function LogGroup({ navigate }: Pick<ScreenProps, "navigate">) {
   </Panel></Group>;
 }
 
-/** The recent log on its own page, opened from Settings → General. */
+/**
+ * The recent log on its own page, opened from Settings → General. The source menu shows Toolblox's
+ * own records or one widget's, listing installed widgets and any others found in the log.
+ */
 export function LogScreen({ state, notify, navigate }: ScreenProps) {
   const [log, setLog] = useState<string>();
+  const [source, setSource] = useState("all");
   const [loading, setLoading] = useState(true);
   const view = useRef<HTMLPreElement>(null);
   const load = async () => {
     setLoading(true);
-    try { setLog(newestFirst(await bridge.readFullLog())); }
+    try { setLog(await bridge.readFullLog()); }
     catch (error) { setLog(undefined); notify(`The log couldn't be read. Does refreshing help? (${describeError(error)})`); }
     finally { setLoading(false); }
   };
   const copy = async () => {
-    try { await navigator.clipboard.writeText(await bridge.readFullLog() || "The log is empty."); notify("Log copied."); }
+    try { await navigator.clipboard.writeText(filterLog(await bridge.readFullLog(), source) || "The log is empty."); notify("Log copied."); }
     catch (error) { notify(`The log couldn't be copied. Does retrying help? (${describeError(error)})`); }
   };
   const openFolder = () => bridge.openLogFolder().catch((error) => notify(`The log folder couldn't be opened. Does it still exist? (${describeError(error)})`));
+  const widgetName = (id: string) => state.installedWidgets.find((widget) => widget.id === id)?.name ?? id;
+  const sources = [{ value: "all", label: "All sources" }, { value: "app", label: "Toolblox" },
+    ...[...new Set([...state.installedWidgets.map((widget) => widget.id), ...logWidgets(log ?? "")])].map((id) => ({ value: id, label: widgetName(id) }))];
+  const current = sources.find((option) => option.value === source) ?? sources[0];
+  const shown = newestFirst(filterLog(log ?? "", source));
   useEffect(() => { void load(); }, []);
-  useEffect(() => { if (view.current) view.current.scrollTop = 0; }, [log]);
+  useEffect(() => { if (view.current) view.current.scrollTop = 0; }, [log, source]);
 
   return <Screen title="Logs" actions={<IconButton label="Back to settings" onClick={() => navigate("/settings")}><ArrowLeft /></IconButton>} toolbar={<>
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="outline" size="sm" className="max-w-56 justify-between font-normal" aria-label={`Log source: ${current.label}`} />}>
+        <span className="truncate">{current.label}</span><ChevronDown className="text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-menu w-auto max-w-72">
+        <DropdownMenuRadioGroup value={current.value} onValueChange={(value) => setSource(String(value))}>
+          {sources.map((option) => <DropdownMenuRadioItem key={option.value} value={option.value}>{option.label}</DropdownMenuRadioItem>)}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
     <Button variant="ghost" size="sm" className="ml-auto" onClick={() => void load()} disabled={loading}>{loading ? <Spinner /> : <RefreshCw />}Refresh</Button>
     <Button variant="outline" size="sm" aria-label="Copy log" onClick={() => void copy()}><Copy />Copy</Button>
     <Button variant="outline" size="sm" onClick={() => void openFolder()} disabled={!state.logsPath} title={state.logsPath || undefined}><FolderOpen />Open folder</Button>
   </>}>
-    <pre ref={view} tabIndex={0} aria-label="Logs, newest first" className="h-0 min-h-40 flex-1 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed whitespace-pre text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">{log || (loading ? "" : "The log is empty.")}</pre>
+    <pre ref={view} tabIndex={0} aria-label={`Logs from ${current.label.toLowerCase()}, newest first`} className="h-0 min-h-40 flex-1 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed whitespace-pre text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      {shown || (loading ? "" : source === "all" ? "The log is empty." : `No log lines from ${current.label}.`)}
+    </pre>
   </Screen>;
 }

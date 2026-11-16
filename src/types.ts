@@ -70,6 +70,7 @@ export interface Settings {
   sortOrder: SortOrder;
   placeId: string;
   multiInstance: boolean;
+  joinDelaySeconds: number;
   autoRejoin: boolean;
   openOnLaunch: boolean;
   runInBackground: boolean;
@@ -79,6 +80,18 @@ export interface Settings {
   alwaysOnTop: boolean;
   showAnimations: boolean;
   ignoreReducedMotion: boolean;
+}
+
+/** A friend who is online. */
+export interface OnlineFriend {
+  id: number;
+  name: string;
+  displayName: string;
+  avatarUrl?: string;
+  inGame: boolean;
+  inStudio: boolean;
+  /** The game name, or `Studio - <place>` in Roblox Studio. */
+  gameName?: string;
 }
 
 /** A game found by name, with the place a join opens. */

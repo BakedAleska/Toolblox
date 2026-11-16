@@ -30,8 +30,8 @@ Toolblox connects to these services directly. Each one receives your IP address 
 of the request, under its own privacy policy.
 
 - **Roblox** (`roblox.com`, `rbxcdn.com`, and their subdomains): to sign in through Roblox's own
-  page, read account and game details, load avatars, check whether accounts are in game, and join
-  games. The [Roblox privacy policy](https://www.roblox.com/info/privacy) applies.
+  page, read account and game details, load avatars, check whether accounts and their friends are online, and
+  join games. The [Roblox privacy policy](https://www.roblox.com/info/privacy) applies.
 - **GitHub** (`toolblox.dev`, `github.com`, and `githubusercontent.com`): to check for and
   download updates and the widget catalogue. Widget packages download from the address the
   catalogue lists for each one. GitHub's public release statistics count downloads of each file,

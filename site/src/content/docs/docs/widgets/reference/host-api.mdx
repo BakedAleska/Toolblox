@@ -173,6 +173,7 @@ The object passed to `activate` has these members. Each is described in detail b
 | [`addToSlot(slot, Component, options)`](#addtoslot) | Extend a slot |
 | [`addStyles(css)`](#addstyles) | App-wide stylesheet |
 | [`storage.get()`, `storage.set(value)`](#storage) | One JSON value per widget |
+| [`share`](#share) | Values shared with other widgets |
 | [`log.debug`, `log.info`, `log.warn`, `log.error`](#log) | Write to the Toolblox log |
 | [`request(method, params)`](#request) | Every IPC method |
 
@@ -525,6 +526,37 @@ await toolblox.storage.set({ ...saved, showIcons: false });
 
 For data tied to a specific account, use
 [`widgetData.get` and `widgetData.set`](/docs/widgets/reference/ipc/#widgetdataget) instead.
+
+### `share`
+
+```ts
+share.set(topic: string, value: unknown): void
+share.get(topic: string): { widgetId: string; widgetName: string; value: unknown }[]
+share.use(topic: string): { widgetId: string; widgetName: string; value: unknown }[]
+share.subscribe(listener: () => void): () => void
+```
+
+Values that widgets share with each other while they run. Added in Toolblox 0.4.7, so check that
+`toolblox.share` exists before using it.
+
+- A topic is a name the widgets agree on, such as `autoclicker.pause`. The widget that reads a
+  topic documents the shape of its value.
+- Each widget holds one value per topic. `set` replaces it, and `undefined` removes it. The value
+  must survive `JSON.stringify`, so it can't hold functions.
+- `get` lists every widget's value for a topic, this widget's included. `use` does the same as a
+  React hook, and `subscribe` calls the listener after any shared value changes.
+- Show anything that comes from another widget with `ui.FromWidget({ name })`, a link badge with
+  that widget's name. It's the one mark for "shown because both widgets are installed".
+- Values reach every Toolblox window, including widgets in their own window, and are removed
+  when the widget unloads. Nothing is saved: a widget sets its values again when it loads.
+
+```js
+// The widget that offers a reason to pause.
+toolblox.share?.set("autoclicker.pause", [{ id: "backpack", label: "Pause when backpack is open", active: false }]);
+
+// The widget that reads it.
+const reasons = toolblox.share?.get("autoclicker.pause") ?? [];
+```
 
 ### `log`
 

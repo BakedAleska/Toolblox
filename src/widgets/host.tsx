@@ -1,5 +1,5 @@
 import * as React from "react";
-import { AppWindow, PictureInPicture2 } from "lucide-react";
+import { AppWindow, Link2, PictureInPicture2 } from "lucide-react";
 import { Component, createContext, useContext, useSyncExternalStore, type ComponentProps, type ComponentType, type ErrorInfo, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { bridge, describeError } from "@/bridge";
 import { cn } from "@/lib/utils";
 import { AccountCard, AccountName, Avatar, ChoiceRow, EmptyState, Group, IconButton, Modal, Panel, SectionTitle, SettingRow, SliderRow, Spinner, StatTile, SwitchRow } from "@/shared";
 import { system } from "@/widgets/kit";
+import { createShare } from "@/widgets/share";
 import type { Account, AppRoute, AppState, LogLevel, WidgetSummary } from "@/types";
 
 const logLevels: LogLevel[] = ["debug", "info", "warn", "error"];
@@ -48,6 +49,10 @@ const listeners = new Set<() => void>();
 let version = 0;
 let appState: AppState | undefined;
 let actions: HostActions | undefined;
+
+const share = createShare(bridge.shareTransport());
+share.sync();
+window.addEventListener("pagehide", () => loaded.forEach((_, widgetId) => share.clear(widgetId)));
 
 const emit = () => { version += 1; listeners.forEach((listener) => listener()); };
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); };
@@ -88,13 +93,26 @@ function PopoutButton() {
     : <IconButton label="Open in its own window" className="text-muted-foreground" onClick={() => void move()}><PictureInPicture2 /></IconButton>;
 }
 
+/**
+ * Marks something that comes from another widget and appears only because both are installed,
+ * such as an option one widget offers in another's page. Every such integration uses this mark.
+ */
+function FromWidget({ name, className }: { name: string; className?: string }) {
+  return <Tooltip>
+    <TooltipTrigger render={<Badge variant="outline" className={cn("shrink-0 gap-1", className)} aria-label={`From ${name}, shown because both widgets are installed`} />}>
+      <Link2 aria-hidden="true" />{name}
+    </TooltipTrigger>
+    <TooltipContent>From {name}, shown because both widgets are installed</TooltipContent>
+  </Tooltip>;
+}
+
 /** The app's dialog at the small scale unless the widget passes another. */
 const WidgetModal = (props: ComponentProps<typeof Modal>) => <Modal scale="small" {...props} />;
 
 /** Shared UI so widget interfaces match the rest of the app. */
 const ui = {
   AccountCard, AccountName, Avatar, Badge, Button, Checkbox, ChoiceRow, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
-  EmptyState, Group, IconButton, Input, Modal: WidgetModal, Panel, PopoutButton, SectionTitle, SettingRow, SliderRow, Spinner, StatTile, Switch, SwitchRow, Tabs, TabsContent, TabsList, TabsTrigger,
+  EmptyState, FromWidget, Group, IconButton, Input, Modal: WidgetModal, Panel, PopoutButton, SectionTitle, SettingRow, SliderRow, Spinner, StatTile, Switch, SwitchRow, Tabs, TabsContent, TabsList, TabsTrigger,
   ToggleGroup, ToggleGroupItem, Tooltip, TooltipContent, TooltipTrigger, cn,
   /** The control-surface style for system widgets. See `src/widgets/kit.tsx`. `usePopout` reports whether the page is in the widget's own window. */
   system: { ...system, usePopout: () => useContext(WidgetPageContext)?.popout ?? false },
@@ -139,6 +157,25 @@ function createApi(widget: WidgetSummary, sessionId?: string) {
       document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
       return track(id, () => { document.adoptedStyleSheets = document.adoptedStyleSheets.filter((item) => item !== sheet); });
     },
+    /**
+     * Values shared with other widgets by topic, in every Toolblox window. A topic is a name the
+     * widgets agree on, and its value's shape is up to the widget that reads it. Each widget holds
+     * one JSON value per topic, which is removed when the widget unloads.
+     */
+    share: (() => {
+      const get = (topic: string) => share.get(topic).map(({ widgetId, value }) =>
+        ({ widgetId, widgetName: appState?.installedWidgets.find((item) => item.id === widgetId)?.name ?? widgetId, value }));
+      return {
+        /** Sets this widget's value for `topic`, or removes it with `undefined`. */
+        set: (topic: string, value: unknown) => share.set(id, topic, value),
+        /** Every widget's value for `topic`, this widget's included. */
+        get,
+        /** Calls `listener` after any shared value changes. Returns a function that stops it. */
+        subscribe: (listener: () => void) => track(id, share.subscribe(listener)),
+        /** React hook that re-renders with every widget's value for `topic`. */
+        use: (topic: string) => { useSyncExternalStore(share.subscribe, share.version); return get(topic); },
+      };
+    })(),
     /** Writes to the Toolblox log under this widget's ID. Secrets are redacted and lines over 8 KB are cut. */
     log: Object.fromEntries(logLevels.map((level) => [level, (message: string) => bridge.writeLog(level, message, id)])) as Record<LogLevel, (message: string) => Promise<void>>,
     storage: {
@@ -162,6 +199,7 @@ function unload(widgetId: string) {
   try { entry?.deactivate?.(); } catch (error) { void bridge.writeLog("error", `Deactivate failed: ${describeError(error)}`, widgetId); }
   (disposers.get(widgetId) ?? []).forEach((dispose) => dispose());
   disposers.delete(widgetId);
+  share.clear(widgetId);
   if (entry?.sessionId) void bridge.closeWidgetSession(entry.sessionId);
   loaded.delete(widgetId);
   errors.delete(widgetId);

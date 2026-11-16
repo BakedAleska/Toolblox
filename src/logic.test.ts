@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SIDEBAR_COLLAPSED, SIDEBAR_MAX, SIDEBAR_MIN, clampSidebarWidth, newestFirst, parsePlaceId, relativeTime, sortAccounts, stepSidebarWidth } from "./logic";
+import { SIDEBAR_COLLAPSED, SIDEBAR_MAX, SIDEBAR_MIN, clampSidebarWidth, filterLog, logWidgets, newestFirst, parsePlaceId, relativeTime, sortAccounts, stepSidebarWidth } from "./logic";
 import type { Account } from "./types";
 
 const account = (id: number, name: string, addedAt: number, lastPlayedAt?: number): Account => ({
@@ -65,5 +65,36 @@ describe("newestFirst", () => {
   it("reverses records and keeps continuation lines under their record", () => {
     expect(newestFirst("a\nb\n  b2\n  b3\nc")).toBe("c\nb\n  b2\n  b3\na");
     expect(newestFirst("")).toBe("");
+  });
+});
+
+describe("filterLog", () => {
+  const log = [
+    "2026-09-24T18:02:11.412Z INFO  toolblox: starting",
+    "2026-09-24T18:02:12.000Z INFO  widget:rogue_lineage: Mana bar found",
+    "  continued",
+    "2026-09-24T18:02:13.000Z WARN  interface: Text with widget:rogue_lineage: inside",
+    "2026-09-24T18:02:14.000Z WARN  widget:trade_tracker: Request failed",
+  ].join("\n");
+
+  it("keeps one widget's records with their continuation lines", () => {
+    expect(filterLog(log, "rogue_lineage")).toBe("2026-09-24T18:02:12.000Z INFO  widget:rogue_lineage: Mana bar found\n  continued");
+  });
+
+  it("keeps Toolblox's own records, including messages that mention a widget", () => {
+    expect(filterLog(log, "app").split("\n")).toEqual([
+      "2026-09-24T18:02:11.412Z INFO  toolblox: starting",
+      "2026-09-24T18:02:13.000Z WARN  interface: Text with widget:rogue_lineage: inside",
+    ]);
+  });
+
+  it("keeps everything for all sources and nothing for an unknown one", () => {
+    expect(filterLog(log, "all")).toBe(log);
+    expect(filterLog(log, "missing")).toBe("");
+    expect(filterLog("", "app")).toBe("");
+  });
+
+  it("lists the widgets that wrote to the log", () => {
+    expect(logWidgets(log)).toEqual(["rogue_lineage", "trade_tracker"]);
   });
 });

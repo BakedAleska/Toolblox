@@ -418,6 +418,7 @@ output.
 | `USERS_URL` | `GET https://users.roblox.com/v1/users/{id}` | No | `public_profile` | Public profile for backfill. A response for a different ID is rejected. |
 | `THUMBNAIL_URL` | `GET https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={id}&size=150x150&format=Png&isCircular=false` | No | `profile_with_avatar` | Avatar headshot. Any failure leaves `avatar_url` as `None`. |
 | `PRESENCE_URL` | `POST https://presence.roblox.com/v1/presence/users` with `{"userIds": [...]}` | Yes | `fetch_presence_details`, `fetch_presence` | Presence, place, universe, and location for several users. |
+| `FRIENDS_URL` | `GET https://friends.roblox.com/v1/users/{id}/friends/online` | Yes | `fetch_online_friends` | Online friend IDs for the **Continue as** account. Names come from `POST USERS_URL`, and status from `PRESENCE_URL`. Nothing is saved. |
 | `GAMES_URL` | `GET https://games.roblox.com/v1/games?universeIds=1,2,...` | No | `fetch_game_names` | Game names by universe ID. |
 | `PLACE_UNIVERSE_URL` | `GET https://apis.roblox.com/universes/v1/places/{placeId}/universe` | No | `fetch_place_universe` | Whether a place exists, and its universe. |
 | `TICKET_URL` | `POST https://auth.roblox.com/v1/authentication-ticket` | Yes | `build_join_uri` | One-time authentication ticket for launching the client. |

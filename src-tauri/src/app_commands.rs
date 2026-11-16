@@ -98,6 +98,8 @@ pub struct SettingsDto {
     sort_order: crate::models::SortOrder,
     place_id: String,
     multi_instance: bool,
+    #[serde(default = "default_join_delay_seconds")]
+    join_delay_seconds: u64,
     auto_rejoin: bool,
     open_on_launch: bool,
     run_in_background: bool,
@@ -119,6 +121,7 @@ impl From<&Settings> for SettingsDto {
             sort_order: settings.sort_order.clone(),
             place_id: settings.place_id.clone(),
             multi_instance: settings.multi_instance,
+            join_delay_seconds: settings.join_delay_seconds,
             auto_rejoin: settings.auto_rejoin,
             open_on_launch: settings.open_on_launch,
             run_in_background: settings.run_in_background,
@@ -641,6 +644,7 @@ pub async fn save_settings(
         })
         .map_err(command_error)?;
     saved.multi_instance = settings.multi_instance;
+    saved.join_delay_seconds = settings.join_delay_seconds;
     saved.auto_rejoin = settings.auto_rejoin;
     saved.open_on_launch = settings.open_on_launch;
     saved.run_in_background = settings.run_in_background;
@@ -733,6 +737,25 @@ pub async fn search_places(
     runtime: State<'_, Runtime>,
 ) -> Result<Vec<crate::roblox::PlaceMatch>, String> {
     Ok(crate::roblox::search_places(&runtime.client, &query).await)
+}
+
+/// Returns an account's online friends, read with that account's session.
+#[tauri::command]
+pub async fn get_online_friends(
+    account_id: u64,
+    runtime: State<'_, Runtime>,
+) -> Result<Vec<crate::roblox::OnlineFriend>, String> {
+    let show_game_names = runtime
+        .storage
+        .load_settings()
+        .map_err(command_error)?
+        .show_game_names;
+    let secret = runtime.session(account_id).map_err(command_error)?;
+    let result =
+        crate::roblox::fetch_online_friends(&runtime.client, &secret, account_id, show_game_names)
+            .await;
+    runtime.note_session(account_id, &result);
+    result.map_err(command_error)
 }
 
 /// Sets or clears the place a single account joins instead of the default place.
@@ -1998,7 +2021,7 @@ pub(crate) async fn join_account_ids(
     let default_place = crate::roblox::parse_place_id(&settings.place_id).ok();
     let accounts = runtime.storage.load_accounts().map_err(command_error)?;
     let mut expired = Vec::new();
-    let mut delay = FIRST_LAUNCH_DELAY;
+    let mut delay = std::time::Duration::from_secs(settings.join_delay_seconds);
     'accounts: for (index, id) in account_ids.iter().enumerate() {
         let Some(account) = accounts.iter().find(|account| account.id == *id) else {
             return Err("An account wasn't found. Can you refresh the widget?".into());
@@ -2106,17 +2129,22 @@ pub(crate) async fn join_account_ids(
     }
 }
 
-/// Gap between launches in a batch.
+fn default_join_delay_seconds() -> u64 {
+    Settings::default().join_delay_seconds
+}
+
+/// Minimum retry wait when the configured batch delay is zero.
 const FIRST_LAUNCH_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 /// Longest gap between launches after failures.
 const MAX_LAUNCH_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
 /// Ticket requests retried per account before the join fails.
 const LAUNCH_RETRIES: u32 = 3;
 
-/// Doubles the gap between launches after a failure, up to five seconds. The longer gap then
-/// applies to the rest of the batch.
+/// Increases retry waits up to five seconds without shortening a longer configured delay.
 fn next_launch_delay(current: std::time::Duration) -> std::time::Duration {
-    (current * 2).min(MAX_LAUNCH_DELAY)
+    (current * 2)
+        .clamp(FIRST_LAUNCH_DELAY, MAX_LAUNCH_DELAY)
+        .max(current)
 }
 
 /// Fetches an HTTPS URL for a widget and returns the status and a text body of up to 1 MB.
@@ -2251,6 +2279,13 @@ pub fn open_log_folder() -> Result<(), String> {
         .ok_or_else(|| "Logging couldn't start. Is the data folder writable?".to_string())?;
     opener::open(directory)
         .map_err(|_| "The log folder couldn't be opened. Does it still exist?".to_string())
+}
+
+/// Opens the app folder, which holds the `widgets` folder, in Explorer or Finder.
+#[tauri::command]
+pub fn open_data_folder(runtime: State<'_, Runtime>) -> Result<(), String> {
+    opener::open(runtime.storage.root())
+        .map_err(|_| "The app folder couldn't be opened. Does it still exist?".to_string())
 }
 
 /// Writes a record from the interface, or from a widget when `widget_id` is set. Every line is
@@ -2400,5 +2435,30 @@ mod tests {
         .map(|delay| delay.as_secs())
         .collect();
         assert_eq!(delays, [1, 2, 4, 5, 5]);
+    }
+
+    #[test]
+    fn retry_delay_respects_zero_and_long_batch_delays() {
+        use std::time::Duration;
+        assert_eq!(next_launch_delay(Duration::ZERO), Duration::from_secs(1));
+        for seconds in [5, 10, 60] {
+            assert_eq!(
+                next_launch_delay(Duration::from_secs(seconds)),
+                Duration::from_secs(seconds)
+            );
+        }
+        let dto = SettingsDto::from(&Settings {
+            join_delay_seconds: 12,
+            ..Settings::default()
+        });
+        assert_eq!(serde_json::to_value(&dto).unwrap()["joinDelaySeconds"], 12);
+        let mut legacy = serde_json::to_value(dto).unwrap();
+        legacy.as_object_mut().unwrap().remove("joinDelaySeconds");
+        assert_eq!(
+            serde_json::from_value::<SettingsDto>(legacy)
+                .unwrap()
+                .join_delay_seconds,
+            1
+        );
     }
 }

@@ -52,12 +52,25 @@ export const stepSidebarWidth = (width: number, grow: boolean) => {
   return next < SIDEBAR_MIN ? SIDEBAR_COLLAPSED : Math.min(SIDEBAR_MAX, next);
 };
 
-/** Reverses log records, keeping each record's indented continuation lines under it. */
-export const newestFirst = (log: string) => {
+/** Splits a log into records, each with its indented continuation lines. */
+const logRecords = (log: string) => {
   const records: string[] = [];
   for (const line of log.split("\n")) {
     if (/^\s/.test(line) && records.length) records[records.length - 1] += `\n${line}`;
     else records.push(line);
   }
-  return records.reverse().join("\n");
+  return records;
 };
+
+/** Reverses log records, keeping each record's indented continuation lines under it. */
+export const newestFirst = (log: string) => logRecords(log).reverse().join("\n");
+
+/** The ID of the widget that wrote a log record, from its target in the line format of `logs.rs`, or undefined for Toolblox's own. */
+export const logWidget = (record: string) => /^\S+ [A-Z]+ +widget:([a-z0-9_]+): /.exec(record)?.[1];
+
+/** The IDs of the widgets that wrote to a log, in order of their first record. */
+export const logWidgets = (log: string) => [...new Set(logRecords(log).map(logWidget).filter((id) => id !== undefined))];
+
+/** Keeps the log records from one source: "all", "app" for Toolblox's own, or a widget's ID. */
+export const filterLog = (log: string, source: string) =>
+  source === "all" ? log : logRecords(log).filter((record) => record && (logWidget(record) ?? "app") === source).join("\n");

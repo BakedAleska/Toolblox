@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAIN_WINDOW_LABEL","POPOUT_WINDOW_PREFIX","TRAY_ID","TRAY_OPEN_ID","TRAY_QUIT_ID"],"enum":["CloseDecision","LifecycleError"],"fn":["activate_or_defer","apply_pending_activation","decide_close","handle_close_request","install_tray","is_app_window","popout_widget_id","restore_main_window"],"struct":["LifecycleState"]};

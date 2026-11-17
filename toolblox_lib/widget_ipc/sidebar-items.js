@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_WIDGET_MESSAGE_BYTES","UNRESTRICTED_METHODS","WIDGET_PROTOCOL_VERSION"],"fn":["failure","permission_for_method","success"],"struct":["WidgetRequest","WidgetResponse","WidgetSession","WidgetSessions"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_LINE_BYTES","MAX_LOGGED_STDERR_LINES"],"enum":["ProcessStream"],"fn":["canonical_child","spawn_reader","validate_arguments"],"struct":["ManagedProcess","WidgetProcessEvent","WidgetProcessManager"]};

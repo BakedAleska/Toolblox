@@ -78,6 +78,8 @@ pub struct Settings {
     pub reduce_toasts: bool,
     /// Whose online friends the dashboard lists.
     pub friends_source: FriendsSource,
+    /// Open the Widgets page at installed widgets instead of scrolling to the catalogue.
+    pub widgets_open_installed: bool,
     /// Recently used places, newest first.
     pub recent_places: Vec<RecentPlace>,
     /// Named sets of accounts that join together.
@@ -128,6 +130,7 @@ impl Default for Settings {
             ignore_reduced_motion: false,
             reduce_toasts: false,
             friends_source: FriendsSource::Pinned,
+            widgets_open_installed: false,
             recent_places: Vec::new(),
             groups: Vec::new(),
             last_seen_version: None,

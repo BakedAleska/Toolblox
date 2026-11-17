@@ -121,6 +121,8 @@ pub struct SettingsDto {
     #[serde(default)]
     friends_source: crate::models::FriendsSource,
     #[serde(default)]
+    widgets_open_installed: bool,
+    #[serde(default)]
     groups: Vec<crate::models::AccountGroup>,
 }
 
@@ -145,6 +147,7 @@ impl From<&Settings> for SettingsDto {
             ignore_reduced_motion: settings.ignore_reduced_motion,
             reduce_toasts: settings.reduce_toasts,
             friends_source: settings.friends_source,
+            widgets_open_installed: settings.widgets_open_installed,
             groups: settings.groups.clone(),
         }
     }
@@ -673,6 +676,7 @@ pub async fn save_settings(
     saved.ignore_reduced_motion = settings.ignore_reduced_motion;
     saved.reduce_toasts = settings.reduce_toasts;
     saved.friends_source = settings.friends_source;
+    saved.widgets_open_installed = settings.widgets_open_installed;
     saved.groups = settings.groups;
     saved
         .recent_places

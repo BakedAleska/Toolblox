@@ -65,6 +65,7 @@ const demoState: AppState = {
     ignoreReducedMotion: false,
     reduceToasts: false,
     friendsSource: "pinned",
+    widgetsOpenInstalled: false,
     groups: [{ id: "demo-farm", name: "Farming alts", accountIds: [101, 106, 108, 107], pinned: true, placeId: "8737899170", notes: "Pet Simulator grind" }],
   },
   safeMode: false,

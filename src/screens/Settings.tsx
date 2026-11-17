@@ -52,6 +52,7 @@ export function SettingsScreen({ themes, widgetId, ...props }: ScreenProps & { t
           <SwitchRow title="Show animations" checked={settings.showAnimations} change={(value) => void patchSettings("showAnimations", value)} />
           <SwitchRow title="Ignore system reduced motion" description="Shows animations even when the system asks to reduce motion, such as when Animation effects is off in Windows." checked={settings.ignoreReducedMotion} disabled={!settings.showAnimations} change={(value) => void patchSettings("ignoreReducedMotion", value)} />
           <SwitchRow title="Reduce toasts" description="Hides messages that confirm a finished action." checked={settings.reduceToasts} change={(value) => void patchSettings("reduceToasts", value)} />
+          <SwitchRow title="Open widgets at installed" description="Shows installed widgets when Widgets opens, instead of scrolling to the catalogue." checked={settings.widgetsOpenInstalled} change={(value) => void patchSettings("widgetsOpenInstalled", value)} />
           <ChoiceRow title="Sidebar position" value={settings.sidebarPosition} options={[{ value: "left", label: "Left" }, { value: "right", label: "Right" }]} change={(value) => void patchSettings("sidebarPosition", value)} />
         </Panel></Group>
         <Group title="Dashboard"><Panel className="divide-y">

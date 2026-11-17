@@ -85,6 +85,8 @@ export interface Settings {
   reduceToasts: boolean;
   /** Whose online friends the dashboard lists. */
   friendsSource: FriendsSource;
+  /** Opens the Widgets page at installed widgets instead of scrolling to the catalogue. */
+  widgetsOpenInstalled: boolean;
   /** Named sets of accounts that join together. */
   groups: AccountGroup[];
 }

@@ -1,5 +1,5 @@
 import { MoreHorizontal, Plus, Puzzle, RefreshCw } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
@@ -11,7 +11,7 @@ import { WidgetContextMenu, WidgetMenuItems, useWidgetActions, type WidgetAction
 import { useWidgetRegistry } from "@/widgets/host";
 import type { CatalogueEntry, WidgetSummary } from "@/types";
 
-const grid = "grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-list";
+const grid = "grid grid-cols-[repeat(auto-fill,16rem)] gap-list";
 const access = (permissions: string[]) => permissions.length ? `Permissions: ${permissionSummary(permissions)}.` : "No special permissions.";
 
 export function Widgets({ state, refresh, navigate, notify, done, confirm }: ScreenProps) {
@@ -24,22 +24,50 @@ export function Widgets({ state, refresh, navigate, notify, done, confirm }: Scr
     finally { setWorking((current) => { const next = new Set(current); next.delete(id); return next; }); }
   };
   const actions = useWidgetActions({ state, navigate, confirm }, run);
+  const catalogue = useRef<HTMLElement>(null);
+  const stop = useRef(() => {});
+  const { showAnimations, ignoreReducedMotion, widgetsOpenInstalled } = state.settings;
+  const still = () => !showAnimations || (!ignoreReducedMotion && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const toCatalogue = () => {
+    stop.current();
+    const section = catalogue.current, container = section?.closest('[data-slot="screen"]')?.parentElement;
+    if (!section || !container) return;
+    if (still()) { section.scrollIntoView({ block: "start" }); return; }
+    const from = container.scrollTop;
+    const to = Math.min(container.scrollHeight - container.clientHeight, from + section.getBoundingClientRect().top - container.getBoundingClientRect().top - parseFloat(getComputedStyle(section).scrollMarginTop));
+    const began = performance.now();
+    let frame = 0;
+    const step = (now: number) => {
+      const t = Math.min(1, (now - began) / 550);
+      container.scrollTop = from + (to - from) * (t < 0.5 ? 4 * t ** 3 : 1 - (2 - 2 * t) ** 3 / 2);
+      if (t < 1) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    stop.current = () => cancelAnimationFrame(frame);
+  };
+  useEffect(() => {
+    const events = ["wheel", "pointerdown", "keydown", "touchstart"] as const;
+    const cancel = () => { window.clearTimeout(timer); stop.current(); };
+    events.forEach((name) => window.addEventListener(name, cancel, { passive: true }));
+    const timer = widgetsOpenInstalled || !state.installedWidgets.length ? 0 : window.setTimeout(toCatalogue, still() ? 0 : 800);
+    return () => { cancel(); events.forEach((name) => window.removeEventListener(name, cancel)); };
+  }, []);
   const install = (entry: CatalogueEntry) => confirm({ scale: "small", title: `Install ${entry.name}?`, message: entry.permissions.length ? `Requested permissions: ${permissionSummary(entry.permissions)}. No other access is granted.` : "This widget requests no special permissions.", action: "Install", run: () => run(entry.id, () => bridge.installWidget(entry), `${entry.name} couldn't be installed.`, `${entry.name} installed.`) });
 
   return <Screen title="Widgets" className="gap-4">
     {state.widgetErrors.map((error) => <Panel key={error} className="px-4 py-3 text-sm text-destructive ring-destructive/30">{error}</Panel>)}
 
-    {state.installedWidgets.length > 0 && <section className="flex min-h-[calc(100dvh-5rem)] flex-col gap-2" aria-labelledby="installed-title">
+    {state.installedWidgets.length > 0 && <section className="flex flex-col gap-2" aria-labelledby="installed-title">
       <SectionTitle><span id="installed-title">Installed</span></SectionTitle>
-      <div className={grid}>{state.installedWidgets.map((widget) => <InstalledCard key={widget.id} widget={widget} busy={working.has(widget.id)} actions={actions(widget)}
+      <div className="-m-1 flex snap-x gap-list overflow-x-auto overflow-y-hidden p-1 pb-3 [scrollbar-width:thin]">{state.installedWidgets.map((widget) => <InstalledCard key={widget.id} widget={widget} busy={working.has(widget.id)} actions={actions(widget)}
         open={() => navigate(`/widgets/${widget.id}`)}
         toggle={(enabled) => void run(widget.id, () => bridge.setWidgetEnabled(widget.id, enabled), `${widget.name} couldn't be ${enabled ? "enabled" : "disabled"}.`, `${widget.name} ${enabled ? "enabled" : "disabled"}.`)}
         update={() => confirm({ scale: "small", title: `Update ${widget.name}?`, message: widget.availablePermissions?.length ? `Requested permissions: ${permissionSummary(widget.availablePermissions)}. No other access is granted.` : "This version requests no special permissions.", action: "Update", run: () => run(widget.id, () => bridge.updateWidget(widget.id), `${widget.name} couldn't be updated.`, `${widget.name} updated to v${widget.availableVersion}.`) })}
         error={errors.get(widget.id)} />)}</div>
     </section>}
 
-    <section className="flex flex-col gap-2" aria-labelledby="catalogue-title">
-      <SectionTitle><span id="catalogue-title">Catalogue</span>{!state.catalogueError && !state.catalogue.length && <span className="ml-2 font-normal text-muted-foreground/80">No widgets available</span>}</SectionTitle>
+    <section ref={catalogue} className={cn("flex scroll-mt-16 flex-col gap-2", state.installedWidgets.length > 0 && "min-h-[calc(100dvh-5rem)]")} aria-labelledby="catalogue-title">
+      <SectionTitle>{state.installedWidgets.length ? <button type="button" id="catalogue-title" className="inline-flex items-center gap-1 rounded-sm outline-none transition-colors hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50" onClick={toCatalogue}>Catalogue</button> : <span id="catalogue-title">Catalogue</span>}{!state.catalogueError && !state.catalogue.length && <span className="ml-2 font-normal text-muted-foreground/80">No widgets available</span>}</SectionTitle>
       {state.catalogueError ? <Panel className="flex items-center gap-3 px-4 py-3">
         <p className="flex-1 text-sm text-destructive">The catalogue couldn't be loaded. Is the connection working? ({state.catalogueError})</p>
         <Button variant="outline" size="sm" disabled={working.has("catalogue")} onClick={() => void run("catalogue", () => bridge.retryCatalogue(), "The catalogue couldn't be refreshed.", "Catalogue refreshed.")}>{working.has("catalogue") ? <Spinner /> : <RefreshCw />}Retry</Button>
@@ -57,40 +85,39 @@ function Requirement({ version, supported }: { version: string; supported: boole
   return <p className={cn("text-xs", supported ? "text-muted-foreground/80" : "text-warning")}>Requires Toolblox {version} or later.{!supported && " Update Toolblox to install it."}</p>;
 }
 
-function WidgetCard({ name, logoUrl, bannerUrl, meta, description, permissions, requirement, active = true, action, footer }: { name: string; logoUrl?: string; bannerUrl?: string; meta?: string; description: string; permissions: string[]; requirement?: ReactNode; active?: boolean; action?: ReactNode; footer: ReactNode }) {
+function WidgetCard({ name, logoUrl, bannerUrl, meta, description, permissions, requirement, active = true, action, footer, className }: { name: string; logoUrl?: string; bannerUrl?: string; meta?: string; description: string; permissions: string[]; requirement?: ReactNode; active?: boolean; action?: ReactNode; footer: ReactNode; className?: string }) {
   const [failed, setFailed] = useState(false);
   const [bannerFailed, setBannerFailed] = useState(false);
   const logo = logoUrl && !failed ? logoUrl : undefined;
   const banner = bannerUrl && !bannerFailed ? bannerUrl : undefined;
-  return <Panel className={cn("group/card flex flex-col overflow-hidden", lift)}>
-    <div className={cn("relative h-20 overflow-hidden bg-muted transition-[filter]", !active && "grayscale")} aria-hidden="true">
-      {banner && <img src={banner} alt="" className="absolute inset-0 size-full object-cover transition-transform duration-700 ease-enter group-hover/card:scale-110" onError={() => setBannerFailed(true)} />}
-      <div className="absolute inset-0 bg-linear-to-t from-card to-transparent" />
+  return <Panel className={cn("group/card relative isolate flex aspect-square w-64 flex-col overflow-hidden", lift, className)}>
+    <div className={cn("absolute inset-x-0 top-0 -z-10 h-16 overflow-hidden bg-muted mask-[linear-gradient(to_bottom,black,transparent)] transition-[filter]", !active && "grayscale")} aria-hidden="true">
+      {banner && <img src={banner} alt="" className="size-full object-cover transition-transform duration-700 ease-enter group-hover/card:scale-110" onError={() => setBannerFailed(true)} />}
     </div>
-    <div className="flex flex-1 flex-col gap-3 px-4 pb-4">
-      <div className="-mt-8 flex items-end gap-3">
-        <span className={cn("relative grid size-16 shrink-0 place-items-center overflow-hidden rounded-xl bg-muted text-muted-foreground ring-4 ring-card transition-[opacity,rotate,scale] duration-500 ease-spring group-hover/card:scale-105 group-hover/card:-rotate-3", !active && "opacity-50")} aria-hidden="true">
+    <div className="flex min-h-0 flex-1 flex-col gap-2 px-4 pt-8 pb-4">
+      <div className="flex shrink-0 items-end gap-3">
+        <span className={cn("grid size-16 shrink-0 place-items-center overflow-hidden rounded-xl bg-muted text-muted-foreground ring-4 ring-card transition-[opacity,rotate,scale] duration-500 ease-spring group-hover/card:scale-105 group-hover/card:-rotate-3", !active && "opacity-50")} aria-hidden="true">
           {logo ? <img src={logo} alt="" className="size-full object-cover" onError={() => setFailed(true)} /> : <Puzzle className="size-7" />}
         </span>
         <div className="ml-auto pb-1">{action}</div>
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 shrink-0">
         <p className="truncate font-semibold tracking-tight">{name}</p>
         {meta && <p className="text-xs text-muted-foreground">{meta}</p>}
       </div>
-      <div className="flex-1 space-y-1">
+      <div className="min-h-0 flex-1 space-y-1 overflow-hidden">
         <p className="line-clamp-2 text-sm text-muted-foreground">{description || "No description."}</p>
-        <p className="line-clamp-2 text-xs text-muted-foreground/80">{access(permissions)}</p>
+        <p className="line-clamp-1 text-xs text-muted-foreground/80">{access(permissions)}</p>
         {requirement}
       </div>
-      <div className="flex items-center gap-2">{footer}</div>
+      <div className="flex shrink-0 items-center gap-2">{footer}</div>
     </div>
   </Panel>;
 }
 
 function InstalledCard({ widget, busy, error, actions, open, toggle, update }: { widget: WidgetSummary; busy: boolean; error?: string; actions: WidgetAction[]; open: () => void; toggle: (enabled: boolean) => void; update: () => void }) {
   const updateAvailable = widget.availableVersion && widget.availableVersion !== widget.version;
-  return <WidgetContextMenu actions={actions}><WidgetCard name={widget.name} logoUrl={widget.logoUrl} bannerUrl={widget.bannerUrl} meta={widget.version ? `v${widget.version}` : undefined} description={widget.description} permissions={widget.permissions} active={widget.enabled}
+  return <WidgetContextMenu actions={actions}><WidgetCard className="shrink-0 snap-start" name={widget.name} logoUrl={widget.logoUrl} bannerUrl={widget.bannerUrl} meta={widget.version ? `v${widget.version}` : undefined} description={widget.description} permissions={widget.permissions} active={widget.enabled}
     requirement={updateAvailable && widget.availableNeedsApp && <p className="text-xs text-warning">v{widget.availableVersion} requires Toolblox {widget.availableNeedsApp} or later.</p>}
     action={<Switch checked={widget.enabled} disabled={busy} onCheckedChange={(value) => toggle(value)} aria-label={`Enable ${widget.name}`} />}
     footer={<>

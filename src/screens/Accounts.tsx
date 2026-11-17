@@ -1,22 +1,28 @@
-import { ArrowDown, FolderInput, FolderPlus, ArrowUp, Copy, ExternalLink, KeyRound, GripVertical, ListChecks, MapPin, MapPinOff, MoreHorizontal, NotebookPen, Play, Repeat1, Plus, Search, Star, Timer, Trash2, Undo2, UserRound, Users, X } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState, type MouseEvent, type PointerEvent } from "react";
-import { Badge } from "@/components/ui/badge";
+import { ArrowDown, FolderInput, FolderPlus, ArrowUp, Copy, ExternalLink, KeyRound, GripVertical, ListChecks, MapPin, MapPinOff, MoreHorizontal, NotebookPen, Play, Repeat1, Plus, Search, Star, Tag, Timer, Trash2, Undo2, UserRound, Users, X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { Badge, badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { bridge } from "@/bridge";
 import { cn } from "@/lib/utils";
-import { accountName, matchAccount, relativeTime, sortAccounts, targetUserId } from "@/logic";
+import { accountName, currentGame, matchAccount, noteFor, relativeTime, setTagMember, sortAccounts, tagMembers, targetUserId } from "@/logic";
 import { AccountCard, EmptyState, Hint, IconButton, Panel, Screen, Spinner, PresenceMark, placeLabel, presenceLabel, presenceShort, type ScreenProps, failure } from "@/shared";
 import type { Account } from "@/types";
 import { WidgetSlot } from "@/widgets/host";
 import { destinationPeek, searchDestinationFor, searchGroupDestinationFor } from "@/screens/PlaceSearch";
 import { GroupCard, editGroup, matchGroup } from "@/screens/Groups";
-import type { AccountGroup } from "@/types";
+import type { AccountGroup, AccountTag, TagColor } from "@/types";
 
 /** Fades a row control in while the row is hovered or focused. Touch screens always show it. */
 const reveal = "opacity-0 transition-opacity duration-200 motion-reduce:transition-none group-hover:opacity-100 group-has-focus-visible:opacity-100 group-has-data-popup-open:opacity-100 pointer-coarse:opacity-100";
+
+/** Like `reveal`, but the control also takes no room, and cancels its row gap, until shown. Sized for `icon-xs`. */
+const revealWidth = "-ml-2 w-0 overflow-hidden opacity-0 transition-[margin,width,opacity] duration-200 motion-reduce:transition-none group-hover:ml-0 group-hover:w-6 group-hover:opacity-100 group-has-focus-visible:ml-0 group-has-focus-visible:w-6 group-has-focus-visible:opacity-100 group-has-data-popup-open:ml-0 group-has-data-popup-open:w-6 group-has-data-popup-open:opacity-100 pointer-coarse:ml-0 pointer-coarse:w-6 pointer-coarse:opacity-100";
+
+/** Each tag color's swatch class, from the theme's `--tag-*` tokens. */
+const tagColors: Record<TagColor, string> = { gray: "bg-tag-gray", red: "bg-tag-red", orange: "bg-tag-orange", yellow: "bg-tag-yellow", green: "bg-tag-green", blue: "bg-tag-blue" };
 
 /** Set before navigating to Accounts to open the first account's menu, where pinning lives. */
 let openFirstMenu = false;
@@ -65,7 +71,15 @@ export function Accounts({ state, refresh, navigate, notify, done, confirm, join
     document.addEventListener("keydown", escape);
     return () => { document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", escape); };
   }, [menuFor]);
-  const visible = query ? sorted.filter((account) => matchAccount(account, query)) : sorted;
+  const tags = settings.tags ?? [];
+  /** Notes and tags belong to the default destination's game, when it is one. */
+  const game = currentGame(settings.placeId);
+  const tagsOf = (account: Account) => tags.filter((tag) => tagMembers(tag, game).includes(account.id));
+  const saveTag = (tag: AccountTag) => patchSettings("tags", tags.some(({ id }) => id === tag.id) ? tags.map((current) => current.id === tag.id ? tag : current) : [...tags, tag]);
+  const deleteTag = (tag: AccountTag) => confirm({ title: `Delete ${tag.name}?`, message: "Deletes the tag from every account. The accounts stay on this device.", action: "Delete", danger: true,
+    run: async () => { await patchSettings("tags", tags.filter(({ id }) => id !== tag.id)); done(`Deleted ${tag.name}.`); } });
+  const tagLine = (account: Account) => tagsOf(account).map((tag) => <TagChip key={tag.id} tag={tag} accountId={account.id} game={game} save={saveTag} />);
+  const visible = query ? sorted.filter((account) => matchAccount({ ...account, notes: noteFor(account, game) }, query, tagsOf(account).map(({ name }) => name).join(" "))) : sorted;
   const reorderable = settings.sortOrder === "manual" && !query;
 
   /** Selection starts from the header button or a double-click, and stays on until stopped. */
@@ -138,7 +152,7 @@ export function Accounts({ state, refresh, navigate, notify, done, confirm, join
     onClick={() => { if (selecting) stopSelecting(); else setSelectMode(true); }}><ListChecks /></IconButton></>} toolbar={<>
     <WidgetSlot name="accounts.toolbar" props={{}} />
     <label className="relative min-w-40 flex-1 basis-0">
-      <span className="sr-only">Search accounts by name or note</span>
+      <span className="sr-only">Search accounts by name, note, or tag</span>
       <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
       <Input type="search" name="search" value={search} placeholder="Search…" spellCheck={false} aria-describedby={query ? "search-count" : undefined}
         className="pr-24 pl-8 [&::-webkit-search-cancel-button]:hidden" onChange={(event) => setSearch(event.target.value)}
@@ -208,11 +222,13 @@ export function Accounts({ state, refresh, navigate, notify, done, confirm, join
           </>}
           inline={<>
             {account.displayName && account.displayName !== account.name && <span className="truncate text-xs text-muted-foreground">@{account.name}</span>}
+            <TagPicker account={account} game={game} tags={tags} save={saveTag} remove={deleteTag} className={revealWidth} />
             {nextJoin[account.id] && <Hint label={`Next join only: ${nextJoin[account.id].name}. Then ${account.placeId ? placeLabel(state, account.placeId) : "the default destination"}.`}>
               <Badge variant="outline" className="min-w-0 shrink text-muted-foreground"><Repeat1 /><span className="truncate">{nextJoin[account.id].name}</span></Badge>
             </Hint>}
             {account.placeId && <Hint label={`Destination: ${placeLabel(state, account.placeId)} (${account.placeId})`}><Badge variant="outline" className="min-w-0 shrink text-muted-foreground">{targetUserId(account.placeId) === undefined ? <MapPin /> : <UserRound />}<span className="truncate">{placeLabel(state, account.placeId)}</span></Badge></Hint>}
             {presenceLabel(account) && <Hint label={presenceLabel(account)}><Badge variant="secondary" className="min-w-0 shrink"><PresenceMark account={account} small /><span className="truncate">{presenceShort(account)}</span></Badge></Hint>}
+            {settings.compactMode && tagLine(account)}
             {settings.sortOrder === "last_played" && account.presence !== "playing" && <span className="shrink-0 text-xs text-muted-foreground"
               title={account.lastPlayedAt ? new Date(account.lastPlayedAt < 1_000_000_000_000 ? account.lastPlayedAt * 1000 : account.lastPlayedAt).toLocaleString() : undefined}>{relativeTime(account.lastPlayedAt)}</span>}
           </>}
@@ -266,13 +282,79 @@ export function Accounts({ state, refresh, navigate, notify, done, confirm, join
                 aria-label={joining.includes(account.id) ? `Cancel the join for ${accountName(account)}` : `Join as ${accountName(account)}`}>{joining.includes(account.id) ? <><Spinner />Cancel</> : <><Play />Join</>}</Button>}
           </>}>
           <WidgetSlot name="accounts.row" props={{ account }} wrap={(children) => <div className="mt-1 flex flex-wrap items-center gap-2">{children}</div>} />
-          {settings.compactMode && query && matchAccount(account, query) === "notes" && <p className="mt-0.5 truncate text-xs text-muted-foreground" title={account.notes}>Note: {account.notes}</p>}
-          {!settings.compactMode && <textarea rows={1} name="notes" defaultValue={account.notes} placeholder="Add a note" aria-label={`Notes for ${accountName(account)}`}
-            className="-mx-1 mt-0.5 block max-h-16 w-full resize-none rounded-lg bg-transparent px-1 text-xs text-muted-foreground outline-none [field-sizing:content] placeholder:text-muted-foreground hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring"
-            onBlur={(event) => { if (event.target.value !== account.notes) void bridge.updateAccountNotes(account.id, event.target.value).then(refresh).catch((error) => notify(failure(`The note wasn't saved. Does retrying help?`, error))); }} />}
+          {settings.compactMode && query && noteFor(account, game) && matchAccount({ ...account, notes: noteFor(account, game) }, query) === "notes" && <p className="mt-0.5 truncate text-xs text-muted-foreground" title={noteFor(account, game)}>Note: {noteFor(account, game)}</p>}
+          {!settings.compactMode && <div className="-mx-1 mt-0.5 flex min-w-0 flex-wrap items-center gap-1"><textarea key={game ?? ""} rows={1} name="notes" defaultValue={noteFor(account, game)} placeholder={tagsOf(account).length ? "…" : game ? `Add a note for ${placeLabel(state, game)}` : "Add a note"}
+            aria-label={game ? `Notes for ${accountName(account)} in ${placeLabel(state, game)}` : `Notes for ${accountName(account)}`}
+            className={cn("block max-h-16 min-w-0 max-w-full resize-none rounded-lg bg-transparent px-1 text-xs text-muted-foreground outline-none [field-sizing:content] placeholder:text-muted-foreground hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring", tagsOf(account).length ? "flex-none" : "flex-1")}
+            onBlur={(event) => { if (event.target.value !== noteFor(account, game)) void bridge.updateAccountNotes(account.id, event.target.value, game).then(refresh).catch((error) => notify(failure(`The note wasn't saved. Does retrying help?`, error))); }} />{tagLine(account)}</div>}
         </AccountCard></Fragment>)}
           {otherGroups.length > 0 && <><h2 className={cn("col-span-full text-xs font-medium text-muted-foreground", (visible.length > 0 || pinnedGroups.length > 0) && "mt-2")}>Groups</h2>{otherGroups.map(groupCard)}</>}
         </div>}
     <span className="sr-only" aria-live="polite">{adding ? "Roblox sign-in window open." : ""}</span>
   </Screen>;
+}
+
+const swatch = (color: TagColor, className = "size-2") => <span className={cn("shrink-0 rounded-full", tagColors[color], className)} aria-hidden="true" />;
+const colorName = (color: TagColor) => color[0].toUpperCase() + color.slice(1);
+/** Keeps typing in a field inside a menu from moving the menu's highlight. Escape, arrows, and Tab still reach the menu. */
+const typeInMenu = (event: ReactKeyboardEvent<HTMLInputElement>) => { if (!["Escape", "ArrowDown", "ArrowUp", "Tab"].includes(event.key)) event.stopPropagation(); };
+/** The first color no tag uses yet, or the next in turn once every color is used. */
+const nextColor = (tags: AccountTag[]): TagColor => {
+  const colors = Object.keys(tagColors) as TagColor[];
+  return colors.find((color) => color !== "gray" && !tags.some((tag) => tag.color === color)) ?? colors[tags.length % colors.length];
+};
+
+/** A tag on an account. Its menu renames or recolors the tag, or takes it off the account. */
+function TagChip({ tag, accountId, game, save }: { tag: AccountTag; accountId: number; game?: string; save: (tag: AccountTag) => void }) {
+  const rename = (value: string) => { const name = value.trim(); if (name && name !== tag.name) save({ ...tag, name }); };
+  return <DropdownMenu>
+    <DropdownMenuTrigger render={<button type="button" className={cn(badgeVariants({ variant: "outline" }), "min-w-0 shrink cursor-pointer text-muted-foreground hover:bg-muted")} aria-label={`Tag ${tag.name}`} />}>
+      {swatch(tag.color)}<span className="truncate">{tag.name}</span>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent className="w-48">
+      <Input defaultValue={tag.name} maxLength={30} aria-label="Tag name" className="h-7 text-xs" onBlur={(event) => rename(event.currentTarget.value)}
+        onKeyDown={(event) => { typeInMenu(event); if (event.key === "Enter") { event.preventDefault(); rename(event.currentTarget.value); } }} />
+      <div role="group" aria-label="Color" className="flex justify-between py-1">
+        {(Object.keys(tagColors) as TagColor[]).map((color) => <DropdownMenuItem key={color} aria-label={colorName(color)} aria-current={color === tag.color || undefined}
+          className="size-7 justify-center rounded-full p-0" onClick={() => save({ ...tag, color })}>
+          {swatch(color, cn("size-4", color === tag.color && "ring-2 ring-foreground ring-offset-2 ring-offset-popover"))}
+        </DropdownMenuItem>)}
+      </div>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={() => save(setTagMember(tag, accountId, false, game))}><X />Remove from account</DropdownMenuItem>
+    </DropdownMenuContent>
+  </DropdownMenu>;
+}
+
+/** Adds tags to an account: type a name to create one, or check existing tags. Each tag can be deleted here. */
+function TagPicker({ account, game, tags, save, remove, className }: { account: Account; game?: string; tags: AccountTag[]; save: (tag: AccountTag) => void; remove: (tag: AccountTag) => void; className?: string }) {
+  const [text, setText] = useState("");
+  const name = text.trim();
+  const shown = tags.filter((tag) => tag.name.toLowerCase().includes(name.toLowerCase()));
+  const exact = tags.find((tag) => tag.name.toLowerCase() === name.toLowerCase());
+  const has = (tag: AccountTag) => tagMembers(tag, game).includes(account.id);
+  const toggle = (tag: AccountTag, on: boolean) => save(setTagMember(tag, account.id, on, game));
+  const add = () => {
+    if (!name) return;
+    if (exact) { if (!has(exact)) toggle(exact, true); }
+    else save(setTagMember({ id: crypto.randomUUID(), name, color: nextColor(tags), accountIds: [] }, account.id, true, game));
+    setText("");
+  };
+  const field = useRef<HTMLInputElement>(null);
+  /** The menu focuses its first item when it opens, so the field takes focus a frame later. */
+  return <DropdownMenu onOpenChange={(open) => { if (open) requestAnimationFrame(() => field.current?.focus()); else setText(""); }}>
+    <Hint label="Add a tag"><DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" className={cn("text-muted-foreground", className)} aria-label={`Tags for ${accountName(account)}`} />}><Tag /></DropdownMenuTrigger></Hint>
+    <DropdownMenuContent className="w-48">
+      <Input ref={field} value={text} maxLength={30} placeholder="Find or create a tag" aria-label="Tag name" className="h-7 text-xs"
+        onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { typeInMenu(event); if (event.key === "Enter") { event.preventDefault(); add(); } }} />
+      {(shown.length > 0 || (name && !exact)) && <DropdownMenuSeparator />}
+      {shown.map((tag) => <DropdownMenuCheckboxItem key={tag.id} className="group/tag pr-8" checked={has(tag)} onCheckedChange={(checked) => toggle(tag, checked)}
+        onKeyDown={(event) => { if (event.key === "Delete") { event.preventDefault(); remove(tag); } }}>
+        {swatch(tag.color)}<span className="min-w-0 flex-1 truncate">{tag.name}</span>
+        <Button variant="ghost" size="icon-xs" tabIndex={-1} aria-label={`Delete ${tag.name}`} title="Delete (Delete)" className="-my-1 text-muted-foreground opacity-0 hover:text-destructive group-hover/tag:opacity-100 group-data-highlighted/tag:opacity-100 pointer-coarse:opacity-100"
+          onClick={(event) => { event.stopPropagation(); event.preventDefault(); remove(tag); }}><Trash2 /></Button>
+      </DropdownMenuCheckboxItem>)}
+      {name && !exact && <DropdownMenuItem onClick={add}><Plus /><span className="truncate">Create {name}</span></DropdownMenuItem>}
+    </DropdownMenuContent>
+  </DropdownMenu>;
 }

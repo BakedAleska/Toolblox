@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SIDEBAR_COLLAPSED, SIDEBAR_MAX, SIDEBAR_MIN, clampSidebarWidth, failureReport, filterLog, opaqueSquare, logWidgets, matchAccount, newestFirst, parseJoinTarget, parsePlaceId, relativeTime, targetUserId, sortAccounts, stepSidebarWidth } from "./logic";
-import type { Account } from "./types";
+import { SIDEBAR_COLLAPSED, SIDEBAR_MAX, SIDEBAR_MIN, clampSidebarWidth, currentGame, failureReport, noteFor, setTagMember, tagMembers, filterLog, opaqueSquare, logWidgets, matchAccount, newestFirst, parseJoinTarget, parsePlaceId, relativeTime, targetUserId, sortAccounts, stepSidebarWidth } from "./logic";
+import type { Account, AccountTag } from "./types";
 
 const account = (id: number, name: string, addedAt: number, lastPlayedAt?: number): Account => ({
   id,
@@ -37,6 +37,10 @@ describe("matchAccount", () => {
     expect(matchAccount(farmer, "farm main")).toBe("notes");
     expect(matchAccount(farmer, "builder farming")).toBe("notes");
     expect(matchAccount(farmer, "  ")).toBe("name");
+  });
+  it("matches tag names passed as extra text", () => {
+    expect(matchAccount(farmer, "trading builder", "Trading Main")).toBe("notes");
+    expect(matchAccount(farmer, "trading")).toBe(false);
   });
   it("rejects a query with any missing word", () => {
     expect(matchAccount(farmer, "builder trading")).toBe(false);
@@ -150,5 +154,28 @@ describe("opaqueSquare", () => {
 
   it("returns nothing for a fully transparent image", () => {
     expect(opaqueSquare(pixels(4, 4, []), 4, 4)).toBeUndefined();
+  });
+});
+
+describe("game notes and tags", () => {
+  it("uses the default destination's game, but not a followed player", () => {
+    expect(currentGame("2753915549")).toBe("2753915549");
+    expect(currentGame("@156")).toBeUndefined();
+    expect(currentGame("")).toBeUndefined();
+  });
+  it("reads the game's note, or the general note without a game", () => {
+    const farmer = { ...account(1, "farmer", 0), notes: "General", gameNotes: { "1": "Raids" } };
+    expect(noteFor(farmer)).toBe("General");
+    expect(noteFor(farmer, "1")).toBe("Raids");
+    expect(noteFor(farmer, "2")).toBe("");
+  });
+  it("keeps tag members separate for each game", () => {
+    let tag: AccountTag = { id: "t", name: "Main", color: "green", accountIds: [1] };
+    tag = setTagMember(tag, 2, true, "9");
+    expect(tagMembers(tag)).toEqual([1]);
+    expect(tagMembers(tag, "9")).toEqual([2]);
+    expect(tagMembers(setTagMember(tag, 2, true, "9"), "9")).toEqual([2]);
+    expect(tagMembers(setTagMember(tag, 1, false), "9")).toEqual([2]);
+    expect(tagMembers(setTagMember(tag, 1, false))).toEqual([]);
   });
 });

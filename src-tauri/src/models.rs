@@ -84,6 +84,8 @@ pub struct Settings {
     pub recent_places: Vec<RecentPlace>,
     /// Named sets of accounts that join together.
     pub groups: Vec<AccountGroup>,
+    /// Colored labels shown on accounts.
+    pub tags: Vec<AccountTag>,
     /// Toolblox version that last opened with these settings. `None` before 0.4.8.
     pub last_seen_version: Option<String>,
     /// Unknown fields, kept when saving.
@@ -133,6 +135,7 @@ impl Default for Settings {
             widgets_open_installed: false,
             recent_places: Vec::new(),
             groups: Vec::new(),
+            tags: Vec::new(),
             last_seen_version: None,
             extra: Map::new(),
         }
@@ -161,6 +164,7 @@ impl Settings {
             return Err("The recent places list isn't valid. Can you set the place again?".into());
         }
         validate_groups(&self.groups)?;
+        validate_tags(&self.tags)?;
         for id in self
             .disabled_widgets
             .iter()
@@ -261,6 +265,76 @@ fn validate_groups(groups: &[AccountGroup]) -> Result<(), String> {
     Ok(())
 }
 
+/// Most tags a settings file may hold.
+pub const MAX_TAGS: usize = 50;
+
+/// A tag's color, drawn from the theme's `--tag-*` tokens.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TagColor {
+    Gray,
+    Red,
+    Orange,
+    Yellow,
+    Green,
+    Blue,
+}
+
+/// A colored label on any number of accounts. `account_ids` may name removed accounts, which the
+/// interface leaves out.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountTag {
+    pub id: String,
+    pub name: String,
+    pub color: TagColor,
+    #[serde(default)]
+    pub account_ids: Vec<u64>,
+    /// Members while a game is the default destination, by place ID. `account_ids` holds the
+    /// members when no game is.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub games: BTreeMap<String, Vec<u64>>,
+}
+
+/// Most characters in one account note.
+pub const MAX_NOTE_CHARS: usize = 10_000;
+
+/// Checks the tag list: unique IDs of 1 to 64 letters, digits, and `-`, names of 1 to 30
+/// characters, unique members, and place IDs as game keys.
+fn validate_tags(tags: &[AccountTag]) -> Result<(), String> {
+    if tags.len() > MAX_TAGS {
+        return Err(format!(
+            "There are more than {MAX_TAGS} tags. Can you delete some?"
+        ));
+    }
+    let mut ids = std::collections::BTreeSet::new();
+    for tag in tags {
+        let name = tag.name.trim();
+        let mut members = std::collections::BTreeSet::new();
+        if tag.id.is_empty()
+            || tag.id.len() > 64
+            || !tag
+                .id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            || !ids.insert(tag.id.as_str())
+            || name.is_empty()
+            || name.chars().count() > 30
+            || !tag
+                .account_ids
+                .iter()
+                .all(|id| *id > 0 && members.insert(*id))
+            || !tag.games.iter().all(|(place_id, ids)| {
+                let mut members = std::collections::BTreeSet::new();
+                is_place_id(place_id) && ids.iter().all(|id| *id > 0 && members.insert(*id))
+            })
+        {
+            return Err("A saved tag isn't valid. Can you edit it again?".into());
+        }
+    }
+    Ok(())
+}
+
 /// Accepts non-empty IDs of ASCII letters, digits, `_`, and `-`.
 fn validate_widget_id(id: &str) -> Result<(), String> {
     if id.is_empty()
@@ -282,6 +356,10 @@ pub struct StoredAccount {
     pub avatar_url: Option<String>,
     #[serde(default)]
     pub notes: String,
+    /// Notes shown while a game is the default destination, by place ID. `notes` is shown when no
+    /// game is.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub game_notes: BTreeMap<String, String>,
     /// Unix time, in seconds, the account was added.
     pub added_at: f64,
     /// Unix time, in seconds, of the last manual join.
@@ -342,6 +420,13 @@ impl StoredAccount {
         {
             return Err("A saved account has an invalid last place. Can you join again?".into());
         }
+        if self
+            .game_notes
+            .iter()
+            .any(|(place_id, note)| !is_place_id(place_id) || note.chars().count() > MAX_NOTE_CHARS)
+        {
+            return Err("A saved account has an invalid game note. Can you edit it again?".into());
+        }
         if self.extra.keys().any(|key| is_secret_key(key)) {
             return Err(
                 "A saved account contains session data. Can you add the account again?".into(),
@@ -389,6 +474,7 @@ pub struct AccountDto {
     pub display_name: String,
     pub avatar_url: Option<String>,
     pub notes: String,
+    pub game_notes: BTreeMap<String, String>,
     pub added_at: f64,
     pub last_played_at: Option<f64>,
     pub play_count: u64,
@@ -405,6 +491,7 @@ impl From<&StoredAccount> for AccountDto {
             display_name: account.display_name.clone(),
             avatar_url: account.avatar_url.clone(),
             notes: account.notes.clone(),
+            game_notes: account.game_notes.clone(),
             added_at: account.added_at,
             last_played_at: account.last_played_at,
             play_count: account.play_count,
@@ -468,6 +555,64 @@ mod tests {
                 .is_err()
             );
         }
+    }
+
+    #[test]
+    fn tags_need_unique_safe_ids_names_members_and_known_colors() {
+        let tag = |id: &str, name: &str, members: &[u64]| AccountTag {
+            id: id.into(),
+            name: name.into(),
+            color: TagColor::Blue,
+            account_ids: members.to_vec(),
+            games: Default::default(),
+        };
+        let mut settings = Settings {
+            tags: vec![tag("main", "Main", &[1, 2]), tag("alt-1", "Alts", &[])],
+            ..Settings::default()
+        };
+        assert!(settings.validate().is_ok());
+        for invalid in [
+            tag("main", "Duplicate", &[]),
+            tag("", "Empty ID", &[]),
+            tag("has space", "Space", &[]),
+            tag("blank", "  ", &[]),
+            tag("long", &"n".repeat(31), &[]),
+            tag("twice", "Twice", &[3, 3]),
+            tag("zero", "Zero", &[0]),
+        ] {
+            let mut bad = settings.clone();
+            bad.tags.push(invalid);
+            assert!(bad.validate().is_err());
+        }
+        let mut per_game = tag("game", "Raider", &[]);
+        per_game.games.insert("2753915549".into(), vec![1, 2]);
+        settings.tags.push(per_game.clone());
+        assert!(settings.validate().is_ok());
+        for (place_id, members) in [
+            ("not-a-place", vec![1]),
+            ("2753915549", vec![1, 1]),
+            ("2753915549", vec![0]),
+        ] {
+            let mut bad = settings.clone();
+            bad.tags.last_mut().unwrap().games = [(place_id.to_string(), members)].into();
+            assert!(bad.validate().is_err());
+        }
+        settings.tags = (0..=MAX_TAGS)
+            .map(|i| tag(&i.to_string(), "Tag", &[]))
+            .collect();
+        assert!(settings.validate().is_err());
+        let loaded: Settings = serde_json::from_value(serde_json::json!({
+            "tags": [{ "id": "a", "name": "Old", "color": "green" }]
+        }))
+        .unwrap();
+        assert_eq!(loaded.tags[0].color, TagColor::Green);
+        assert!(loaded.tags[0].account_ids.is_empty());
+        assert!(
+            serde_json::from_value::<Settings>(serde_json::json!({
+                "tags": [{ "id": "a", "name": "Old", "color": "magenta" }]
+            }))
+            .is_err()
+        );
     }
 
     #[test]
@@ -607,6 +752,25 @@ mod tests {
     }
 
     #[test]
+    fn game_notes_need_place_ids_and_a_length_limit() {
+        let mut account: StoredAccount = serde_json::from_value(serde_json::json!({
+            "id": 1, "name": "builderman", "display_name": "Builderman", "avatar_url": null, "added_at": 1.0
+        }))
+        .unwrap();
+        assert!(account.game_notes.is_empty());
+        account
+            .game_notes
+            .insert("2753915549".into(), "Raids".into());
+        assert!(account.validate().is_ok());
+        account
+            .game_notes
+            .insert("2753915549".into(), "n".repeat(MAX_NOTE_CHARS + 1));
+        assert!(account.validate().is_err());
+        account.game_notes = [("@156".to_string(), "Follow".to_string())].into();
+        assert!(account.validate().is_err());
+    }
+
+    #[test]
     fn account_dto_never_serializes_a_secret_field() {
         let account = StoredAccount {
             id: 1,
@@ -614,6 +778,7 @@ mod tests {
             display_name: "Builderman".into(),
             avatar_url: None,
             notes: String::new(),
+            game_notes: Default::default(),
             added_at: 1.0,
             last_played_at: None,
             play_count: 0,

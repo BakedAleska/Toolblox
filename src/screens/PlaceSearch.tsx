@@ -1,4 +1,4 @@
-import { ArrowLeft, BadgeCheck, Ban, BellOff, BellPlus, ChevronDown, Clock, ExternalLink, Eye, Gamepad2, Heart, Repeat1, RotateCcw, Search, ShieldOff, ThumbsUp, UserRound, X, UserRoundCheck, UserRoundMinus, UserRoundPlus, UserRoundX, Users } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Ban, BellOff, BellPlus, ChevronDown, Clock, ExternalLink, Eye, Gamepad2, Heart, MapPinOff, Repeat1, RotateCcw, Search, ShieldOff, ThumbsUp, UserRound, X, UserRoundCheck, UserRoundMinus, UserRoundPlus, UserRoundX, Users } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Toggle } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -101,6 +101,9 @@ export function PlaceSearch({ state: appState, ...rest }: ScreenProps & { kind: 
       </TooltipTrigger>
       <TooltipContent>{once ? "Next join only: on" : "Next join only"}</TooltipContent>
     </Tooltip>}
+    {!forAccount && !forGroup && appState.settings.placeId && <Button variant="outline" className="h-10" onClick={() => { void patchSettings("placeId", ""); rest.done("No default destination. Accounts show their general notes and tags."); navigate("/accounts"); }}>
+      <MapPinOff />No default
+    </Button>}
     {kind === "players" && accounts.length > 0 && <DropdownMenu>
       <DropdownMenuTrigger render={<Button ref={actorField} variant="outline" className="h-10 max-w-48" aria-label={`Acting account: ${actor ? accountName(actor) : "none"}`} />}>
         {actor && state.settings.showAvatars && <Avatar account={actor} className="size-6" status={false} />}

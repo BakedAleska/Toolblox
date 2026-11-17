@@ -10,6 +10,7 @@ export const colorGroups: { title: string; tokens: [token: string, label: string
   { title: "Lines and layers", tokens: [["border", "Border"], ["input", "Field border"], ["ring", "Focus ring"], ["overlay", "Dialog backdrop"], ["shadow", "Shadow"]] },
   { title: "Sidebar", tokens: [["sidebar", "Sidebar"], ["sidebar-foreground", "Sidebar text"], ["sidebar-primary", "Sidebar primary"], ["sidebar-primary-foreground", "Sidebar primary text"], ["sidebar-accent", "Current page"], ["sidebar-accent-foreground", "Current page text"], ["sidebar-border", "Sidebar border"], ["sidebar-ring", "Sidebar focus ring"]] },
   { title: "Status", tokens: [["success", "Success"], ["warning", "Warning"], ["destructive", "Destructive"]] },
+  { title: "Tags", tokens: [["tag-gray", "Gray"], ["tag-red", "Red"], ["tag-orange", "Orange"], ["tag-yellow", "Yellow"], ["tag-green", "Green"], ["tag-blue", "Blue"]] },
   { title: "Brand", tokens: [["discord", "Discord"]] },
 ];
 

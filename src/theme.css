@@ -49,6 +49,12 @@
     --color-success: var(--success);
     --color-warning: var(--warning);
     --color-discord: var(--discord);
+    --color-tag-gray: var(--tag-gray);
+    --color-tag-red: var(--tag-red);
+    --color-tag-orange: var(--tag-orange);
+    --color-tag-yellow: var(--tag-yellow);
+    --color-tag-green: var(--tag-green);
+    --color-tag-blue: var(--tag-blue);
     --color-overlay: var(--overlay);
     --color-shadow: var(--shadow);
     --spacing-list: calc(var(--spacing) * 2);
@@ -73,6 +79,12 @@
     --success: oklch(0.6 0.16 150);
     --warning: oklch(0.68 0.16 65);
     --discord: oklch(0.59 0.2 277);
+    --tag-gray: oklch(0.6 0 0);
+    --tag-red: oklch(0.6 0.2 25);
+    --tag-orange: oklch(0.68 0.17 50);
+    --tag-yellow: oklch(0.78 0.15 90);
+    --tag-green: oklch(0.62 0.15 150);
+    --tag-blue: oklch(0.6 0.15 250);
     --border: oklch(0.92 0 0);
     --input: oklch(0.9 0 0);
     --ring: oklch(0.55 0 0);
@@ -111,6 +123,12 @@
     --success: oklch(0.72 0.17 150);
     --warning: oklch(0.8 0.15 70);
     --discord: oklch(0.66 0.17 277);
+    --tag-gray: oklch(0.65 0 0);
+    --tag-red: oklch(0.68 0.18 25);
+    --tag-orange: oklch(0.74 0.15 55);
+    --tag-yellow: oklch(0.84 0.14 95);
+    --tag-green: oklch(0.72 0.15 150);
+    --tag-blue: oklch(0.7 0.13 250);
     --border: oklch(1 0 0 / 8%);
     --input: oklch(1 0 0 / 14%);
     --ring: oklch(0.556 0 0);

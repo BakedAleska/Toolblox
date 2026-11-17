@@ -7,7 +7,7 @@ import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescript
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import type { ToastKind } from "@/components/ui/toast";
+import type { ToastAction, ToastKind } from "@/components/ui/toast";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Account, AppRoute, AppState, PlaceMatch, PlayerMatch, Settings, WidgetSummary } from "@/types";
@@ -54,7 +54,8 @@ export type ScreenProps = {
   state: AppState;
   refresh: () => Promise<void>;
   navigate: (route: AppRoute) => void;
-  notify: (message: string, kind?: ToastKind) => void;
+  /** Shows a toast. An action adds a button to it, and isn't shown in the mini window's notifications. */
+  notify: (message: string, kind?: ToastKind, action?: ToastAction) => void;
   /** Confirms a finished action with a toast, unless **Reduce toasts** is on. */
   done: (message: string) => void;
   confirm: (request: ConfirmRequest) => void;

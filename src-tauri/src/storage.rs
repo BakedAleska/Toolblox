@@ -347,6 +347,7 @@ mod tests {
             display_name: "Builderman".into(),
             avatar_url: None,
             notes: String::new(),
+            game_notes: Default::default(),
             added_at: 1.0,
             last_played_at: None,
             play_count: 0,

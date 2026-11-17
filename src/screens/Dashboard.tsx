@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { accountName, relativeTime, sortAccounts } from "@/logic";
-import { AccountCard, AccountName, Avatar, Hint, IconButton, Panel, Screen, SectionTitle, Spinner, WidgetFrame, placeLabel, presenceLabel, type ScreenProps } from "@/shared";
+import { AccountCard, AccountName, Avatar, Hint, IconButton, Panel, Screen, SectionTitle, Spinner, WidgetFrame, failure, placeLabel, presenceLabel, type ScreenProps } from "@/shared";
 import { showAccountMenu } from "@/screens/Accounts";
 import type { Account, AppRoute, OnlineFriend } from "@/types";
 import { WidgetSlot } from "@/widgets/host";
@@ -35,8 +35,8 @@ function useMoreBelow(shown: boolean) {
   return [ref, more] as const;
 }
 
-/** An online friend and the account whose friend list found them, which joins them. */
-type SeenFriend = OnlineFriend & { via: number };
+/** An online friend and the accounts whose friend lists found them. */
+type SeenFriend = OnlineFriend & { via: number[] };
 
 /** The online friends of the accounts, refreshed every minute, in-game first. A friend of several
  * accounts appears once. `undefined` while loading. A refresh where every account fails keeps the
@@ -49,13 +49,17 @@ function useOnlineFriends(accountIds: number[]) {
     if (!accountIds.length) return;
     let active = true;
     const load = async () => {
-      const results = await Promise.allSettled(accountIds.map((id) => bridge.getOnlineFriends(id).then((found) => found.map((friend) => ({ ...friend, via: id })))));
+      const results = await Promise.allSettled(accountIds.map((id) => bridge.getOnlineFriends(id).then((found) => found.map((friend) => ({ ...friend, via: [id] })))));
       if (!active) return;
       if (results.every(({ status }) => status === "rejected")) { setFriends((current) => Array.isArray(current) ? current : "failed"); return; }
       const merged = new Map<number, SeenFriend>();
       for (const result of results) {
         if (result.status !== "fulfilled") continue;
-        for (const friend of result.value) if (!accountIds.includes(friend.id) && (!merged.has(friend.id) || (friend.inGame && !merged.get(friend.id)!.inGame))) merged.set(friend.id, friend);
+        for (const friend of result.value) {
+          if (accountIds.includes(friend.id)) continue;
+          const seen = merged.get(friend.id);
+          merged.set(friend.id, seen ? { ...(friend.inGame && !seen.inGame ? friend : seen), via: [...seen.via, ...friend.via] } : friend);
+        }
       }
       setFriends([...merged.values()].sort((a, b) => Number(b.inGame) - Number(a.inGame) || a.displayName.localeCompare(b.displayName)));
     };
@@ -73,7 +77,7 @@ const emptySection = "flex min-h-0 flex-1 flex-wrap items-center justify-center 
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
-export function Dashboard({ state, navigate, join, joining, cancelJoin, signIn }: ScreenProps) {
+export function Dashboard({ state, navigate, notify, join, joining, cancelJoin, signIn }: ScreenProps) {
   const { accounts, settings, installedWidgets } = state;
   const [hero] = sortAccounts(accounts, "last_played");
   const pinned = sortAccounts(accounts, settings.sortOrder).filter((account) => account.pinned);
@@ -87,6 +91,20 @@ export function Dashboard({ state, navigate, join, joining, cancelJoin, signIn }
     : hero && !hero.sessionExpired ? [hero] : [];
   const friends = useOnlineFriends(friendSources.map(({ id }) => id));
   const hasFriends = Array.isArray(friends) && friends.length > 0;
+  /** The last played account joins every friend. Without that friendship it sends a friend request
+   * instead, and offers to join as an account that is a friend. */
+  const joinFriend = async (friend: SeenFriend) => {
+    if (!hero || hero.sessionExpired) return;
+    const relationship = friend.via.includes(hero.id) ? undefined : await bridge.getRelationship(hero.id, friend.id).catch(() => undefined);
+    if (!relationship || relationship.friend === "friends") { join([hero.id], `@${friend.id}`); return; }
+    const other = accounts.find(({ id, sessionExpired }) => id !== hero.id && !sessionExpired && friend.via.includes(id));
+    try {
+      if (relationship.friend !== "requestSent") await bridge.changeRelationship(hero.id, friend.id, "requestFriend");
+      const sent = `${accountName(hero)} isn't friends with ${accountName(friendAccount(friend))}, so a friend request was sent.`;
+      notify(other ? `${sent} Join as ${accountName(other)} instead?` : sent, "info", other && { label: `Join as ${accountName(other)}`, run: () => join([other.id], `@${friend.id}`) });
+    }
+    catch (error) { notify(failure(`The friend request wasn't sent. Does it work on roblox.com?`, error)); }
+  };
 
   const expired = accounts.filter(({ sessionExpired }) => sessionExpired).length;
   const unavailable = accounts.filter(({ presence, sessionExpired }) => presence === "warning" && !sessionExpired).length;
@@ -146,12 +164,12 @@ export function Dashboard({ state, navigate, join, joining, cancelJoin, signIn }
         {friends.map(({ via, ...online }) => {
           const friend = friendAccount(online);
           const status = presenceLabel(friend) || "Online";
-          const joiner = accounts.find(({ id }) => id === via);
+          const joiner = hero && !hero.sessionExpired ? hero : undefined;
           const joinable = joiner && online.inGame && !online.inStudio;
           return <li key={friend.id} className="w-16 shrink-0">
             <Tooltip>
               <TooltipTrigger aria-label={joinable ? `Join ${accountName(friend)} as ${accountName(joiner)}: ${status}` : `${accountName(friend)}: ${status}`}
-                disabled={joinable ? joining.includes(joiner.id) : undefined} onClick={joinable ? () => join([joiner.id], `@${friend.id}`) : undefined}
+                disabled={joinable ? joining.includes(joiner.id) : undefined} onClick={joinable ? () => void joinFriend({ ...online, via }) : undefined}
                 className={cn("flex w-full flex-col items-center gap-1 rounded-lg text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring", joinable && "cursor-pointer hover:bg-muted/50")}>
                 {settings.showAvatars && <Avatar account={friend} className="size-9" />}
                 <AccountName account={friend} />

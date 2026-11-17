@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import "./index.css";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Toaster, parseToast, useToasts, type ToastKind } from "@/components/ui/toast";
+import { Toaster, parseToast, useToasts, type ToastAction, type ToastKind } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { bridge, copyFailureReport, isDemo } from "@/bridge";
 import { ErrorBoundary, PageError } from "@/ErrorBoundary";
@@ -107,8 +107,8 @@ function App() {
   const [mini, setMini] = useState(false);
   const miniRef = useRef(false);
   /** Shows a message as a toast, or as a system notification while the mini window is open. */
-  const notify = useCallback((message: string, kind?: ToastKind) => {
-    if (!miniRef.current) { toasts.notify(message, kind); return; }
+  const notify = useCallback((message: string, kind?: ToastKind, action?: ToastAction) => {
+    if (!miniRef.current) { toasts.notify(message, kind, action); return; }
     const { title, description } = parseToast(message, kind);
     void bridge.showNotification(title, description).catch(() => undefined);
   }, [toasts.notify]);

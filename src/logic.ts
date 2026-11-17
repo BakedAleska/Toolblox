@@ -1,4 +1,4 @@
-import type { Account, SortOrder } from "./types";
+import type { Account, AccountTag, SortOrder } from "./types";
 
 export const accountName = (account: Account) => account.displayName || account.name;
 
@@ -22,11 +22,13 @@ export const sortAccounts = (accounts: Account[], order: SortOrder) =>
 /** Whether an account matches a search. Each word in `query` must appear, in any order and
  * ignoring case, in the display name, username, or notes. Returns `false` for no match, `"name"`
  * when the names match, and `"notes"` when the notes are needed. */
-export const matchAccount = (account: Account, query: string): false | "name" | "notes" => {
+/** Whether every word of `query` is in the account's names, its notes, or `extra`, such as its
+ * tag names. Returns where the words were found. */
+export const matchAccount = (account: Account, query: string, extra = ""): false | "name" | "notes" => {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return "name";
   const names = `${account.displayName} ${account.name}`.toLowerCase();
-  const all = `${names} ${account.notes.toLowerCase()}`;
+  const all = `${names} ${account.notes.toLowerCase()} ${extra.toLowerCase()}`;
   if (!words.every((word) => all.includes(word))) return false;
   return words.every((word) => names.includes(word)) ? "name" : "notes";
 };
@@ -129,4 +131,21 @@ export const opaqueSquare = (data: ArrayLike<number>, width: number, height: num
   if (right < 0) return undefined;
   const size = Math.max(right - left, bottom - top) + 1;
   return [(left + right + 1 - size) / 2, (top + bottom + 1 - size) / 2, size];
+};
+
+/** The default destination's place ID when it's a game, or undefined when it's unset or follows a
+ * player. Notes and tags shown on accounts belong to this game. */
+export const currentGame = (placeId: string): string | undefined => placeId && targetUserId(placeId) === undefined ? placeId : undefined;
+
+/** An account's note for `game`, or its general note without one. */
+export const noteFor = (account: Account, game?: string): string => game ? account.gameNotes?.[game] ?? "" : account.notes;
+
+/** A tag's members for `game`, or its general members without one. */
+export const tagMembers = (tag: AccountTag, game?: string): number[] => game ? tag.games?.[game] ?? [] : tag.accountIds;
+
+/** Adds an account to a tag's members for `game`, or removes it. Without a game, it changes the general members. */
+export const setTagMember = (tag: AccountTag, accountId: number, on: boolean, game?: string): AccountTag => {
+  const ids = tagMembers(tag, game).filter((id) => id !== accountId);
+  const next = on ? [...ids, accountId] : ids;
+  return game ? { ...tag, games: { ...tag.games, [game]: next } } : { ...tag, accountIds: next };
 };

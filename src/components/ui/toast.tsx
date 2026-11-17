@@ -7,11 +7,15 @@ import { cn } from "@/lib/utils";
  * leave the same way, so none crosses another. Each shows an icon, a title, a description of up to
  * two lines, and a ring for the time left. Toasts widen to fit their text before they wrap.
  * An error replaces the newest success. Errors stay until dismissed, and offer "Copy logs" when
- * `copyLogs` is given. Keyboard focus pauses the timer, and selecting a toast dismisses it. */
+ * `copyLogs` is given. A toast with an action shows it as a button and also stays until dismissed.
+ * Keyboard focus pauses the timer, and selecting a toast dismisses it. */
 
 export type ToastKind = "success" | "error" | "warning" | "info";
 
-export type Toast = { id: number; kind: ToastKind; message: string; title: string; description: string; leaving: boolean };
+/** A button on a toast. Selecting it runs `run` and dismisses the toast. */
+export type ToastAction = { label: string; run: () => void };
+
+export type Toast = { id: number; kind: ToastKind; message: string; title: string; description: string; leaving: boolean; action?: ToastAction };
 
 const KINDS = {
   success: { icon: CircleCheck, color: "text-success", bar: "bg-success" },
@@ -51,7 +55,7 @@ export function addToast(current: Toast[], toast: Toast) {
 
 export function useToasts() {
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const notify = useCallback((message: string, kind?: ToastKind) => setToasts((current) => addToast(current, { id: ++nextId, message, ...parseToast(message, kind), leaving: false })), []);
+  const notify = useCallback((message: string, kind?: ToastKind, action?: ToastAction) => setToasts((current) => addToast(current, { id: ++nextId, message, ...parseToast(message, kind), leaving: false, action })), []);
   const dismiss = useCallback((id: number) => setToasts((current) => current.map((toast) => toast.id === id ? { ...toast, leaving: true } : toast)), []);
   const remove = useCallback((id: number) => setToasts((current) => current.filter((toast) => toast.id !== id)), []);
   return { toasts, notify, dismiss, remove };
@@ -89,7 +93,7 @@ function ToastItem({ toast, side, dismiss, remove, copyLogs }: { toast: Toast; s
 
   useEffect(() => {
     const circle = ring.current;
-    if (!circle || toast.kind === "error") return;
+    if (!circle || toast.kind === "error" || toast.action) return;
     const animation = circle.animate([{ strokeDashoffset: "0" }, { strokeDashoffset: "-1" }], { duration: DURATION, fill: "forwards" });
     animation.onfinish = () => expire.current();
     timer.current = animation;
@@ -124,11 +128,15 @@ function ToastItem({ toast, side, dismiss, remove, copyLogs }: { toast: Toast; s
             <span className="block text-sm font-medium">{toast.title}</span>
             {toast.description && <span className="line-clamp-2 text-sm text-muted-foreground">{toast.description}</span>}
           </span>
-          {toast.kind !== "error" && <svg viewBox="0 0 16 16" className="mt-0.5 size-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true">
+          {toast.kind !== "error" && !toast.action && <svg viewBox="0 0 16 16" className="mt-0.5 size-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true">
             <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-25" />
             <circle ref={ring} cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" pathLength="1" strokeDasharray="1" strokeLinecap="round" />
           </svg>}
         </button>
+        {toast.action && <button type="button" disabled={toast.leaving} onClick={() => { toast.action?.run(); dismiss(); }}
+          className="flex h-6 shrink-0 items-center rounded-lg px-2 text-xs font-medium outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50">
+          {toast.action.label}
+        </button>}
         {toast.kind === "error" && copyLogs && <button type="button" disabled={toast.leaving} onClick={() => copyLogs(toast.message)}
           className="flex h-6 shrink-0 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50">
           <Copy className="size-3" aria-hidden="true" />Copy logs

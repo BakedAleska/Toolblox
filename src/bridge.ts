@@ -67,6 +67,7 @@ const demoState: AppState = {
     friendsSource: "pinned",
     widgetsOpenInstalled: false,
     groups: [{ id: "demo-farm", name: "Farming alts", accountIds: [101, 106, 108, 107], pinned: true, placeId: "8737899170", notes: "Pet Simulator grind" }],
+    tags: [{ id: "demo-main", name: "Main", color: "green", accountIds: [101] }, { id: "demo-trade", name: "Trading", color: "blue", accountIds: [103, 101] }],
   },
   safeMode: false,
   popouts: [],
@@ -237,10 +238,13 @@ export const bridge = {
       return account;
     }),
 
-  updateAccountNotes: (accountId: number, notes: string) =>
-    call<void>("update_account_notes", { accountId, notes }, () => {
+  /** Saves an account's note for the game at `placeId`, or its general note without one. */
+  updateAccountNotes: (accountId: number, notes: string, placeId?: string) =>
+    call<void>("update_account_notes", { accountId, notes, placeId: placeId ?? null }, () => {
       const account = demoState.accounts.find(({ id }) => id === accountId);
-      if (account) account.notes = notes;
+      if (!account) return;
+      if (!placeId) account.notes = notes;
+      else { const { [placeId]: _, ...rest } = account.gameNotes ?? {}; account.gameNotes = notes ? { ...rest, [placeId]: notes } : rest; }
     }),
 
   removeAccount: (accountId: number) =>

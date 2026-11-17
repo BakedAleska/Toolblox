@@ -9,6 +9,8 @@ export interface Account {
   displayName: string;
   avatarUrl?: string;
   notes: string;
+  /** Notes shown while a game is the default destination, by place ID. */
+  gameNotes?: Record<string, string>;
   addedAt: number;
   lastPlayedAt?: number;
   presence: Presence;
@@ -89,6 +91,21 @@ export interface Settings {
   widgetsOpenInstalled: boolean;
   /** Named sets of accounts that join together. */
   groups: AccountGroup[];
+  /** Colored labels shown on accounts. */
+  tags: AccountTag[];
+}
+
+export type TagColor = "gray" | "red" | "orange" | "yellow" | "green" | "blue";
+
+/** A colored label on any number of accounts. `accountIds` may name removed accounts. */
+export interface AccountTag {
+  id: string;
+  name: string;
+  color: TagColor;
+  /** Members while no game is the default destination. */
+  accountIds: number[];
+  /** Members while a game is the default destination, by place ID. */
+  games?: Record<string, number[]>;
 }
 
 /** A named set of accounts that join together. Pinning it shows the group on the dashboard, not

@@ -124,6 +124,8 @@ pub struct SettingsDto {
     widgets_open_installed: bool,
     #[serde(default)]
     groups: Vec<crate::models::AccountGroup>,
+    #[serde(default)]
+    tags: Vec<crate::models::AccountTag>,
 }
 
 impl From<&Settings> for SettingsDto {
@@ -149,6 +151,7 @@ impl From<&Settings> for SettingsDto {
             friends_source: settings.friends_source,
             widgets_open_installed: settings.widgets_open_installed,
             groups: settings.groups.clone(),
+            tags: settings.tags.clone(),
         }
     }
 }
@@ -678,6 +681,7 @@ pub async fn save_settings(
     saved.friends_source = settings.friends_source;
     saved.widgets_open_installed = settings.widgets_open_installed;
     saved.groups = settings.groups;
+    saved.tags = settings.tags;
     saved
         .recent_places
         .truncate(crate::models::RECENT_PLACES_LIMIT);
@@ -828,15 +832,23 @@ pub async fn set_account_place(
     Ok(())
 }
 
-/// Replaces an account's notes, up to 10,000 characters.
+/// Replaces an account's notes, up to 10,000 characters: its note for the game at `place_id`
+/// when given, otherwise its general note. An empty game note is removed.
 #[tauri::command]
 pub fn update_account_notes(
     account_id: u64,
     notes: String,
+    place_id: Option<String>,
     runtime: State<'_, Runtime>,
 ) -> Result<(), String> {
-    if notes.chars().count() > 10_000 {
+    if notes.chars().count() > crate::models::MAX_NOTE_CHARS {
         return Err("The note is too long. Can you shorten it?".into());
+    }
+    if place_id
+        .as_deref()
+        .is_some_and(|id| !crate::models::is_place_id(id))
+    {
+        return Err("The game isn't valid. Can you set the destination again?".into());
     }
     runtime
         .storage
@@ -849,7 +861,15 @@ pub fn update_account_notes(
                         "The account wasn't found. Can you refresh the list?".into(),
                     )
                 })?;
-            account.notes = notes;
+            match place_id {
+                Some(place_id) if notes.is_empty() => {
+                    account.game_notes.remove(&place_id);
+                }
+                Some(place_id) => {
+                    account.game_notes.insert(place_id, notes);
+                }
+                None => account.notes = notes,
+            }
             Ok(())
         })
         .map_err(command_error)
@@ -891,9 +911,17 @@ pub fn remove_account(account_id: u64, runtime: State<'_, Runtime>) -> Result<()
         for group in &mut settings.groups {
             group.account_ids.retain(|id| *id != account_id);
         }
+        for tag in &mut settings.tags {
+            tag.account_ids.retain(|id| *id != account_id);
+            for ids in tag.games.values_mut() {
+                ids.retain(|id| *id != account_id);
+            }
+        }
         Ok(())
     }) {
-        log::warn!("Removed account {account_id} couldn't be removed from its groups: {error}");
+        log::warn!(
+            "Removed account {account_id} couldn't be removed from its groups and tags: {error}"
+        );
     }
     log::info!("Removed account {account_id}");
     Ok(())
@@ -1140,6 +1168,7 @@ pub async fn begin_roblox_login(
             display_name: identity.display_name,
             avatar_url: identity.avatar_url,
             notes: String::new(),
+            game_notes: Default::default(),
             added_at: now_seconds(),
             last_played_at: None,
             play_count: 0,

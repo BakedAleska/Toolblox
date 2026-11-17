@@ -2,18 +2,20 @@ import { ArrowLeft, ChevronDown, Code, Copy, ExternalLink, FolderOpen, PictureIn
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { bridge, describeError, isDemo, previewUpdater } from "@/bridge";
 import type { ThemeStore } from "@/lib/theme";
 import { filterLog, logWidgets, newestFirst } from "@/logic";
 import { ThemeFileTools, ThemesTab } from "@/screens/Themes";
 import { useWidgetHasSettings } from "@/screens/WidgetMenu";
-import { ChoiceRow, DISCORD_URL, Group, IconButton, Panel, Screen, SettingRow, SliderRow, Spinner, SwitchRow, WidgetFrame, failure, type ScreenProps } from "@/shared";
+import { ChoiceRow, Group, Hint, IconButton, Panel, Screen, SettingRow, Spinner, SwitchRow, WidgetFrame, failure, type ScreenProps } from "@/shared";
 import { WidgetBoundary, useWidgetRegistry } from "@/widgets/host";
 import type { WidgetSummary } from "@/types";
 
 /** A core tab, or `widget:<id>` for a widget's settings. */
-type Tab = "general" | "accounts" | "themes" | `widget:${string}`;
+type Tab = "general" | "accounts" | "themes" | "about" | `widget:${string}`;
 /** The last open tab, so returning from a settings subpage shows the tab it was opened from. */
 let lastTab: Tab = "general";
 
@@ -32,7 +34,7 @@ export function SettingsScreen({ themes, widgetId, ...props }: ScreenProps & { t
   useEffect(() => { if (tab.startsWith("widget:") && !widgets.some(({ id }) => tab === `widget:${id}`)) setTab("general"); }, [tab, widgets.map(({ id }) => id).join()]);
   const { settings } = state;
 
-  return <Screen title="Settings" tools={tab === "general" ? <IconButton label="Open app folder" className="text-muted-foreground" onClick={() => void bridge.openDataFolder().catch((error) => props.notify(failure("The app folder couldn't be opened. Does it still exist?", error)))}><FolderOpen /></IconButton> : tab === "themes" && <>
+  return <Screen title="Settings" tools={tab === "about" ? <IconButton label="Open app folder" className="text-muted-foreground" onClick={() => void bridge.openDataFolder().catch((error) => props.notify(failure("The app folder couldn't be opened. Does it still exist?", error)))}><FolderOpen /></IconButton> : tab === "themes" && <>
     <ThemeFileTools notify={props.notify} confirm={props.confirm} themes={themes} />
     <IconButton label="Custom CSS" className="text-muted-foreground" onClick={() => props.navigate("/settings/css")}><Code /></IconButton>
   </>}>
@@ -41,31 +43,37 @@ export function SettingsScreen({ themes, widgetId, ...props }: ScreenProps & { t
         <TabsTrigger value="general" className="flex-none px-3">General</TabsTrigger>
         <TabsTrigger value="accounts" className="flex-none px-3">Accounts</TabsTrigger>
         <TabsTrigger value="themes" className="flex-none px-3">Themes</TabsTrigger>
+        <TabsTrigger value="about" className="flex-none px-3">About</TabsTrigger>
         {widgets.map((widget) => <TabsTrigger key={widget.id} value={`widget:${widget.id}`} className="flex-none px-3">{widget.name}</TabsTrigger>)}
       </TabsList>
 
       <TabsContent value="general" className={columns}>
-        <Group title="Layout"><Panel className="divide-y">
+        <Group title="Interface"><Panel className="divide-y">
           <SwitchRow title="Show animations" checked={settings.showAnimations} change={(value) => void patchSettings("showAnimations", value)} />
-          <SwitchRow title="Ignore system reduced motion" checked={settings.ignoreReducedMotion} disabled={!settings.showAnimations} change={(value) => void patchSettings("ignoreReducedMotion", value)} />
+          <SwitchRow title="Ignore system reduced motion" description="Shows animations even when the system asks to reduce motion, such as when Animation effects is off in Windows." checked={settings.ignoreReducedMotion} disabled={!settings.showAnimations} change={(value) => void patchSettings("ignoreReducedMotion", value)} />
+          <SwitchRow title="Reduce toasts" description="Hides messages that confirm a finished action." checked={settings.reduceToasts} change={(value) => void patchSettings("reduceToasts", value)} />
           <ChoiceRow title="Sidebar position" value={settings.sidebarPosition} options={[{ value: "left", label: "Left" }, { value: "right", label: "Right" }]} change={(value) => void patchSettings("sidebarPosition", value)} />
         </Panel></Group>
-        <Group title="Window"><Panel className="divide-y">
+        <Group title="Dashboard"><Panel className="divide-y">
+          <ChoiceRow title="Online friends" description="Accounts whose friends the dashboard lists, with Pinned using the last played account when none are pinned." value={settings.friendsSource}
+            options={[{ value: "all", label: "All accounts" }, { value: "pinned", label: "Pinned" }, { value: "last_played", label: "Last played" }]} change={(value) => void patchSettings("friendsSource", value)} />
+        </Panel></Group>
+        <Group title="Startup and window"><Panel className="divide-y">
           <SwitchRow title="Launch at startup" checked={settings.openOnLaunch} change={(value) => void patchSettings("openOnLaunch", value)} />
-          <SwitchRow title="Run in background" checked={settings.runInBackground} change={(value) => void patchSettings("runInBackground", value)} />
+          <SwitchRow title="Run in background" description="Closing the window keeps Toolblox running in the system tray or menu bar." checked={settings.runInBackground} change={(value) => void patchSettings("runInBackground", value)} />
           <SwitchRow title="Always on top" checked={settings.alwaysOnTop} change={(value) => void patchSettings("alwaysOnTop", value)} />
         </Panel></Group>
-        <LogGroup navigate={props.navigate} />
+      </TabsContent>
+
+      <TabsContent value="about" className={columns}>
         <Group title="About"><Panel className="divide-y">
+          <SettingRow title="Changelog" description={`Changes in Toolblox ${state.version} and earlier versions.`} control={() =>
+            <Button variant="outline" size="sm" aria-label="View changelog" onClick={() => props.navigate("/settings/changelog")}>View</Button>} />
           {isDemo() && <div className="flex items-center gap-2 px-4 py-3">
             <span className="mr-auto text-xs text-muted-foreground">Startup update previews</span>
             <Button variant="ghost" size="sm" onClick={() => previewUpdater("update")}>Update</Button>
             <Button variant="ghost" size="sm" onClick={() => previewUpdater("failure")}>Failure</Button>
           </div>}
-          <div className="flex items-center gap-2 px-4 py-3">
-            <p className="mr-auto text-sm font-medium">Discord server</p>
-            <Button variant="link" size="sm" className="h-auto px-0" onClick={() => void bridge.openExternal(DISCORD_URL)}>Open<ExternalLink /></Button>
-          </div>
           <div className="space-y-1 px-4 py-3">
             <p className="text-sm font-medium">Legal</p>
             <p className="text-xs text-muted-foreground">Toolblox isn't affiliated with or endorsed by Roblox Corporation. It's provided as is, without warranty, under the MIT License.</p>
@@ -77,6 +85,10 @@ export function SettingsScreen({ themes, widgetId, ...props }: ScreenProps & { t
             </div>
           </div>
         </Panel></Group>
+        <Group title="Diagnostics"><Panel className="divide-y">
+          <SettingRow title="Logs" description="Recent activity from Toolblox and its widgets." control={() =>
+            <Button variant="outline" size="sm" aria-label="View log" onClick={() => props.navigate("/settings/log")}>View</Button>} />
+        </Panel></Group>
       </TabsContent>
 
       <TabsContent value="accounts" className={columns}>
@@ -84,16 +96,14 @@ export function SettingsScreen({ themes, widgetId, ...props }: ScreenProps & { t
           <ChoiceRow title="Sort order" value={settings.sortOrder} options={[{ value: "last_played", label: "Last played" }, { value: "alphabetical", label: "A–Z" }, { value: "manual", label: "Manual" }]} change={(value) => void patchSettings("sortOrder", value)} />
           <SwitchRow title="Show avatars" checked={settings.showAvatars} change={(value) => void patchSettings("showAvatars", value)} />
           <SwitchRow title="Compact list" checked={settings.compactMode} change={(value) => void patchSettings("compactMode", value)} />
-          <SwitchRow title="Show game names" checked={settings.showGameNames} change={(value) => void patchSettings("showGameNames", value)} />
         </Panel></Group>
         <Group title="Joining"><Panel className="divide-y">
-          <SliderRow title="Join delay" description="Seconds between accounts when joining several at once." value={settings.joinDelaySeconds} min={0} max={60} unit="s" change={(value) => void patchSettings("joinDelaySeconds", value)} />
-          <SwitchRow title="Minimize on join" checked={settings.minimizeOnJoin} change={(value) => void patchSettings("minimizeOnJoin", value)} />
-          <SwitchRow title="Multiple instances" checked={settings.multiInstance} change={(value) => void patchSettings("multiInstance", value)} />
+          <SwitchRow title="Minimize on join" description="Minimizes this window once Roblox opens." checked={settings.minimizeOnJoin} change={(value) => void patchSettings("minimizeOnJoin", value)} />
+          <SwitchRow title="Multiple instances" description="Allows several Roblox clients to run at the same time." checked={settings.multiInstance} change={(value) => void patchSettings("multiInstance", value)} />
         </Panel></Group>
         <Group title="Disconnects"><Panel className="divide-y">
-          <SwitchRow title="Auto-rejoin" checked={settings.autoRejoin} change={(value) => void patchSettings("autoRejoin", value)} />
-          <SwitchRow title="Disconnect notifications" checked={settings.notifyOnDrop} change={(value) => void patchSettings("notifyOnDrop", value)} />
+          <SwitchRow title="Auto-rejoin" description="Joins an account again when it leaves its game, and pauses if it leaves again within 45 seconds." checked={settings.autoRejoin} change={(value) => void patchSettings("autoRejoin", value)} />
+          <SwitchRow title="Disconnect notifications" description="Shows a system notification when an account leaves its game." checked={settings.notifyOnDrop} change={(value) => void patchSettings("notifyOnDrop", value)} />
         </Panel></Group>
       </TabsContent>
 
@@ -125,15 +135,8 @@ export function WidgetSettingsTab({ widget, state, notify, popout = false }: Pic
   </>;
 }
 
-function LogGroup({ navigate }: Pick<ScreenProps, "navigate">) {
-  return <Group title="Diagnostics"><Panel className="divide-y">
-    <SettingRow title="Logs" control={() =>
-      <Button variant="outline" size="sm" aria-label="View log" onClick={() => navigate("/settings/log")}>View</Button>} />
-  </Panel></Group>;
-}
-
 /**
- * The recent log on its own page, opened from Settings → General. The source menu shows Toolblox's
+ * The recent log on its own page, opened from Settings → About. The source menu shows Toolblox's
  * own records or one widget's, listing installed widgets and any others found in the log.
  */
 export function LogScreen({ state, notify, navigate }: ScreenProps) {
@@ -173,10 +176,14 @@ export function LogScreen({ state, notify, navigate }: ScreenProps) {
     </DropdownMenu>
     <Button variant="ghost" size="sm" className="ml-auto" onClick={() => void load()} disabled={loading}>{loading ? <Spinner /> : <RefreshCw />}Refresh</Button>
     <Button variant="outline" size="sm" aria-label="Copy log" onClick={() => void copy()}><Copy />Copy</Button>
-    <Button variant="outline" size="sm" onClick={() => void openFolder()} disabled={!state.logsPath} title={state.logsPath || undefined}><FolderOpen />Open folder</Button>
+    {state.logsPath ? <Hint label={state.logsPath}><Button variant="outline" size="sm" onClick={() => void openFolder()}><FolderOpen />Open folder</Button></Hint>
+      : <Button variant="outline" size="sm" disabled><FolderOpen />Open folder</Button>}
   </>}>
     <pre ref={view} tabIndex={0} aria-label={`Logs from ${current.label.toLowerCase()}, newest first`} className="h-0 min-h-40 flex-1 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs leading-relaxed whitespace-pre text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
       {shown || (loading ? "" : source === "all" ? "The log is empty." : `No log lines from ${current.label}.`)}
+      {!shown && loading && <span className="grid gap-2" role="status" aria-label="Loading logs">
+        {["w-3/4", "w-1/2", "w-2/3", "w-2/5", "w-3/5"].map((width) => <Skeleton key={width} className={cn("h-3 bg-foreground/8", width)} />)}
+      </span>}
     </pre>
   </Screen>;
 }

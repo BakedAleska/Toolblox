@@ -8,8 +8,8 @@ import { useWidgetRegistry } from "@/widgets/host";
 import type { WidgetSummary } from "@/types";
 
 export type WidgetAction = { id: "settings" | "toggle" | "uninstall"; label: string; icon: ReactNode; danger?: boolean; run: () => void };
-/** Runs a widget action, refreshes the app, and reports a failure with `message`. */
-export type WidgetRunner = (widgetId: string, action: () => Promise<void>, message: string) => Promise<void>;
+/** Runs a widget action, refreshes the app, and reports a failure with `message` or a success with `success`. */
+export type WidgetRunner = (widgetId: string, action: () => Promise<void>, message: string, success?: string) => Promise<void>;
 
 /** Whether a widget has a tab in Settings: its own settings, or a note that it's in its own window. */
 export function useWidgetHasSettings(state: ScreenProps["state"]) {
@@ -25,11 +25,11 @@ export function useWidgetActions({ state, navigate, confirm }: Pick<ScreenProps,
     ...(hasSettings(widget) ? [{ id: "settings" as const, label: "Settings", icon: <SettingsIcon />, run: () => navigate(`/widgets/${widget.id}/settings`) }] : []),
     {
       id: "toggle", label: widget.enabled ? "Disable" : "Enable", icon: widget.enabled ? <PowerOff /> : <Power />,
-      run: () => void run(widget.id, () => bridge.setWidgetEnabled(widget.id, !widget.enabled), `${widget.name} couldn't be ${widget.enabled ? "disabled" : "enabled"}.`),
+      run: () => void run(widget.id, () => bridge.setWidgetEnabled(widget.id, !widget.enabled), `${widget.name} couldn't be ${widget.enabled ? "disabled" : "enabled"}.`, `${widget.name} ${widget.enabled ? "disabled" : "enabled"}.`),
     },
     {
       id: "uninstall", label: "Uninstall", icon: <Trash2 />, danger: true,
-      run: () => confirm({ scale: "small", title: `Uninstall ${widget.name}?`, message: "This removes the widget and its settings from this device.", action: "Uninstall", danger: true, run: () => run(widget.id, () => bridge.uninstallWidget(widget.id), `${widget.name} couldn't be uninstalled.`) }),
+      run: () => confirm({ scale: "small", title: `Uninstall ${widget.name}?`, message: "This removes the widget and its settings from this device.", action: "Uninstall", danger: true, run: () => run(widget.id, () => bridge.uninstallWidget(widget.id), `${widget.name} couldn't be uninstalled.`, `${widget.name} uninstalled.`) }),
     },
   ];
 }

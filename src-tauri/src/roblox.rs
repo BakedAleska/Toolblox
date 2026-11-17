@@ -34,6 +34,14 @@ const SEARCH_URL: &str = "https://apis.roblox.com/search-api/omni-search";
 const SEARCH_LIMIT: usize = 24;
 /// Game icon images, by universe ID.
 const GAME_ICONS_URL: &str = "https://thumbnails.roblox.com/v1/games/icons";
+/// Exact username lookup.
+const USERNAMES_URL: &str = "https://users.roblox.com/v1/usernames/users";
+/// Most players a player search returns.
+const PLAYER_SEARCH_LIMIT: usize = 10;
+/// Follow lookups for the session's user.
+const FOLLOWING_EXISTS_URL: &str = "https://friends.roblox.com/v1/user/following-exists";
+/// Blocking, by user ID.
+const BLOCKING_URL: &str = "https://apis.roblox.com/user-blocking-api/v1/users";
 /// Issues one-time authentication tickets for launching the Roblox client.
 const TICKET_URL: &str = "https://auth.roblox.com/v1/authentication-ticket";
 /// Roblox place launcher, passed to the client in the launch URI.
@@ -53,6 +61,10 @@ pub enum RobloxError {
     Network,
     /// Roblox refused the request with this HTTP status.
     Rejected(u16),
+    /// The followed player isn't in a game.
+    NotInGame,
+    /// Roblox asked for a verification check that only roblox.com can show.
+    Challenged,
 }
 
 impl fmt::Display for RobloxError {
@@ -73,6 +85,14 @@ impl fmt::Display for RobloxError {
             Self::Rejected(status) => write!(
                 formatter,
                 "Roblox rejected the request (status {status}). Is the account still signed in?"
+            ),
+            Self::NotInGame => write!(
+                formatter,
+                "The player isn't in a game. Can you try again once they're playing?"
+            ),
+            Self::Challenged => write!(
+                formatter,
+                "Roblox asked for a verification check. Can you do this on roblox.com instead?"
             ),
         }
     }
@@ -349,6 +369,53 @@ pub fn parse_place_id(input: &str) -> Result<String, RobloxError> {
     Ok(id.to_owned())
 }
 
+/// What a join opens: a place, or the game a player is in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JoinTarget {
+    Place(String),
+    User(u64),
+}
+
+impl fmt::Display for JoinTarget {
+    /// The stored form: a place ID, or `@` and a user ID.
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Place(id) => write!(formatter, "{id}"),
+            Self::User(id) => write!(formatter, "@{id}"),
+        }
+    }
+}
+
+/// Reads a join target: `@` and a user ID, an `https://www.roblox.com/users/<id>/…` link, or
+/// anything `parse_place_id` accepts.
+pub fn parse_join_target(input: &str) -> Result<JoinTarget, RobloxError> {
+    let input = input.trim();
+    if let Some(id) = input.strip_prefix('@') {
+        return parse_user_id(id).map(JoinTarget::User);
+    }
+    if let Ok(url) = url::Url::parse(input)
+        && url.scheme() == "https"
+        && matches!(url.host_str(), Some("roblox.com" | "www.roblox.com"))
+        && let Some(mut segments) = url.path_segments()
+        && segments.next() == Some("users")
+    {
+        return parse_user_id(segments.next().unwrap_or_default()).map(JoinTarget::User);
+    }
+    parse_place_id(input).map(JoinTarget::Place)
+}
+
+/// A user ID: 1 to 20 ASCII digits, not zero.
+fn parse_user_id(input: &str) -> Result<u64, RobloxError> {
+    if input.is_empty() || input.len() > 20 || !input.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(RobloxError::InvalidPlace);
+    }
+    input
+        .parse()
+        .ok()
+        .filter(|id| *id > 0)
+        .ok_or(RobloxError::InvalidPlace)
+}
+
 /// Returns the profile of the user a session belongs to, validating the session.
 pub async fn authenticated_profile(
     client: &reqwest::Client,
@@ -441,8 +508,7 @@ pub async fn fetch_presence(
         .collect())
 }
 
-/// Returns each requested user's presence and game, retrying once with the CSRF token Roblox
-/// returns on the first request.
+/// Returns each requested user's presence and game.
 pub async fn fetch_presence_details(
     client: &reqwest::Client,
     session: &Secret,
@@ -451,35 +517,349 @@ pub async fn fetch_presence_details(
     if user_ids.is_empty() {
         return Ok(BTreeMap::new());
     }
-    let cookie = cookie_header(session)?;
     let body = json!({ "userIds": user_ids });
-    let mut response = client
-        .post(PRESENCE_URL)
-        .header(COOKIE, cookie.clone())
-        .json(&body)
+    let response =
+        send_with_session(client, session, reqwest::Method::POST, PRESENCE_URL, &body).await?;
+    let body = response.text().await.map_err(|_| RobloxError::Network)?;
+    parse_presence_response(&body, user_ids)
+}
+
+/// Sends a request with the session to a Roblox URL, retrying once with the CSRF token Roblox
+/// returns on the first request. A verification challenge fails with `Challenged`.
+async fn send_with_session(
+    client: &reqwest::Client,
+    session: &Secret,
+    method: reqwest::Method,
+    url: &str,
+    body: &serde_json::Value,
+) -> Result<reqwest::Response, RobloxError> {
+    let cookie = cookie_header(session)?;
+    let request = |csrf: Option<HeaderValue>| {
+        let request = client
+            .request(method.clone(), url)
+            .header(COOKIE, cookie.clone());
+        let request = if method == reqwest::Method::GET {
+            request
+        } else {
+            request.json(body)
+        };
+        match csrf {
+            Some(csrf) => request.header("x-csrf-token", csrf),
+            None => request,
+        }
+    };
+    let mut response = request(None)
         .send()
         .await
         .map_err(|_| RobloxError::Network)?;
-    if response.status() == reqwest::StatusCode::FORBIDDEN {
-        let csrf = response
-            .headers()
-            .get("x-csrf-token")
-            .cloned()
-            .ok_or(RobloxError::InvalidResponse)?;
-        response = client
-            .post(PRESENCE_URL)
-            .header(COOKIE, cookie)
-            .header("x-csrf-token", csrf)
-            .json(&body)
+    if response.status() == reqwest::StatusCode::FORBIDDEN
+        && let Some(csrf) = response.headers().get("x-csrf-token").cloned()
+    {
+        response = request(Some(csrf))
             .send()
             .await
             .map_err(|_| RobloxError::Network)?;
     }
+    if response.headers().contains_key("rblx-challenge-id") {
+        return Err(RobloxError::Challenged);
+    }
     if !response.status().is_success() {
         return Err(RobloxError::Rejected(response.status().as_u16()));
     }
-    let body = response.text().await.map_err(|_| RobloxError::Network)?;
-    parse_presence_response(&body, user_ids)
+    Ok(response)
+}
+
+/// A player found by name.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerMatch {
+    pub id: u64,
+    pub name: String,
+    pub display_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+    pub verified: bool,
+}
+
+/// A user from the user search and username APIs.
+#[derive(Deserialize)]
+struct PlayerResponse {
+    id: u64,
+    name: String,
+    #[serde(rename = "displayName", default)]
+    display_name: Option<String>,
+    #[serde(rename = "hasVerifiedBadge", default)]
+    verified: bool,
+}
+
+/// The username API response.
+#[derive(Deserialize)]
+struct PlayersEnvelope {
+    #[serde(default)]
+    data: Vec<PlayerResponse>,
+}
+
+/// One user in the player search results.
+#[derive(Deserialize)]
+struct SearchUser {
+    #[serde(rename = "contentId", default)]
+    id: u64,
+    #[serde(default)]
+    username: String,
+    #[serde(rename = "displayName", default)]
+    display_name: Option<String>,
+    #[serde(rename = "hasVerifiedBadge", default)]
+    verified: bool,
+}
+
+/// The player search response, grouped like the game search.
+#[derive(Deserialize)]
+struct UserSearchEnvelope {
+    #[serde(default, rename = "searchResults")]
+    search_results: Vec<UserSearchGroup>,
+}
+
+/// One group of player search results. Only `User` groups are used.
+#[derive(Deserialize)]
+struct UserSearchGroup {
+    #[serde(default, rename = "contentGroupType")]
+    content_group_type: String,
+    #[serde(default)]
+    contents: Vec<SearchUser>,
+}
+
+/// Finds players by username or display name with the search roblox.com uses, which isn't rate
+/// limited like the users API search. An exact username match comes first. Failures return no
+/// results.
+pub async fn search_players(client: &reqwest::Client, query: &str) -> Vec<PlayerMatch> {
+    let query = query.trim().trim_start_matches('@').trim();
+    if query.is_empty() || query.chars().count() > 50 {
+        return Vec::new();
+    }
+    let exact = async {
+        let response = client
+            .post(USERNAMES_URL)
+            .json(&json!({ "usernames": [query], "excludeBannedUsers": true }))
+            .send()
+            .await
+            .ok()?;
+        response.text().await.ok()
+    };
+    let search = async {
+        let response = search_request(client, query)
+            .query(&[("verticalType", "user")])
+            .send()
+            .await
+            .ok()?;
+        response.text().await.ok()
+    };
+    let (exact, search) = tokio::join!(exact, search);
+    let mut players = parse_players(exact.as_deref(), search.as_deref());
+    if players.is_empty() {
+        return players;
+    }
+    let ids: Vec<_> = players.iter().map(|player| player.id).collect();
+    let avatars = fetch_avatars(client, &ids).await;
+    for player in &mut players {
+        player.avatar_url = avatars.get(&player.id).cloned();
+    }
+    players
+}
+
+/// Reads players from the username lookup, then the player search, dropping duplicates, malformed
+/// bodies, and invalid IDs, and keeping at most `PLAYER_SEARCH_LIMIT`.
+fn parse_players(exact: Option<&str>, search: Option<&str>) -> Vec<PlayerMatch> {
+    let exact = exact
+        .and_then(|body| serde_json::from_str::<PlayersEnvelope>(body).ok())
+        .map(|envelope| envelope.data)
+        .unwrap_or_default();
+    let found = search
+        .and_then(|body| serde_json::from_str::<UserSearchEnvelope>(body).ok())
+        .map(|envelope| envelope.search_results)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|group| group.content_group_type == "User")
+        .flat_map(|group| group.contents)
+        .map(|user| PlayerResponse {
+            id: user.id,
+            name: user.username,
+            display_name: user.display_name,
+            verified: user.verified,
+        });
+    let mut seen = BTreeSet::new();
+    exact
+        .into_iter()
+        .chain(found)
+        .filter(|player| player.id > 0 && !player.name.trim().is_empty() && seen.insert(player.id))
+        .take(PLAYER_SEARCH_LIMIT)
+        .map(|player| PlayerMatch {
+            id: player.id,
+            display_name: clean_text(player.display_name, 100)
+                .unwrap_or_else(|| player.name.clone()),
+            name: player.name.chars().take(100).collect(),
+            avatar_url: None,
+            verified: player.verified,
+        })
+        .collect()
+}
+
+/// Where a friendship stands between the session's user and another player.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum FriendStatus {
+    None,
+    Friends,
+    RequestSent,
+    RequestReceived,
+}
+
+/// The session user's relationship to another player. Fields Roblox didn't answer are `None`.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Relationship {
+    pub friend: FriendStatus,
+    pub following: Option<bool>,
+    pub blocked: Option<bool>,
+}
+
+/// A change to the session user's relationship with another player.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SocialAction {
+    RequestFriend,
+    AcceptFriend,
+    DeclineFriend,
+    Unfriend,
+    Follow,
+    Unfollow,
+    Block,
+    Unblock,
+}
+
+impl SocialAction {
+    /// The Roblox endpoint that makes the change.
+    fn url(self, user_id: u64) -> String {
+        let (base, path) = match self {
+            Self::RequestFriend => (FRIENDS_URL, "request-friendship"),
+            Self::AcceptFriend => (FRIENDS_URL, "accept-friend-request"),
+            Self::DeclineFriend => (FRIENDS_URL, "decline-friend-request"),
+            Self::Unfriend => (FRIENDS_URL, "unfriend"),
+            Self::Follow => (FRIENDS_URL, "follow"),
+            Self::Unfollow => (FRIENDS_URL, "unfollow"),
+            Self::Block => (BLOCKING_URL, "block-user"),
+            Self::Unblock => (BLOCKING_URL, "unblock-user"),
+        };
+        format!("{base}/{user_id}/{path}")
+    }
+}
+
+/// Returns the relationship between the session's user, `account_id`, and `user_id`. Only the
+/// friend status is required. Follow and block lookups that fail are `None`.
+pub async fn fetch_relationship(
+    client: &reqwest::Client,
+    session: &Secret,
+    account_id: u64,
+    user_id: u64,
+) -> Result<Relationship, RobloxError> {
+    let none = json!({});
+    let statuses = format!("{FRIENDS_URL}/{account_id}/friends/statuses?userIds={user_id}");
+    let following_body = json!({ "targetUserIds": [user_id] });
+    let blocked = format!("{BLOCKING_URL}/{user_id}/is-blocked");
+    let (friend, following, blocked) = tokio::join!(
+        send_with_session(client, session, reqwest::Method::GET, &statuses, &none),
+        send_with_session(
+            client,
+            session,
+            reqwest::Method::POST,
+            FOLLOWING_EXISTS_URL,
+            &following_body
+        ),
+        send_with_session(client, session, reqwest::Method::GET, &blocked, &none),
+    );
+    let friend = friend?.text().await.map_err(|_| RobloxError::Network)?;
+    let following = match following {
+        Ok(response) => response.text().await.ok(),
+        Err(_) => None,
+    };
+    let blocked = match blocked {
+        Ok(response) => response.text().await.ok(),
+        Err(error) => {
+            log::info!("Block status of player {user_id} couldn't be read: {error}");
+            None
+        }
+    };
+    let blocked = blocked.and_then(|body| {
+        let parsed = parse_blocked(&body);
+        if parsed.is_none() {
+            let shape: String = body.chars().take(200).collect();
+            log::info!("Block status of player {user_id} has an unknown format: {shape}");
+        }
+        parsed
+    });
+    Ok(Relationship {
+        friend: parse_friend_status(&friend, user_id)?,
+        following: following.and_then(|body| parse_following(&body, user_id)),
+        blocked,
+    })
+}
+
+/// Reads one user's friend status from the friend statuses API.
+fn parse_friend_status(body: &str, user_id: u64) -> Result<FriendStatus, RobloxError> {
+    let value: serde_json::Value =
+        serde_json::from_str(body).map_err(|_| RobloxError::InvalidResponse)?;
+    let status = value["data"]
+        .as_array()
+        .and_then(|data| {
+            data.iter()
+                .find(|entry| entry["id"].as_u64() == Some(user_id))
+        })
+        .and_then(|entry| entry["status"].as_str())
+        .ok_or(RobloxError::InvalidResponse)?;
+    Ok(match status {
+        "Friends" => FriendStatus::Friends,
+        "RequestSent" => FriendStatus::RequestSent,
+        "RequestReceived" => FriendStatus::RequestReceived,
+        _ => FriendStatus::None,
+    })
+}
+
+/// Reads whether the session's user follows `user_id` from the following-exists API.
+fn parse_following(body: &str, user_id: u64) -> Option<bool> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    value["followings"]
+        .as_array()?
+        .iter()
+        .find(|entry| entry["userId"].as_u64() == Some(user_id))?["isFollowing"]
+        .as_bool()
+}
+
+/// Reads the is-blocked API, which answers with a bare boolean or an `isBlocked` field.
+fn parse_blocked(body: &str) -> Option<bool> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    value.as_bool().or_else(|| value["isBlocked"].as_bool())
+}
+
+/// Changes the session user's relationship with `user_id`.
+pub async fn change_relationship(
+    client: &reqwest::Client,
+    session: &Secret,
+    user_id: u64,
+    action: SocialAction,
+) -> Result<(), RobloxError> {
+    let body = if action == SocialAction::RequestFriend {
+        json!({ "friendshipOriginSourceType": "PlayerSearch" })
+    } else {
+        json!({})
+    };
+    send_with_session(
+        client,
+        session,
+        reqwest::Method::POST,
+        &action.url(user_id),
+        &body,
+    )
+    .await
+    .map(|_| ())
 }
 
 /// Maps each requested user to a presence. Users missing from the response are `Unknown`, and
@@ -533,7 +913,6 @@ pub async fn fetch_online_friends(
     client: &reqwest::Client,
     session: &Secret,
     user_id: u64,
-    show_game_names: bool,
 ) -> Result<Vec<OnlineFriend>, RobloxError> {
     let response = client
         .get(format!("{FRIENDS_URL}/{user_id}/friends/online"))
@@ -554,17 +933,11 @@ pub async fn fetch_online_friends(
     let avatars = fetch_avatars(client, &ids).await;
     let unnamed: BTreeSet<_> = details
         .values()
-        .filter(|detail| show_game_names && detail.in_game() && detail.location.is_none())
+        .filter(|detail| detail.in_game() && detail.location.is_none())
         .filter_map(|detail| detail.universe_id)
         .collect();
     let game_names = fetch_game_names(client, &unnamed).await;
-    Ok(merge_friends(
-        users,
-        &details,
-        &avatars,
-        &game_names,
-        show_game_names,
-    ))
+    Ok(merge_friends(users, &details, &avatars, &game_names))
 }
 
 /// Reads friend IDs, dropping duplicates and keeping at most `FRIENDS_LIMIT`.
@@ -635,7 +1008,6 @@ fn merge_friends(
     details: &BTreeMap<u64, PresenceDetail>,
     avatars: &BTreeMap<u64, String>,
     game_names: &BTreeMap<u64, String>,
-    show_game_names: bool,
 ) -> Vec<OnlineFriend> {
     let mut friends: Vec<_> = users
         .into_iter()
@@ -645,7 +1017,7 @@ fn merge_friends(
                 return None;
             }
             let in_game = detail.in_game();
-            let game_name = (show_game_names && in_game)
+            let game_name = in_game
                 .then(|| {
                     detail.activity(detail.location.clone().or_else(|| {
                         detail
@@ -904,17 +1276,20 @@ fn parse_games_response(body: &str, requested: &BTreeSet<u64>) -> BTreeMap<u64, 
         .collect()
 }
 
-/// Builds a `roblox-player:` URI that joins the place as the session's user.
+/// Builds a `roblox-player:` URI that joins the place, or follows the player into their game, as
+/// the session's user.
 ///
 /// Requests an authentication ticket, first obtaining a CSRF token. The URI contains the ticket,
 /// so it must not be logged.
 pub async fn build_join_uri(
     client: &reqwest::Client,
     session: &Secret,
-    place_id: &str,
+    target: &JoinTarget,
 ) -> Result<String, RobloxError> {
-    let place_id = parse_place_id(place_id)?;
-    let referer = format!("https://www.roblox.com/games/{place_id}");
+    let referer = match target {
+        JoinTarget::Place(place_id) => format!("https://www.roblox.com/games/{place_id}"),
+        JoinTarget::User(user_id) => format!("https://www.roblox.com/users/{user_id}/profile"),
+    };
     let cookie = cookie_header(session)?;
     let first = client
         .post(TICKET_URL)
@@ -951,7 +1326,7 @@ pub async fn build_join_uri(
         .and_then(|value| value.to_str().ok())
         .filter(|value| !value.is_empty())
         .ok_or(RobloxError::InvalidResponse)?;
-    Ok(join_uri(&place_id, ticket))
+    Ok(join_uri(target, ticket))
 }
 
 /// Builds the session cookie header, marked sensitive so it isn't logged.
@@ -962,16 +1337,22 @@ fn cookie_header(session: &Secret) -> Result<HeaderValue, RobloxError> {
     Ok(value)
 }
 
-/// Formats the launch URI for a ticket and place.
-fn join_uri(place_id: &str, ticket: &str) -> String {
+/// Formats the launch URI for a ticket and target.
+fn join_uri(target: &JoinTarget, ticket: &str) -> String {
     let elapsed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     let launch_time = elapsed.as_millis();
     let tracker = (elapsed.as_nanos() as u32) ^ TRACKER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    let launcher = format!(
-        "{PLACE_LAUNCHER_URL}?request=RequestGame&browserTrackerId={tracker}&placeId={place_id}&isPlayTogetherGame=false"
-    );
+    let request = match target {
+        JoinTarget::Place(place_id) => {
+            format!("request=RequestGame&browserTrackerId={tracker}&placeId={place_id}")
+        }
+        JoinTarget::User(user_id) => {
+            format!("request=RequestFollowUser&browserTrackerId={tracker}&userId={user_id}")
+        }
+    };
+    let launcher = format!("{PLACE_LAUNCHER_URL}?{request}&isPlayTogetherGame=false");
     let encoded_launcher: String =
         url::form_urlencoded::byte_serialize(launcher.as_bytes()).collect();
     format!(
@@ -1038,7 +1419,7 @@ mod tests {
         let avatars = BTreeMap::from([(2, "https://example.test/a.png".to_string())]);
         let games = BTreeMap::from([(9, "Crossroads".to_string())]);
 
-        let friends = merge_friends(users(), &details, &avatars, &games, true);
+        let friends = merge_friends(users(), &details, &avatars, &games);
         assert_eq!(friends.len(), 2);
         assert_eq!(friends[0].id, 2);
         assert_eq!(friends[0].display_name, "zed");
@@ -1046,10 +1427,6 @@ mod tests {
         assert!(friends[0].avatar_url.is_some());
         assert_eq!(friends[1].id, 1);
         assert!(!friends[1].in_game);
-
-        let hidden = merge_friends(users(), &details, &avatars, &games, false);
-        assert_eq!(hidden[0].game_name, None);
-        assert!(hidden[0].in_game);
     }
 
     #[test]
@@ -1227,11 +1604,133 @@ mod tests {
 
     #[test]
     fn join_uri_encodes_the_launcher_but_keeps_the_protocol_shape() {
-        let uri = join_uri("1818", "ticket-value");
+        let uri = join_uri(&JoinTarget::Place("1818".into()), "ticket-value");
         assert!(uri.starts_with("roblox-player:1+launchmode:play+gameinfo:ticket-value+"));
         assert!(uri.contains(
             "placelauncherurl:https%3A%2F%2Fassetgame.roblox.com%2Fgame%2FPlaceLauncher.ashx%3F"
         ));
+        assert!(uri.contains("request%3DRequestGame%26"));
+        assert!(uri.contains("placeId%3D1818%26"));
         assert!(!uri.contains("request=RequestGame"));
+    }
+
+    #[test]
+    fn following_a_player_uses_the_follow_launcher_request() {
+        let uri = join_uri(&JoinTarget::User(156), "ticket-value");
+        assert!(uri.contains("request%3DRequestFollowUser%26"));
+        assert!(uri.contains("userId%3D156%26"));
+        assert!(!uri.contains("placeId"));
+    }
+
+    #[test]
+    fn join_targets_accept_places_players_and_profile_links() {
+        let place = |id: &str| Ok::<_, ()>(JoinTarget::Place(id.into()));
+        let parse = |input| parse_join_target(input).map_err(|_| ());
+        assert_eq!(parse("1818"), place("1818"));
+        assert_eq!(parse("https://www.roblox.com/games/1818/x"), place("1818"));
+        assert_eq!(parse(" @156 "), Ok(JoinTarget::User(156)));
+        assert_eq!(
+            parse("https://www.roblox.com/users/156/profile"),
+            Ok(JoinTarget::User(156))
+        );
+        for invalid in [
+            "@",
+            "@0",
+            "@builderman",
+            "@15 6",
+            "@123456789012345678901",
+            "https://example.com/users/156",
+            "http://www.roblox.com/users/156/profile",
+            "https://www.roblox.com/users/x/profile",
+        ] {
+            assert!(parse(invalid).is_err(), "{invalid}");
+        }
+        assert_eq!(JoinTarget::User(156).to_string(), "@156");
+        assert_eq!(JoinTarget::Place("1818".into()).to_string(), "1818");
+    }
+
+    #[test]
+    fn player_search_keeps_valid_players_once_in_order() {
+        let exact = r#"{"data":[{"id":156,"name":"builderman","displayName":"builderman","hasVerifiedBadge":true}]}"#;
+        let user = |id: u64, name: &str| {
+            format!(r#"{{"contentId":{id},"username":"{name}","displayName":""}}"#)
+        };
+        let search = format!(
+            r#"{{"searchResults":[{{"contentGroupType":"Game","contents":[{}]}},{{"contentGroupType":"User","contents":[{},{},{},{}]}}]}}"#,
+            user(9, "game"),
+            user(156, "builderman"),
+            user(0, "zero"),
+            user(7, " "),
+            user(8, "alt")
+        );
+        let players = parse_players(Some(exact), Some(&search));
+        assert_eq!(
+            players.iter().map(|player| player.id).collect::<Vec<_>>(),
+            [156, 8]
+        );
+        assert!(players[0].verified);
+        assert_eq!(players[1].display_name, "alt");
+        assert_eq!(parse_players(Some("not json"), Some(&search)).len(), 2);
+        assert_eq!(parse_players(Some(exact), None).len(), 1);
+        let many = (1..=30)
+            .map(|id| user(id, &format!("p{id}")))
+            .collect::<Vec<_>>()
+            .join(",");
+        let many =
+            format!(r#"{{"searchResults":[{{"contentGroupType":"User","contents":[{many}]}}]}}"#);
+        assert_eq!(parse_players(None, Some(&many)).len(), PLAYER_SEARCH_LIMIT);
+    }
+
+    #[test]
+    fn relationship_responses_read_only_the_requested_player() {
+        let statuses = |status: &str| {
+            format!(
+                r#"{{"data":[{{"id":9,"status":"Friends"}},{{"id":156,"status":"{status}"}}]}}"#
+            )
+        };
+        assert_eq!(
+            parse_friend_status(&statuses("Friends"), 156).unwrap(),
+            FriendStatus::Friends
+        );
+        assert_eq!(
+            parse_friend_status(&statuses("RequestSent"), 156).unwrap(),
+            FriendStatus::RequestSent
+        );
+        assert_eq!(
+            parse_friend_status(&statuses("RequestReceived"), 156).unwrap(),
+            FriendStatus::RequestReceived
+        );
+        assert_eq!(
+            parse_friend_status(&statuses("NotFriends"), 156).unwrap(),
+            FriendStatus::None
+        );
+        assert!(parse_friend_status(&statuses("Friends"), 157).is_err());
+        assert!(parse_friend_status("[]", 156).is_err());
+        let following = r#"{"followings":[{"userId":9,"isFollowing":true},{"userId":156,"isFollowing":false}]}"#;
+        assert_eq!(parse_following(following, 156), Some(false));
+        assert_eq!(parse_following(following, 157), None);
+        assert_eq!(parse_blocked("true"), Some(true));
+        assert_eq!(parse_blocked(r#"{"isBlocked":false}"#), Some(false));
+        assert_eq!(parse_blocked("{}"), None);
+    }
+
+    #[test]
+    fn social_actions_post_only_to_roblox_endpoints_for_the_player() {
+        assert_eq!(
+            SocialAction::RequestFriend.url(156),
+            "https://friends.roblox.com/v1/users/156/request-friendship"
+        );
+        assert_eq!(
+            SocialAction::Unfollow.url(156),
+            "https://friends.roblox.com/v1/users/156/unfollow"
+        );
+        assert_eq!(
+            SocialAction::Block.url(156),
+            "https://apis.roblox.com/user-blocking-api/v1/users/156/block-user"
+        );
+        assert_eq!(
+            SocialAction::Unblock.url(156),
+            "https://apis.roblox.com/user-blocking-api/v1/users/156/unblock-user"
+        );
     }
 }

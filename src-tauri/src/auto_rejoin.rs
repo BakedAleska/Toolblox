@@ -153,9 +153,10 @@ pub async fn run(app: AppHandle) {
                         continue;
                     }
                     notify(format!("{name} disconnected"), "Rejoining automatically.");
-                    match crate::app_commands::join_account_ids(&runtime, &[id], false, None).await
+                    match crate::app_commands::join_account_ids(&runtime, &[id], false, None, None)
+                        .await
                     {
-                        Ok(()) => {
+                        Ok(_) => {
                             log::info!("Auto-rejoined account {id}");
                             entry.last_rejoin = Some(Instant::now());
                         }

@@ -168,6 +168,17 @@ pub fn run() {
                 log::error!("Moving data from the 0.2.0 beta folder failed: {error}");
             }
             let storage = Arc::new(storage::Storage::new(data_root.clone()));
+            let updated = semver::Version::parse(env!("CARGO_PKG_VERSION"))
+                .map_err(|error| error.to_string())
+                .and_then(|version| {
+                    storage
+                        .record_version(&version)
+                        .map_err(|error| error.to_string())
+                })
+                .unwrap_or_else(|error| {
+                    log::error!("Recording the Toolblox version failed: {error}");
+                    false
+                });
             let credentials = Arc::new(credentials::OsCredentialStore);
             let client = reqwest::Client::builder()
                 .https_only(true)
@@ -192,7 +203,10 @@ pub fn run() {
                 ),
                 cleared_roblox_pids: Mutex::new(Default::default()),
                 expired_sessions: Mutex::new(Default::default()),
+                join_generation: Default::default(),
+                cancelled_joins: Mutex::new(Default::default()),
                 safe_mode,
+                updated: updated.into(),
             };
             app.manage(runtime);
             app.manage(Arc::clone(&lifecycle_state));
@@ -296,6 +310,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_commands::get_app_state,
+            app_commands::take_updated,
             app_commands::begin_roblox_login,
             app_commands::update_account_notes,
             app_commands::set_account_place,
@@ -303,6 +318,9 @@ pub fn run() {
             app_commands::place_exists,
             app_commands::search_places,
             app_commands::get_online_friends,
+            app_commands::search_players,
+            app_commands::get_relationship,
+            app_commands::change_relationship,
             app_commands::forget_recent_place,
             app_commands::get_widget_store,
             app_commands::set_widget_store,
@@ -313,6 +331,7 @@ pub fn run() {
             app_commands::show_notification,
             app_commands::remove_account,
             app_commands::join_accounts,
+            app_commands::cancel_join,
             app_commands::reorder_accounts,
             app_commands::save_settings,
             app_commands::install_widget,

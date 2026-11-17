@@ -19,6 +19,18 @@ export const sortAccounts = (accounts: Account[], order: SortOrder) =>
       ? [...accounts].sort((a, b) => accountName(a).localeCompare(accountName(b)))
       : [...accounts].sort((a, b) => (b.lastPlayedAt || b.addedAt) - (a.lastPlayedAt || a.addedAt));
 
+/** Whether an account matches a search. Each word in `query` must appear, in any order and
+ * ignoring case, in the display name, username, or notes. Returns `false` for no match, `"name"`
+ * when the names match, and `"notes"` when the notes are needed. */
+export const matchAccount = (account: Account, query: string): false | "name" | "notes" => {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return "name";
+  const names = `${account.displayName} ${account.name}`.toLowerCase();
+  const all = `${names} ${account.notes.toLowerCase()}`;
+  if (!words.every((word) => all.includes(word))) return false;
+  return words.every((word) => names.includes(word)) ? "name" : "notes";
+};
+
 /** A place ID from a bare ID or a roblox.com link, with or without its scheme: `/games/<id>` paths
  * and `placeId=` query parameters. */
 export const parsePlaceId = (input: string) => {
@@ -35,6 +47,33 @@ export const parsePlaceId = (input: string) => {
     return undefined;
   }
 };
+
+/** A join target from a place ID or game link, as `parsePlaceId` reads them, or a player as `@`
+ * and a user ID, from `@<id>` or a roblox.com profile link. `@` and a username isn't a target
+ * until the username is looked up. */
+export const parseJoinTarget = (input: string) => {
+  const value = input.trim();
+  const id = value.startsWith("@") ? value.slice(1) : profileUserId(value);
+  if (id !== undefined) return /^\d{1,20}$/.test(id) && !/^0+$/.test(id) ? `@${id}` : undefined;
+  return parsePlaceId(value);
+};
+
+/** The user ID in a roblox.com `/users/<id>` link, an empty string for another `/users/` path,
+ * or undefined for anything else. */
+const profileUserId = (value: string) => {
+  try {
+    const url = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`);
+    const host = url.hostname.toLowerCase();
+    if ((url.protocol !== "https:" && url.protocol !== "http:") || (host !== "roblox.com" && !host.endsWith(".roblox.com"))) return undefined;
+    const match = url.pathname.match(/^\/users\/([^/]*)/);
+    return match ? match[1] : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/** The user ID of a player target, such as `@156`. */
+export const targetUserId = (target?: string) => target?.startsWith("@") ? Number(target.slice(1)) : undefined;
 
 export const SIDEBAR_COLLAPSED = 56;
 export const SIDEBAR_MIN = 160;
@@ -74,3 +113,20 @@ export const logWidgets = (log: string) => [...new Set(logRecords(log).map(logWi
 /** Keeps the log records from one source: "all", "app" for Toolblox's own, or a widget's ID. */
 export const filterLog = (log: string, source: string) =>
   source === "all" ? log : logRecords(log).filter((record) => record && (logWidget(record) ?? "app") === source).join("\n");
+
+/** The text "Copy logs" puts on the clipboard: the app version and platform, the error, and the recent log. */
+export const failureReport = (error: string, version: string, platform: string, log: string) =>
+  [`Toolblox ${version} on ${platform}`, `Error: ${error}`, "", "Recent log:", log.trim() || "The log is empty."].join("\n");
+
+/** The smallest square, centred on the visible pixels of RGBA `data`, as `[x, y, size]`, or
+ * undefined when every pixel is transparent. Used to crop the margin out of widget icons. */
+export const opaqueSquare = (data: ArrayLike<number>, width: number, height: number): [number, number, number] | undefined => {
+  let left = width, top = height, right = -1, bottom = -1;
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    if (data[(y * width + x) * 4 + 3] < 8) continue;
+    left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y);
+  }
+  if (right < 0) return undefined;
+  const size = Math.max(right - left, bottom - top) + 1;
+  return [(left + right + 1 - size) / 2, (top + bottom + 1 - size) / 2, size];
+};

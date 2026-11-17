@@ -31,7 +31,7 @@ function AlertDialogOverlay({
     <AlertDialogPrimitive.Backdrop
       data-slot="alert-dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-overlay duration-200 ease-enter supports-backdrop-filter:backdrop-blur-[2px] data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 data-closed:duration-150 data-closed:ease-exit",
+        "fixed inset-0 isolate z-50 bg-overlay duration-200 ease-enter supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 data-closed:duration-150 data-closed:ease-exit",
         className
       )}
       {...props}
@@ -53,8 +53,9 @@ function AlertDialogContent({
         data-slot="alert-dialog-content"
         data-size={size}
         className={cn(
-          "group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-sm -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-xl bg-popover p-6 border border-foreground/10 text-popover-foreground shadow-lg shadow-shadow/20 outline-none data-open:slide-in-from-bottom-2 data-closed:slide-out-to-bottom-1",
+          "group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-sm -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-xl bg-popover p-6 border border-foreground/10 text-popover-foreground shadow-lg shadow-shadow/20 outline-none",
           floatingMotion,
+          "data-open:duration-400 data-open:ease-spring data-open:zoom-in-90 data-open:slide-in-from-bottom-6 data-closed:slide-out-to-bottom-2",
           className
         )}
         {...props}

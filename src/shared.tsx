@@ -1,21 +1,40 @@
-import { Hammer, LoaderCircle, UserRound } from "lucide-react";
-import { createContext, useContext, useEffect, useId, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { ArrowLeftRight, Hammer, MapPin, UserRound } from "lucide-react";
+import { createContext, useContext, useEffect, useId, useRef, useState, type ComponentProps, type ReactElement, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { bridge } from "@/bridge";
-import { accountName, parsePlaceId } from "@/logic";
+import { accountName, parseJoinTarget, targetUserId } from "@/logic";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import type { ToastKind } from "@/components/ui/toast";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { Account, AppRoute, AppState, PlaceMatch, Settings, WidgetSummary } from "@/types";
+import type { Account, AppRoute, AppState, PlaceMatch, PlayerMatch, Settings, WidgetSummary } from "@/types";
 
-export type PlaceRequest = { title: string; description?: string; action: string; run: (placeId: string) => Promise<void> };
 
-/** A place's game name when Toolblox knows it, otherwise its ID. */
-export const placeLabel = (state: AppState, placeId: string) => state.recentPlaces.find((place) => place.placeId === placeId)?.name || placeId;
+/** A join target's name when Toolblox knows it: the game name, or `@` and a player's username. */
+export const targetName = (state: AppState, target: string) => {
+  const name = state.recentPlaces.find((place) => place.placeId === target)?.name;
+  return name && targetUserId(target) !== undefined ? `@${name}` : name;
+};
+
+/** A join target's name when Toolblox knows it, otherwise its place ID or `Player <id>`. */
+export const placeLabel = (state: AppState, target: string) => targetName(state, target) || (targetUserId(target) !== undefined ? `Player ${target.slice(1)}` : target);
+
+/** What a target field holds: a game's place, or a player. */
+export type TargetKind = "place" | "player";
+
+/** The symbol at the start of a target or search field, shown as a small button with a swap
+ * arrow. Selecting it switches between games and players. It keeps focus in the field. Fields
+ * that hold it need `pl-14`. */
+export function TargetKindToggle({ kind, toggle, gameIcon = <MapPin />, className }: { kind: TargetKind; toggle: () => void; gameIcon?: ReactNode; className?: string }) {
+  return <IconButton type="button" label={kind === "player" ? "Players. Switch to games" : "Games. Switch to players"} variant="secondary" size="xs"
+    className={cn("absolute inset-y-0 left-1 z-10 my-auto gap-0.5 overflow-hidden px-1.5 text-secondary-foreground", className)} onPointerDown={(event) => event.preventDefault()} onClick={toggle}>
+    <span key={kind} className="flex animate-in duration-200 ease-out fade-in-0 slide-in-from-bottom-3 motion-reduce:animate-none">{kind === "player" ? <UserRound /> : gameIcon}</span>
+    <ArrowLeftRight className={cn("size-3 opacity-60 transition-transform duration-300 ease-out motion-reduce:transition-none", kind === "player" && "rotate-180")} />
+  </IconButton>;
+}
 
 
 /** An error message for a toast. Errors that already end with a recovery question, as the
@@ -25,6 +44,9 @@ export const failure = (message: string, error: unknown) => {
   return text.endsWith("?") ? text : `${message} (${text})`;
 };
 
+/** A destination for the next manual join only. `name` labels it, since it isn't in the recent list. */
+export type NextJoin = { target: string; name: string };
+
 export type ConfirmRequest = { title: string; message: string; action: string; danger?: boolean; scale?: ModalScale; run: () => Promise<void> };
 
 /** Shared callbacks every screen receives from the app shell. */
@@ -33,14 +55,23 @@ export type ScreenProps = {
   refresh: () => Promise<void>;
   navigate: (route: AppRoute) => void;
   notify: (message: string, kind?: ToastKind) => void;
+  /** Confirms a finished action with a toast, unless **Reduce toasts** is on. */
+  done: (message: string) => void;
   confirm: (request: ConfirmRequest) => void;
   /** Launches the accounts, first asking for a place when one of them has none. */
   join: (accountIds: number[], placeId?: string) => void;
   /** Accounts whose join is in progress. */
   joining: number[];
+  /** The account being joined and the total, while several join in turn. */
+  joinProgress?: { done: number; total: number };
+  /** Cancels the joins in progress for these accounts. */
+  cancelJoin: (accountIds: number[]) => void;
+  /** One-time destinations by account ID, or `default` for accounts without their own. */
+  nextJoin: Record<string, NextJoin>;
+  /** Sets or clears a one-time destination for an account, or for `default`. */
+  setNextJoin: (key: number | "default", value?: NextJoin) => void;
   /** Opens the Roblox sign-in for an account whose session expired. */
   signIn: (accountId: number) => Promise<void>;
-  askPlace: (request: PlaceRequest) => void;
   patchSettings: <K extends keyof Settings>(key: K, value: Settings[K]) => Promise<void>;
   /** Shrinks the window into the mini window. */
   openMini: () => void;
@@ -70,10 +101,10 @@ export const ScreenTools = createContext<(tools?: ReactNode, iconTools?: ReactNo
 export function Screen({ title, actions, tools: pageTools, iconTools, toolbar, children, className }: { title: string; actions?: ReactNode; tools?: ReactNode; iconTools?: ReactNode; toolbar?: ReactNode; children: ReactNode; className?: string }) {
   const tools = useContext(ScreenTools)(pageTools, iconTools);
   return <div className="h-full overflow-y-auto [scrollbar-gutter:stable]">
-    <div className={cn("@container mx-auto flex min-h-full max-w-[120rem] flex-col gap-2 px-6 pb-6", className)}>
+    <div data-slot="screen" className={cn("@container mx-auto flex min-h-full max-w-[120rem] flex-col gap-2 px-6 pb-6", className)}>
       <header data-slot="screen-header" className="sticky top-0 z-10 -mx-6 shrink-0 bg-background/90 px-6 pb-2 backdrop-blur-sm">
         <div className="flex h-14 items-center gap-2">
-          <h1 className="mr-auto shrink-0 pr-2 text-lg font-semibold tracking-tight">{title}</h1>
+          <h1 className="mr-auto shrink-0 animate-in pr-2 text-lg font-semibold tracking-tight duration-500 ease-enter fade-in-0 slide-in-from-left-3">{title}</h1>
           {actions}
           {actions && tools && <span className="h-5 w-px shrink-0 bg-border" aria-hidden="true" />}
           {tools}
@@ -105,20 +136,32 @@ export function IconButton({ label, children, variant = "ghost", size = "icon", 
   </Tooltip>;
 }
 
+/** Shows `label` in a tooltip while `children` is hovered or focused. */
+export function Hint({ label, side, children }: { label: ReactNode; side?: ComponentProps<typeof TooltipContent>["side"]; children: ReactElement }) {
+  return <Tooltip>
+    <TooltipTrigger render={children} />
+    <TooltipContent side={side}>{label}</TooltipContent>
+  </Tooltip>;
+}
+
 export const DISCORD_URL = "https://discord.gg/VkFad5fGB6";
 
-/** Opens the Toolblox Discord server in the browser. Lucide has no brand icons, so the mark is drawn here. */
+/** The Discord mark. Lucide has no brand icons, so it's drawn here. */
+export const DiscordIcon = () => <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.32 4.37a19.8 19.8 0 0 0-4.93-1.51 13.78 13.78 0 0 0-.64 1.28 18.27 18.27 0 0 0-5.5 0 12.64 12.64 0 0 0-.64-1.28h-.05A19.74 19.74 0 0 0 3.64 4.4 20.26 20.26 0 0 0 .11 18.09l.02.02a19.9 19.9 0 0 0 6.04 3.03l.04-.02a14.24 14.24 0 0 0 1.23-2.03.08.08 0 0 0-.05-.07 13.1 13.1 0 0 1-1.9-.92.08.08 0 0 1 .02-.1 10.2 10.2 0 0 0 .41-.31h.04a14.2 14.2 0 0 0 12.1 0l.04.01a9.63 9.63 0 0 0 .4.32.08.08 0 0 1-.03.1 12.29 12.29 0 0 1-1.9.91.08.08 0 0 0-.02.1 15.97 15.97 0 0 0 1.27 2.01h.04a19.84 19.84 0 0 0 6.03-3.05v-.03a20.12 20.12 0 0 0-3.57-13.69ZM8.02 15.33c-1.18 0-2.16-1.08-2.16-2.42 0-1.33.96-2.42 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.34-.96 2.42-2.16 2.42Zm7.97 0c-1.18 0-2.15-1.08-2.15-2.42 0-1.33.95-2.42 2.15-2.42 1.22 0 2.18 1.1 2.16 2.42 0 1.34-.94 2.42-2.16 2.42Z" /></svg>;
+
+/** Opens the Toolblox Discord server in the browser. */
 export function DiscordButton({ size }: { size?: ComponentProps<typeof Button>["size"] }) {
   return <IconButton label="Discord server" size={size} className="text-muted-foreground" onClick={() => void bridge.openExternal(DISCORD_URL)}>
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.32 4.37a19.8 19.8 0 0 0-4.93-1.51 13.78 13.78 0 0 0-.64 1.28 18.27 18.27 0 0 0-5.5 0 12.64 12.64 0 0 0-.64-1.28h-.05A19.74 19.74 0 0 0 3.64 4.4 20.26 20.26 0 0 0 .11 18.09l.02.02a19.9 19.9 0 0 0 6.04 3.03l.04-.02a14.24 14.24 0 0 0 1.23-2.03.08.08 0 0 0-.05-.07 13.1 13.1 0 0 1-1.9-.92.08.08 0 0 1 .02-.1 10.2 10.2 0 0 0 .41-.31h.04a14.2 14.2 0 0 0 12.1 0l.04.01a9.63 9.63 0 0 0 .4.32.08.08 0 0 1-.03.1 12.29 12.29 0 0 1-1.9.91.08.08 0 0 0-.02.1 15.97 15.97 0 0 0 1.27 2.01h.04a19.84 19.84 0 0 0 6.03-3.05v-.03a20.12 20.12 0 0 0-3.57-13.69ZM8.02 15.33c-1.18 0-2.16-1.08-2.16-2.42 0-1.33.96-2.42 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.34-.96 2.42-2.16 2.42Zm7.97 0c-1.18 0-2.15-1.08-2.15-2.42 0-1.33.95-2.42 2.15-2.42 1.22 0 2.18 1.1 2.16 2.42 0 1.34-.94 2.42-2.16 2.42Z" /></svg>
+    <DiscordIcon />
   </IconButton>;
 }
 
-/** The two dialog sizes. Portrait holds forms and lists, and landscape holds short messages. */
-/** Dialog shapes, each in two scales. `small` is for dialogs about widgets and dialogs widgets open. */
+/** Dialog shapes. Landscape holds one-sentence confirmations: one wide, short shape with the
+ * buttons beside the text, as tall as the text. Forms and lists are pages instead. Portrait remains
+ * for widgets that use it, in two scales. */
 const modalSizes = {
   portrait: { default: "h-96 max-w-96", small: "h-80 max-w-80 p-4" },
-  landscape: { default: "h-60 max-w-lg", small: "h-52 max-w-md p-4" },
+  landscape: { default: "max-w-lg p-4", small: "max-w-lg p-4" },
 };
 export type ModalScale = "default" | "small";
 
@@ -138,96 +181,59 @@ export function Modal({ open, close, title, description, action, submit, busy = 
   scale?: ModalScale;
   children?: ReactNode;
 }) {
+  const landscape = size === "landscape";
+  const header = <AlertDialogHeader>
+    <AlertDialogTitle>{title}</AlertDialogTitle>
+    {description && <AlertDialogDescription>{description}</AlertDialogDescription>}
+  </AlertDialogHeader>;
+  const footer = <AlertDialogFooter className={landscape ? "shrink-0 pt-0" : "mt-auto"}>
+    <AlertDialogCancel type="button" size={landscape ? "sm" : "default"} disabled={busy}>Cancel</AlertDialogCancel>
+    <Button type="submit" size={landscape ? "sm" : "default"} variant={danger ? "destructive" : "default"} disabled={busy || disabled}>{busy && <Spinner />}{action}</Button>
+  </AlertDialogFooter>;
   return <AlertDialog open={open} onOpenChange={(next) => { if (!next && !busy) close(); }}>
     <AlertDialogContent className={cn("flex flex-col", modalSizes[size][scale])}>
-      <form className="contents" onSubmit={(event) => { event.preventDefault(); submit(); }}>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          {description && <AlertDialogDescription>{description}</AlertDialogDescription>}
-        </AlertDialogHeader>
-        {children}
-        <AlertDialogFooter className="mt-auto">
-          <AlertDialogCancel type="button" disabled={busy}>Cancel</AlertDialogCancel>
-          <Button type="submit" variant={danger ? "destructive" : "default"} disabled={busy || disabled}>{busy && <Spinner />}{action}</Button>
-        </AlertDialogFooter>
+      <form className={landscape ? "flex flex-wrap items-end gap-x-4 gap-y-3" : "contents"} onSubmit={(event) => { event.preventDefault(); submit(); }}>
+        {landscape ? <div className="grid min-w-0 flex-1 basis-56 gap-3">{header}{children}</div> : <>{header}{children}</>}
+        {footer}
       </form>
     </AlertDialogContent>
   </AlertDialog>;
 }
 
-/** Searches Roblox games for text that isn't a place ID or link, 300 ms after it stops changing. */
-export function usePlaceSearch(text: string) {
-  const [matches, setMatches] = useState<PlaceMatch[]>([]);
+/** Runs `search` for `query` 300 ms after it stops changing, or returns no matches while `query`
+ * is undefined. */
+function useSearch<T>(query: string | undefined, search: (query: string) => Promise<T[]>) {
+  const [matches, setMatches] = useState<T[]>([]);
   const [searching, setSearching] = useState(false);
   useEffect(() => {
-    const query = text.trim();
-    if (query.length < 2 || parsePlaceId(query)) { setMatches([]); setSearching(false); return; }
+    if (query === undefined) { setMatches([]); setSearching(false); return; }
     let current = true;
     setSearching(true);
-    const timer = window.setTimeout(() => void bridge.searchPlaces(query)
+    const timer = window.setTimeout(() => void search(query)
       .then((found) => { if (current) setMatches(found); })
       .catch(() => { if (current) setMatches([]); })
       .finally(() => { if (current) setSearching(false); }), 300);
     return () => { current = false; window.clearTimeout(timer); };
-  }, [text]);
+  }, [query]);
   return { matches, searching };
 }
 
-/** A place field that also searches Roblox games by name. `placeName` labels the place after its ID.
- * `inset` sets the horizontal padding of the field and its label. The parent must be positioned. */
-export function PlaceInput({ value, change, pick, placeName, inset = "px-2.5", className, onKeyDown, onFocus, onBlur, ...props }: {
-  value: string;
-  change: (value: string) => void;
-  pick?: (place: PlaceMatch) => void;
-  placeName?: string;
-  inset?: string;
-} & Omit<ComponentProps<"input">, "value" | "onChange" | "name">) {
-  const id = useId();
-  const found = usePlaceSearch(value).matches;
-  const matches = found.slice(0, 6);
-  const [active, setActive] = useState(-1);
-  const [focused, setFocused] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
-  const [picked, setPicked] = useState<PlaceMatch>();
-  useEffect(() => { setActive(-1); setDismissed(false); }, [found]);
-  const open = focused && !dismissed && matches.length > 0;
-  const choose = (place: PlaceMatch) => { setPicked(place); setDismissed(true); change(place.placeId); pick?.(place); };
-  const label = picked && picked.placeId === value ? picked.name : placeName;
-  return <>
-    <Input {...props} name="place" value={value} autoComplete="off" spellCheck={false} role="combobox" aria-autocomplete="list" aria-expanded={open}
-      aria-controls={open ? `${id}-list` : undefined} aria-activedescendant={open && active >= 0 ? `${id}-${active}` : undefined}
-      className={cn("font-mono placeholder:font-sans", label && !focused && "text-transparent", inset, className)}
-      onChange={(event) => change(event.target.value)}
-      onFocus={(event) => { setFocused(true); onFocus?.(event); }}
-      onBlur={(event) => { setFocused(false); onBlur?.(event); }}
-      onKeyDown={(event) => {
-        if (open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
-          event.preventDefault();
-          const step = event.key === "ArrowDown" ? 1 : -1;
-          setActive((index) => index < 0 ? (step > 0 ? 0 : matches.length - 1) : (index + step + matches.length) % matches.length);
-        } else if (open && event.key === "Enter" && active >= 0) { event.preventDefault(); choose(matches[active]); }
-        else if (open && event.key === "Escape") { event.preventDefault(); setDismissed(true); }
-        else onKeyDown?.(event);
-      }} />
-    {label && <span className={cn("pointer-events-none absolute inset-0 flex items-center gap-2 overflow-hidden border border-transparent", inset)} aria-hidden="true">
-      {focused ? <>
-        <span className="invisible font-mono text-sm whitespace-pre">{value}</span>
-        <span className="min-w-0 truncate text-xs text-muted-foreground">{label}</span>
-      </> : <span className="min-w-0 truncate text-sm">{label}</span>}
-    </span>}
-    {open && <ul id={`${id}-list`} role="listbox" aria-label="Games" className="absolute top-full left-0 z-50 mt-1 grid w-full rounded-xl bg-popover p-1 text-popover-foreground shadow-lg shadow-shadow/10 ring-1 ring-foreground/10">
-      {matches.map((place, index) => <li key={place.placeId} id={`${id}-${index}`} role="option" aria-selected={index === active}
-        className={cn("flex cursor-default items-center gap-2 rounded-lg px-2 py-1.5 text-sm", index === active && "bg-accent text-accent-foreground")}
-        onPointerDown={(event) => event.preventDefault()} onPointerEnter={() => setActive(index)} onClick={() => choose(place)}>
-        <span className="min-w-0 flex-1 truncate">{place.name}</span>
-        <span className="font-mono text-xs text-muted-foreground">{place.placeId}</span>
-      </li>)}
-    </ul>}
-  </>;
+/** Searches Roblox games for text that isn't a place ID, link, or `@` player. */
+export function usePlaceSearch(text: string) {
+  const query = text.trim();
+  return useSearch<PlaceMatch>(query.length < 2 || query.startsWith("@") || parseJoinTarget(query) ? undefined : query, bridge.searchPlaces);
 }
 
+/** Searches Roblox players for text that isn't a user ID or profile link. A leading `@` is
+ * ignored. */
+export function usePlayerSearch(text: string) {
+  const query = text.trim().replace(/^@/, "").trim();
+  return useSearch<PlayerMatch>(query.length < 2 || parseJoinTarget(text) ? undefined : query, bridge.searchPlayers);
+}
+
+/** Spinning ring that takes an icon's place while an action runs. */
 export function Spinner({ className }: { className?: string }) {
-  return <LoaderCircle className={cn("animate-spin", className)} aria-hidden="true" />;
+  return <span className={cn("inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-current border-r-transparent opacity-60", className)} aria-hidden="true" />;
 }
 
 export function Avatar({ account, className, status = true }: { account: Account; className?: string; status?: boolean }) {
@@ -283,6 +289,10 @@ export const presenceLabel = (account: Account) => {
   return account.gameName ? `In game: ${account.gameName}` : "In game";
 };
 
+/** A short status for a badge: the game name moves to its tooltip, which `presenceLabel` gives. */
+export const presenceShort = (account: Account) =>
+  account.presence === "playing" && !account.sessionExpired ? (account.inStudio ? "In Studio" : "In game") : presenceLabel(account);
+
 /** The status color shared by the avatar dot and the status badge. It always sits beside a text label. */
 export const presenceTone = (account: Account) => account.sessionExpired ? "bg-destructive" : account.presence === "playing" ? account.inStudio ? "bg-warning" : "bg-success" : "bg-warning";
 
@@ -291,7 +301,7 @@ export function PresenceMark({ account, className, small = false }: { account: A
   const studio = account.presence === "playing" && account.inStudio && !account.sessionExpired;
   return studio
     ? <span className={cn("grid shrink-0 place-items-center rounded-full text-background", presenceTone(account), small ? "size-3" : "size-3.5", className)} aria-hidden="true"><Hammer className={small ? "size-2" : "size-2.5"} strokeWidth={2.5} /></span>
-    : <span className={cn("shrink-0 rounded-full", presenceTone(account), small ? "size-1.5" : "size-2.5", className)} aria-hidden="true" />;
+    : <span className={cn("relative shrink-0 rounded-full", presenceTone(account), small ? "size-1.5" : "size-2.5", account.presence === "playing" && !account.sessionExpired && "after:absolute after:inset-0 after:animate-presence after:rounded-full after:bg-inherit", className)} aria-hidden="true" />;
 }
 
 export function SettingRow({ title, description, control }: { title: string; description?: string; control: (labelId: string, descriptionId?: string) => ReactNode }) {
@@ -340,7 +350,7 @@ export function StatTile({ icon, label, value, onClick }: { icon: ReactNode; lab
 
 export function EmptyState({ icon, title, text, action }: { icon: ReactNode; title: string; text?: string; action?: ReactNode }) {
   return <div className="flex flex-1 flex-col items-center justify-center gap-3 py-12 text-center">
-    <span className="grid size-12 place-items-center rounded-full bg-muted text-muted-foreground [&_svg]:size-5">{icon}</span>
+    <span className="grid size-12 animate-in place-items-center rounded-full bg-muted text-muted-foreground duration-500 ease-spring zoom-in-50 fade-in-0 [&_svg]:size-5 [&_svg]:animate-float">{icon}</span>
     <div className="space-y-1"><h2 className="text-sm font-medium">{title}</h2>{text && <p className="max-w-xs text-sm text-muted-foreground">{text}</p>}</div>
     {action}
   </div>;
@@ -367,6 +377,6 @@ export function WidgetFrame({ widget, surface, title }: { widget: WidgetSummary;
   }, [session, widget.id]);
   const height = surface === "main" ? "min-h-0 flex-1" : surface === "settings" ? "min-h-64" : "min-h-44";
   if (error) return <p className="text-sm text-destructive">The widget failed to open. Does reinstalling it help? ({error})</p>;
-  if (!session) return <div className={cn("grid place-items-center gap-2 text-sm text-muted-foreground", height)}><Spinner className="size-5" />Opening widget…</div>;
+  if (!session) return <Skeleton className={cn("w-full rounded-xl", height)} role="status" aria-label="Opening widget" />;
   return <iframe className={cn("w-full rounded-xl bg-card ring-1 ring-foreground/8", height)} ref={frame} title={title} src={session.url} sandbox="allow-scripts" />;
 }

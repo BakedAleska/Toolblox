@@ -31,6 +31,16 @@ pub enum SortOrder {
     Manual,
 }
 
+/// Which accounts' online friends the dashboard lists.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FriendsSource {
+    All,
+    #[default]
+    Pinned,
+    LastPlayed,
+}
+
 /// Saved preferences. Missing fields take defaults and unknown fields are preserved.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
@@ -57,8 +67,6 @@ pub struct Settings {
     pub run_in_background: bool,
     /// Minimize the window after a manual join.
     pub minimize_on_join: bool,
-    /// Look up and show game names for accounts in game.
-    pub show_game_names: bool,
     /// Notify when an account leaves a game.
     pub notify_on_drop: bool,
     pub always_on_top: bool,
@@ -66,8 +74,16 @@ pub struct Settings {
     pub show_animations: bool,
     /// Play full animations even when the OS asks for reduced motion.
     pub ignore_reduced_motion: bool,
+    /// Skip toasts that confirm a finished action.
+    pub reduce_toasts: bool,
+    /// Whose online friends the dashboard lists.
+    pub friends_source: FriendsSource,
     /// Recently used places, newest first.
     pub recent_places: Vec<RecentPlace>,
+    /// Named sets of accounts that join together.
+    pub groups: Vec<AccountGroup>,
+    /// Toolblox version that last opened with these settings. `None` before 0.4.8.
+    pub last_seen_version: Option<String>,
     /// Unknown fields, kept when saving.
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -106,12 +122,15 @@ impl Default for Settings {
             open_on_launch: false,
             run_in_background: true,
             minimize_on_join: false,
-            show_game_names: true,
             notify_on_drop: false,
             always_on_top: false,
             show_animations: true,
             ignore_reduced_motion: false,
+            reduce_toasts: false,
+            friends_source: FriendsSource::Pinned,
             recent_places: Vec::new(),
+            groups: Vec::new(),
+            last_seen_version: None,
             extra: Map::new(),
         }
     }
@@ -124,12 +143,12 @@ impl Settings {
         if self.join_delay_seconds > 60 {
             return Err("The join delay isn't valid. Can you choose 0 to 60 seconds?".into());
         }
-        if !self.place_id.is_empty() && !is_place_id(&self.place_id) {
+        if !self.place_id.is_empty() && !is_join_target(&self.place_id) {
             return Err("The saved place ID isn't valid. Can you enter it again?".into());
         }
         if self.recent_places.len() > MAX_RECENT_PLACES
             || self.recent_places.iter().any(|place| {
-                !is_place_id(&place.place_id)
+                !is_join_target(&place.place_id)
                     || place
                         .name
                         .as_ref()
@@ -138,6 +157,7 @@ impl Settings {
         {
             return Err("The recent places list isn't valid. Can you set the place again?".into());
         }
+        validate_groups(&self.groups)?;
         for id in self
             .disabled_widgets
             .iter()
@@ -169,6 +189,73 @@ impl Settings {
 /// Whether `value` is a Roblox place ID: 1 to 20 ASCII digits.
 pub fn is_place_id(value: &str) -> bool {
     !value.is_empty() && value.len() <= 20 && value.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// Whether `value` is a stored join target: a place ID, or `@` and a user ID.
+pub fn is_join_target(value: &str) -> bool {
+    is_place_id(value.strip_prefix('@').unwrap_or(value))
+}
+
+/// Most groups a settings file may hold.
+pub const MAX_GROUPS: usize = 50;
+/// Most accounts one group may hold.
+const MAX_GROUP_MEMBERS: usize = 200;
+
+/// A named set of accounts that join together. Pinning a group shows the group on the dashboard,
+/// not its accounts. `account_ids` may name removed accounts, which the interface leaves out.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountGroup {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub account_ids: Vec<u64>,
+    #[serde(default)]
+    pub pinned: bool,
+    /// Where the group joins: a place ID, or `@` and a user ID. `None` uses each account's own.
+    #[serde(default)]
+    pub place_id: Option<String>,
+    #[serde(default)]
+    pub notes: String,
+}
+
+/// Checks the group list: unique IDs of 1 to 64 letters, digits, and `-`, names of 1 to 50
+/// characters, unique members, valid destinations, and notes up to 1,000 characters.
+fn validate_groups(groups: &[AccountGroup]) -> Result<(), String> {
+    let invalid = || Err("A saved group isn't valid. Can you edit it again?".to_string());
+    if groups.len() > MAX_GROUPS {
+        return Err(format!(
+            "There are more than {MAX_GROUPS} groups. Can you delete some?"
+        ));
+    }
+    let mut ids = std::collections::BTreeSet::new();
+    for group in groups {
+        let name = group.name.trim();
+        let mut members = std::collections::BTreeSet::new();
+        if group.id.is_empty()
+            || group.id.len() > 64
+            || !group
+                .id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            || !ids.insert(group.id.as_str())
+            || name.is_empty()
+            || name.chars().count() > 50
+            || group.account_ids.len() > MAX_GROUP_MEMBERS
+            || !group
+                .account_ids
+                .iter()
+                .all(|id| *id > 0 && members.insert(*id))
+            || group
+                .place_id
+                .as_deref()
+                .is_some_and(|id| !is_join_target(id))
+            || group.notes.chars().count() > 1_000
+        {
+            return invalid();
+        }
+    }
+    Ok(())
 }
 
 /// Accepts non-empty IDs of ASCII letters, digits, `_`, and `-`.
@@ -238,7 +325,11 @@ impl StoredAccount {
         for id in self.widget_data.keys() {
             validate_widget_id(id)?;
         }
-        if self.place_id.as_deref().is_some_and(|id| !is_place_id(id)) {
+        if self
+            .place_id
+            .as_deref()
+            .is_some_and(|id| !is_join_target(id))
+        {
             return Err("A saved account has an invalid place ID. Can you set it again?".into());
         }
         if self
@@ -264,14 +355,16 @@ impl StoredAccount {
         self.extra.len() != count
     }
 
-    /// Records a manual join at `timestamp` (Unix seconds) to `place_id`.
-    pub fn record_play(&mut self, timestamp: f64, place_id: &str) -> Result<(), String> {
+    /// Records a manual join at `timestamp` (Unix seconds) to `place_id`, when the place is known.
+    pub fn record_play(&mut self, timestamp: f64, place_id: Option<&str>) -> Result<(), String> {
         if !timestamp.is_finite() || timestamp < 0.0 {
             return Err("The play time isn't valid. Can you try joining again?".into());
         }
         self.play_count = self.play_count.saturating_add(1);
         self.last_played_at = Some(timestamp);
-        self.last_place_id = Some(place_id.to_owned());
+        if let Some(place_id) = place_id {
+            self.last_place_id = Some(place_id.to_owned());
+        }
         Ok(())
     }
 }
@@ -345,7 +438,6 @@ mod tests {
         assert_eq!(settings.sort_order, SortOrder::LastPlayed);
         assert!(settings.run_in_background);
         assert!(!settings.auto_rejoin);
-        assert!(settings.show_game_names);
         assert!(!settings.minimize_on_join);
         assert_eq!(settings.join_delay_seconds, 1);
     }
@@ -376,6 +468,77 @@ mod tests {
     }
 
     #[test]
+    fn groups_need_unique_safe_ids_names_members_and_valid_destinations() {
+        let group = |id: &str, name: &str, members: &[u64]| AccountGroup {
+            id: id.into(),
+            name: name.into(),
+            account_ids: members.to_vec(),
+            pinned: false,
+            place_id: None,
+            notes: String::new(),
+        };
+        let mut settings = Settings {
+            groups: vec![
+                group("a-1", "Farming", &[1, 2]),
+                group("b", "Trading", &[2]),
+            ],
+            ..Settings::default()
+        };
+        assert!(settings.validate().is_ok());
+        settings.groups[0].place_id = Some("@156".into());
+        assert!(settings.validate().is_ok());
+        for invalid in [
+            group("a-1", "Duplicate", &[]),
+            group("", "No ID", &[]),
+            group("bad/id", "Slash", &[]),
+            group("c", "  ", &[]),
+            group("c", &"x".repeat(51), &[]),
+            group("c", "Repeat", &[3, 3]),
+            group("c", "Zero", &[0]),
+        ] {
+            let mut bad = settings.clone();
+            bad.groups.push(invalid);
+            assert!(bad.validate().is_err());
+        }
+        let mut bad = settings.clone();
+        bad.groups[1].place_id = Some("not-a-place".into());
+        assert!(bad.validate().is_err());
+        bad.groups[1].place_id = None;
+        bad.groups[1].notes = "n".repeat(1_001);
+        assert!(bad.validate().is_err());
+        let many = Settings {
+            groups: (0..=MAX_GROUPS)
+                .map(|index| group(&index.to_string(), "G", &[]))
+                .collect(),
+            ..Settings::default()
+        };
+        assert!(many.validate().is_err());
+        let loaded: Settings = serde_json::from_value(serde_json::json!({
+            "groups": [{ "id": "a", "name": "Old" }]
+        }))
+        .unwrap();
+        assert_eq!(loaded.groups[0].account_ids, Vec::<u64>::new());
+        assert!(!loaded.groups[0].pinned);
+    }
+
+    #[test]
+    fn friends_source_defaults_to_pinned_and_reads_each_choice() {
+        let parse = |json: serde_json::Value| {
+            serde_json::from_value::<Settings>(json).map(|settings| settings.friends_source)
+        };
+        assert_eq!(parse(serde_json::json!({})).unwrap(), FriendsSource::Pinned);
+        assert_eq!(
+            parse(serde_json::json!({ "friendsSource": "all" })).unwrap(),
+            FriendsSource::All
+        );
+        assert_eq!(
+            parse(serde_json::json!({ "friendsSource": "last_played" })).unwrap(),
+            FriendsSource::LastPlayed
+        );
+        assert!(parse(serde_json::json!({ "friendsSource": "everyone" })).is_err());
+    }
+
+    #[test]
     fn recent_places_move_to_front_keep_names_and_cap() {
         let mut settings = Settings::default();
         for id in 1..=7 {
@@ -388,6 +551,9 @@ mod tests {
         assert_eq!(settings.recent_places[0].place_id, "5");
         assert_eq!(settings.recent_places[0].name.as_deref(), Some("Five"));
         assert_eq!(settings.recent_places.len(), RECENT_PLACES_LIMIT);
+        assert!(settings.validate().is_ok());
+        settings.place_id = "@156".into();
+        settings.recent_places[1].place_id = "@156".into();
         assert!(settings.validate().is_ok());
         settings.recent_places[1].place_id = "12a".into();
         assert!(settings.validate().is_err());
@@ -411,8 +577,12 @@ mod tests {
         assert_eq!(account.place_id, None);
         account.place_id = Some("1818".into());
         assert!(account.validate().is_ok());
-        account.place_id = Some("not-a-place".into());
-        assert!(account.validate().is_err());
+        account.place_id = Some("@156".into());
+        assert!(account.validate().is_ok());
+        for invalid in ["not-a-place", "@", "@@156", "@builderman", "156@"] {
+            account.place_id = Some(invalid.into());
+            assert!(account.validate().is_err(), "{invalid}");
+        }
     }
 
     #[test]
@@ -422,9 +592,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(account.last_place_id, None);
-        account.record_play(2.0, "1818").unwrap();
+        account.record_play(2.0, Some("1818")).unwrap();
         assert_eq!(account.last_place_id.as_deref(), Some("1818"));
         assert_eq!(account.last_played_at, Some(2.0));
+        account.record_play(3.0, None).unwrap();
+        assert_eq!(account.last_place_id.as_deref(), Some("1818"));
+        assert_eq!(account.last_played_at, Some(3.0));
         assert!(account.validate().is_ok());
         account.last_place_id = Some("1818/x".into());
         assert!(account.validate().is_err());

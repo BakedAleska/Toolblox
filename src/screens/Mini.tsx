@@ -14,7 +14,7 @@ const MAX_ROWS = 8;
 
 /** The mini window: a small bar, always on top, that drops down into the account list. The window
  * resizes to fit, and dragging the bar moves it. */
-export function MiniWindow({ state, join, joining, signIn, exit, notify }: Pick<ScreenProps, "state" | "join" | "joining" | "signIn" | "notify"> & { exit: () => void }) {
+export function MiniWindow({ state, join, joining, cancelJoin, signIn, exit, notify }: Pick<ScreenProps, "state" | "join" | "joining" | "cancelJoin" | "signIn" | "notify"> & { exit: () => void }) {
   const [open, setOpen] = useState(false);
   const accounts = sortAccounts(state.accounts, "last_played").sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
   const playing = accounts.filter(({ presence }) => presence === "playing").length;
@@ -55,7 +55,8 @@ export function MiniWindow({ state, join, joining, signIn, exit, notify }: Pick<
           </span>
           {account.sessionExpired
             ? <IconButton label={`Sign in again as ${accountName(account)}`} size="icon-sm" onClick={() => void signIn(account.id)}><KeyRound /></IconButton>
-            : <IconButton label={`Join as ${accountName(account)}`} size="icon-sm" disabled={joining.includes(account.id)} onClick={() => join([account.id])}>{joining.includes(account.id) ? <Spinner /> : <Play />}</IconButton>}
+            : <IconButton label={joining.includes(account.id) ? `Cancel the join for ${accountName(account)}` : `Join as ${accountName(account)}`} size="icon-sm"
+              onClick={() => joining.includes(account.id) ? cancelJoin([account.id]) : join([account.id])}>{joining.includes(account.id) ? <Spinner /> : <Play />}</IconButton>}
         </li>;
       })}
     </ul>}

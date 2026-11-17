@@ -3,6 +3,7 @@
 @import "./component-variants.css";
 @import "@fontsource-variable/geist";
 @import "./theme.css";
+@import "./motion.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -46,9 +47,7 @@
 :root[data-motion] :is(*, *::before, *::after) {
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;
+  animation-delay: 0s !important;
   transition-duration: 0.01ms !important;
-}
-:root[data-motion] .animate-spin {
-  animation-duration: 2s !important;
-  animation-iteration-count: infinite !important;
+  transition-delay: 0s !important;
 }

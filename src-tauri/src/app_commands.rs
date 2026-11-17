@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -38,8 +39,15 @@ pub struct Runtime {
     pub cleared_roblox_pids: Mutex<std::collections::HashSet<u32>>,
     /// Accounts whose session Roblox no longer accepts, or that have no stored session.
     pub expired_sessions: Mutex<std::collections::HashSet<u64>>,
+    /// Bumped to stop joins in progress. Each join stops once it differs from the value it
+    /// started with.
+    pub join_generation: std::sync::atomic::AtomicU64,
+    /// Accounts whose join in progress is skipped. A join clears its own accounts when it starts.
+    pub cancelled_joins: Mutex<std::collections::HashSet<u64>>,
     /// Widget modules and frames stay unloaded for this session.
     pub safe_mode: bool,
+    /// Set when this launch is the first since an update, until the interface takes it.
+    pub updated: std::sync::atomic::AtomicBool,
 }
 
 impl Runtime {
@@ -104,11 +112,16 @@ pub struct SettingsDto {
     open_on_launch: bool,
     run_in_background: bool,
     minimize_on_join: bool,
-    show_game_names: bool,
     notify_on_drop: bool,
     always_on_top: bool,
     show_animations: bool,
     ignore_reduced_motion: bool,
+    #[serde(default)]
+    reduce_toasts: bool,
+    #[serde(default)]
+    friends_source: crate::models::FriendsSource,
+    #[serde(default)]
+    groups: Vec<crate::models::AccountGroup>,
 }
 
 impl From<&Settings> for SettingsDto {
@@ -126,11 +139,13 @@ impl From<&Settings> for SettingsDto {
             open_on_launch: settings.open_on_launch,
             run_in_background: settings.run_in_background,
             minimize_on_join: settings.minimize_on_join,
-            show_game_names: settings.show_game_names,
             notify_on_drop: settings.notify_on_drop,
             always_on_top: settings.always_on_top,
             show_animations: settings.show_animations,
             ignore_reduced_motion: settings.ignore_reduced_motion,
+            reduce_toasts: settings.reduce_toasts,
+            friends_source: settings.friends_source,
+            groups: settings.groups.clone(),
         }
     }
 }
@@ -398,11 +413,7 @@ fn widget_summary(
 /// Presence is fetched with the first session Roblox accepts. When game details are on, accounts
 /// whose place is hidden from others are checked with their own session, and game names are
 /// looked up.
-async fn account_views(
-    runtime: &Runtime,
-    accounts: &[StoredAccount],
-    show_game_names: bool,
-) -> Vec<AccountView> {
+async fn account_views(runtime: &Runtime, accounts: &[StoredAccount]) -> Vec<AccountView> {
     if accounts.is_empty() {
         return Vec::new();
     }
@@ -424,7 +435,7 @@ async fn account_views(
         }
     }
     let mut game_names = BTreeMap::new();
-    if let Some(states) = states.as_mut().filter(|_| show_game_names) {
+    if let Some(states) = states.as_mut() {
         for account in accounts {
             let hidden = states
                 .get(&account.id)
@@ -462,7 +473,7 @@ async fn account_views(
                 }
             };
             let in_studio = detail.is_some_and(|detail| detail.state == PresenceState::InStudio);
-            let detail = detail.filter(|detail| show_game_names && detail.in_game());
+            let detail = detail.filter(|detail| detail.in_game());
             AccountView {
                 account: AccountDto::from(account),
                 presence,
@@ -489,7 +500,7 @@ async fn name_recent_places(runtime: &Runtime, settings: Settings) -> Settings {
     for place in settings
         .recent_places
         .iter()
-        .filter(|place| place.name.is_none())
+        .filter(|place| place.name.is_none() && !place.place_id.starts_with('@'))
     {
         let Ok(universe) =
             crate::roblox::fetch_place_universe(&runtime.client, &place.place_id).await
@@ -525,6 +536,14 @@ async fn name_recent_places(runtime: &Runtime, settings: Settings) -> Settings {
         .unwrap_or(settings)
 }
 
+/// Returns whether this launch is the first since an update. Only the first call returns true.
+#[tauri::command]
+pub fn take_updated(runtime: State<'_, Runtime>) -> bool {
+    runtime
+        .updated
+        .swap(false, std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Returns the full interface state, loading the catalogue first if it hasn't been tried.
 /// Development builds without a catalogue URL rebuild it from the working tree on every call.
 #[tauri::command]
@@ -546,10 +565,8 @@ pub async fn get_app_state(
     if catalogue_unset || local_catalogue {
         let _ = refresh_catalogue_data(&runtime).await;
     }
-    let mut settings = runtime.storage.load_settings().map_err(command_error)?;
-    if settings.show_game_names {
-        settings = name_recent_places(&runtime, settings).await;
-    }
+    let settings = runtime.storage.load_settings().map_err(command_error)?;
+    let settings = name_recent_places(&runtime, settings).await;
     let accounts = runtime.storage.load_accounts().map_err(command_error)?;
     let catalogue = runtime
         .catalogue
@@ -600,7 +617,7 @@ pub async fn get_app_state(
         logs_path: crate::logs::directory()
             .map(|path| path.display().to_string())
             .unwrap_or_default(),
-        accounts: account_views(&runtime, &accounts, settings.show_game_names).await,
+        accounts: account_views(&runtime, &accounts).await,
         installed_widgets: installed_widgets(&runtime, &settings),
         widget_errors,
         catalogue,
@@ -634,7 +651,8 @@ pub async fn save_settings(
     saved.show_avatars = settings.show_avatars;
     saved.compact_mode = settings.compact_mode;
     saved.sort_order = settings.sort_order;
-    saved.place_id = crate::roblox::parse_place_id(&settings.place_id)
+    saved.place_id = crate::roblox::parse_join_target(&settings.place_id)
+        .map(|target| target.to_string())
         .or_else(|error| {
             if settings.place_id.trim().is_empty() {
                 Ok(String::new())
@@ -649,11 +667,13 @@ pub async fn save_settings(
     saved.open_on_launch = settings.open_on_launch;
     saved.run_in_background = settings.run_in_background;
     saved.minimize_on_join = settings.minimize_on_join;
-    saved.show_game_names = settings.show_game_names;
     saved.notify_on_drop = settings.notify_on_drop;
     saved.always_on_top = settings.always_on_top;
     saved.show_animations = settings.show_animations;
     saved.ignore_reduced_motion = settings.ignore_reduced_motion;
+    saved.reduce_toasts = settings.reduce_toasts;
+    saved.friends_source = settings.friends_source;
+    saved.groups = settings.groups;
     saved
         .recent_places
         .truncate(crate::models::RECENT_PLACES_LIMIT);
@@ -688,9 +708,26 @@ pub async fn save_settings(
     Ok(())
 }
 
-/// Adds a place to the recent list once Roblox confirms it exists. A place that doesn't exist, or
-/// can't be checked, isn't added.
+/// Adds a place or player to the recent list once Roblox confirms it exists. One that doesn't
+/// exist, or can't be checked, isn't added. Players are saved with their username.
 async fn remember_verified_place(runtime: &Runtime, place_id: &str) -> Result<(), String> {
+    if let Ok(crate::roblox::JoinTarget::User(user_id)) = crate::roblox::parse_join_target(place_id)
+    {
+        return match crate::roblox::public_profile(&runtime.client, user_id).await {
+            Ok(profile) => runtime
+                .storage
+                .update_settings(|settings| {
+                    settings.remember_place(place_id);
+                    settings.recent_places[0].name = Some(profile.name.chars().take(100).collect());
+                    Ok(())
+                })
+                .map_err(command_error),
+            Err(error) => {
+                log::warn!("Player {user_id} wasn't added to recent places: {error}");
+                Ok(())
+            }
+        };
+    }
     match crate::roblox::fetch_place_universe(&runtime.client, place_id).await {
         Ok(Some(_)) => runtime
             .storage
@@ -745,15 +782,8 @@ pub async fn get_online_friends(
     account_id: u64,
     runtime: State<'_, Runtime>,
 ) -> Result<Vec<crate::roblox::OnlineFriend>, String> {
-    let show_game_names = runtime
-        .storage
-        .load_settings()
-        .map_err(command_error)?
-        .show_game_names;
     let secret = runtime.session(account_id).map_err(command_error)?;
-    let result =
-        crate::roblox::fetch_online_friends(&runtime.client, &secret, account_id, show_game_names)
-            .await;
+    let result = crate::roblox::fetch_online_friends(&runtime.client, &secret, account_id).await;
     runtime.note_session(account_id, &result);
     result.map_err(command_error)
 }
@@ -767,7 +797,11 @@ pub async fn set_account_place(
 ) -> Result<(), String> {
     let place_id = match place_id.as_deref().map(str::trim) {
         None | Some("") => None,
-        Some(input) => Some(crate::roblox::parse_place_id(input).map_err(command_error)?),
+        Some(input) => Some(
+            crate::roblox::parse_join_target(input)
+                .map_err(command_error)?
+                .to_string(),
+        ),
     };
     runtime
         .storage
@@ -849,6 +883,14 @@ pub fn remove_account(account_id: u64, runtime: State<'_, Runtime>) -> Result<()
         };
     }
     runtime.set_session_expired(account_id, false);
+    if let Err(error) = runtime.storage.update_settings(|settings| {
+        for group in &mut settings.groups {
+            group.account_ids.retain(|id| *id != account_id);
+        }
+        Ok(())
+    }) {
+        log::warn!("Removed account {account_id} couldn't be removed from its groups: {error}");
+    }
     log::info!("Removed account {account_id}");
     Ok(())
 }
@@ -911,7 +953,69 @@ pub fn set_account_pinned(
         .map_err(command_error)
 }
 
+/// Finds players by username or display name.
+#[tauri::command]
+pub async fn search_players(
+    query: String,
+    runtime: State<'_, Runtime>,
+) -> Result<Vec<crate::roblox::PlayerMatch>, String> {
+    Ok(crate::roblox::search_players(&runtime.client, &query).await)
+}
+
+/// Rejects a social lookup or change an account would make with itself.
+fn other_player(account_id: u64, user_id: u64) -> Result<(), String> {
+    if account_id == user_id || user_id == 0 {
+        return Err("That's the same account. Can you choose a different player?".into());
+    }
+    Ok(())
+}
+
+/// Returns an account's friend, follow, and block status with a player, read with that
+/// account's session.
+#[tauri::command]
+pub async fn get_relationship(
+    account_id: u64,
+    user_id: u64,
+    runtime: State<'_, Runtime>,
+) -> Result<crate::roblox::Relationship, String> {
+    other_player(account_id, user_id)?;
+    let secret = runtime.session(account_id).map_err(command_error)?;
+    let result =
+        crate::roblox::fetch_relationship(&runtime.client, &secret, account_id, user_id).await;
+    runtime.note_session(account_id, &result);
+    result.map_err(command_error)
+}
+
+/// Sends a friend request, follows, blocks, or undoes one of these, as an account.
+#[tauri::command]
+pub async fn change_relationship(
+    account_id: u64,
+    user_id: u64,
+    action: crate::roblox::SocialAction,
+    runtime: State<'_, Runtime>,
+) -> Result<(), String> {
+    other_player(account_id, user_id)?;
+    let secret = runtime.session(account_id).map_err(command_error)?;
+    let result =
+        crate::roblox::change_relationship(&runtime.client, &secret, user_id, action).await;
+    runtime.note_session(account_id, &result);
+    match result {
+        Ok(()) => {
+            log::info!("Account {account_id} changed its relationship with {user_id}: {action:?}");
+            Ok(())
+        }
+        Err(crate::roblox::RobloxError::Rejected(status @ (400 | 403 | 429))) => {
+            log::warn!(
+                "Relationship change {action:?} for account {account_id} was rejected with status {status}"
+            );
+            Err("Roblox didn't allow the change. Does it work on roblox.com?".into())
+        }
+        Err(error) => Err(command_error(error)),
+    }
+}
+
 /// Joins each account, at `place_id` when given, then minimizes the window if that setting is on.
+/// `place_id` may also be `@` and a user ID, which follows that player into their game.
 #[tauri::command]
 pub async fn join_accounts(
     app: AppHandle,
@@ -924,10 +1028,24 @@ pub async fn join_accounts(
     }
     let place_id = place_id
         .as_deref()
-        .map(crate::roblox::parse_place_id)
+        .map(crate::roblox::parse_join_target)
         .transpose()
-        .map_err(command_error)?;
-    join_account_ids(&runtime, &account_ids, true, place_id.as_deref()).await?;
+        .map_err(command_error)?
+        .map(|target| target.to_string());
+    let progress = |done: usize, total: usize| {
+        let _ = app.emit("join-progress", json!({ "done": done, "total": total }));
+    };
+    let finished = join_account_ids(
+        &runtime,
+        &account_ids,
+        true,
+        place_id.as_deref(),
+        Some(&progress),
+    )
+    .await?;
+    if !finished {
+        return Ok(());
+    }
     let minimize = runtime
         .storage
         .load_settings()
@@ -1936,7 +2054,7 @@ async fn dispatch_widget_request(
         }
         "roblox.join" => {
             let account_ids = required_u64_array(&params, "accountIds")?;
-            join_account_ids(runtime, &account_ids, true, None).await?;
+            join_account_ids(runtime, &account_ids, true, None, None).await?;
             Ok(Value::Null)
         }
         "network.fetch" => widget_network_fetch(runtime, widget_id, &params).await,
@@ -2011,18 +2129,55 @@ async fn dispatch_widget_request(
 }
 
 /// Joins each account at `place_id` when given, otherwise at its own place or the default place.
+/// A player target follows that player, and fails for any account that can see they aren't in a
+/// game.
+///
+/// `progress` is called with the number of the account being joined and the total. Returns
+/// `false` when `cancel_join` stopped the join before every account was launched.
 pub(crate) async fn join_account_ids(
     runtime: &Runtime,
     account_ids: &[u64],
     record_play: bool,
     place_id: Option<&str>,
-) -> Result<(), String> {
+    progress: Option<&(dyn Fn(usize, usize) + Sync)>,
+) -> Result<bool, String> {
+    let generation = runtime.join_generation.load(Ordering::SeqCst);
+    let cancelled = || runtime.join_generation.load(Ordering::SeqCst) != generation;
+    let cancelled_account = |id: u64, take: bool| {
+        runtime.cancelled_joins.lock().is_ok_and(|mut set| {
+            if take {
+                set.remove(&id)
+            } else {
+                set.contains(&id)
+            }
+        })
+    };
+    if let Ok(mut set) = runtime.cancelled_joins.lock() {
+        for id in account_ids {
+            set.remove(id);
+        }
+    }
     let settings = runtime.storage.load_settings().map_err(command_error)?;
-    let default_place = crate::roblox::parse_place_id(&settings.place_id).ok();
+    let default_place = crate::roblox::parse_join_target(&settings.place_id).ok();
     let accounts = runtime.storage.load_accounts().map_err(command_error)?;
     let mut expired = Vec::new();
     let mut delay = std::time::Duration::from_secs(settings.join_delay_seconds);
     'accounts: for (index, id) in account_ids.iter().enumerate() {
+        if cancelled() {
+            log::info!(
+                "Join stopped before account {} of {}",
+                index + 1,
+                account_ids.len()
+            );
+            return Ok(false);
+        }
+        if cancelled_account(*id, true) {
+            log::info!("Join for account {id} was cancelled");
+            continue;
+        }
+        if let Some(progress) = progress {
+            progress(index + 1, account_ids.len());
+        }
         let Some(account) = accounts.iter().find(|account| account.id == *id) else {
             return Err("An account wasn't found. Can you refresh the widget?".into());
         };
@@ -2030,8 +2185,8 @@ pub(crate) async fn join_account_ids(
             expired.push(account.display_name.clone());
             continue;
         }
-        let place_id = match place_id.or(account.place_id.as_deref()) {
-            Some(place_id) => crate::roblox::parse_place_id(place_id).map_err(command_error)?,
+        let target = match place_id.or(account.place_id.as_deref()) {
+            Some(place_id) => crate::roblox::parse_join_target(place_id).map_err(command_error)?,
             None => default_place.clone().ok_or_else(|| {
                 "No place is set to join. Can you set one on the Accounts page?".to_string()
             })?,
@@ -2047,13 +2202,26 @@ pub(crate) async fn join_account_ids(
                 return Err(command_error(error));
             }
         };
-        log::info!("Joining place {place_id} as account {id}");
+        let place_id = match &target {
+            crate::roblox::JoinTarget::Place(place_id) => Some(place_id.clone()),
+            crate::roblox::JoinTarget::User(user_id) => {
+                followed_place(runtime, &secret, *id, *user_id).await?
+            }
+        };
+        match &target {
+            crate::roblox::JoinTarget::Place(place_id) => {
+                log::info!("Joining place {place_id} as account {id}")
+            }
+            crate::roblox::JoinTarget::User(user_id) => {
+                log::info!("Following player {user_id} as account {id}")
+            }
+        }
         let mut attempt = 0;
         let uri = loop {
-            match crate::roblox::build_join_uri(&runtime.client, &secret, &place_id).await {
+            match crate::roblox::build_join_uri(&runtime.client, &secret, &target).await {
                 Ok(uri) => break uri,
                 Err(error @ crate::roblox::RobloxError::InvalidPlace) => {
-                    log::warn!("Place {place_id} isn't joinable: {error}");
+                    log::warn!("Target {target} isn't joinable: {error}");
                     return Err(command_error(error));
                 }
                 Err(error @ crate::roblox::RobloxError::Rejected(401)) => {
@@ -2073,6 +2241,14 @@ pub(crate) async fn join_account_ids(
                 }
             }
         };
+        if cancelled() {
+            log::info!("Join stopped before account {id} opened Roblox");
+            return Ok(false);
+        }
+        if cancelled_account(*id, true) {
+            log::info!("Join for account {id} was cancelled before Roblox opened");
+            continue;
+        }
         if settings.multi_instance {
             let mut cleared = runtime
                 .cleared_roblox_pids
@@ -2108,17 +2284,24 @@ pub(crate) async fn join_account_ids(
                             )
                         })?;
                     account
-                        .record_play(now_seconds(), &place_id)
+                        .record_play(now_seconds(), place_id.as_deref())
                         .map_err(StorageError::Invalid)
                 })
                 .map_err(command_error)?;
         }
         if index + 1 < account_ids.len() {
-            tokio::time::sleep(delay).await;
+            let deadline = tokio::time::Instant::now() + delay;
+            let next = account_ids[index + 1];
+            while !cancelled()
+                && !cancelled_account(next, false)
+                && tokio::time::Instant::now() < deadline
+            {
+                tokio::time::sleep(CANCEL_POLL.min(deadline - tokio::time::Instant::now())).await;
+            }
         }
     }
     match expired.as_slice() {
-        [] => Ok(()),
+        [] => Ok(true),
         [name] => Err(format!(
             "{name} didn't join because its session expired. Can you sign in again from the Accounts page?"
         )),
@@ -2126,6 +2309,57 @@ pub(crate) async fn join_account_ids(
             "{} didn't join because their sessions expired. Can you sign them in again from the Accounts page?",
             names.join(", ")
         )),
+    }
+}
+
+/// Checks that a followed player is in a game, as the joining account sees them, and returns their
+/// place when Roblox shows it. A presence lookup that fails doesn't stop the join, because the
+/// Roblox client reports a failed follow itself.
+async fn followed_place(
+    runtime: &Runtime,
+    secret: &Secret,
+    account_id: u64,
+    user_id: u64,
+) -> Result<Option<String>, String> {
+    let result = crate::roblox::fetch_presence_details(&runtime.client, secret, &[user_id]).await;
+    runtime.note_session(account_id, &result);
+    let detail = match result {
+        Ok(mut details) => details.remove(&user_id),
+        Err(error) => {
+            log::info!("Presence of player {user_id} couldn't be checked: {error}");
+            None
+        }
+    };
+    match detail.map(|detail| (detail.state, detail.place_id)) {
+        Some((crate::models::PresenceState::Offline | crate::models::PresenceState::Online, _)) => {
+            Err(command_error(crate::roblox::RobloxError::NotInGame))
+        }
+        Some((crate::models::PresenceState::InStudio, _)) => {
+            Err("The player is in Roblox Studio. Can you try again once they're in a game?".into())
+        }
+        Some((_, place_id)) => Ok(place_id.map(|id| id.to_string())),
+        None => Ok(None),
+    }
+}
+
+/// How often a join waiting between accounts checks whether it was stopped.
+const CANCEL_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// Cancels the joins in progress for `account_ids`, or every join in progress when it's `None`.
+/// An account that already opened Roblox stays in game.
+#[tauri::command]
+pub fn cancel_join(account_ids: Option<Vec<u64>>, runtime: State<'_, Runtime>) {
+    match account_ids {
+        None => {
+            runtime.join_generation.fetch_add(1, Ordering::SeqCst);
+            log::info!("Joins in progress were stopped");
+        }
+        Some(ids) => {
+            if let Ok(mut set) = runtime.cancelled_joins.lock() {
+                set.extend(ids.iter().copied());
+            }
+            log::info!("Joins were cancelled for {} accounts", ids.len());
+        }
     }
 }
 

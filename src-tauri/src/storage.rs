@@ -117,6 +117,27 @@ impl Storage {
         Ok(result)
     }
 
+    /// Saves `current` as the last version that opened and returns whether it's newer than the
+    /// version that opened before. The first run on this device isn't an update. Data saved before
+    /// 0.4.8 has no version, so it counts as an update.
+    pub fn record_version(&self, current: &semver::Version) -> Result<bool, StorageError> {
+        let _guard = self.gate.lock().map_err(|_| StorageError::Locked)?;
+        let path = self.root.join("settings.json");
+        let used_before = path.exists() || self.root.join("accounts.json").exists();
+        let mut settings = self.load_settings_unlocked()?;
+        let updated = used_before
+            && settings
+                .last_seen_version
+                .as_deref()
+                .is_none_or(|seen| semver::Version::parse(seen).is_ok_and(|seen| *current > seen));
+        let current = current.to_string();
+        if settings.last_seen_version.as_deref() != Some(current.as_str()) {
+            settings.last_seen_version = Some(current);
+            write_json_atomic(&path, &settings)?;
+        }
+        Ok(updated)
+    }
+
     /// Loads the saved accounts, or none when the file doesn't exist.
     pub fn load_accounts(&self) -> Result<Vec<StoredAccount>, StorageError> {
         let _guard = self.gate.lock().map_err(|_| StorageError::Locked)?;
@@ -346,6 +367,39 @@ mod tests {
         settings.join_delay_seconds = 12;
         store.save_settings(&settings).unwrap();
         assert_eq!(store.load_settings().unwrap(), settings);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn record_version_reports_only_the_first_launch_after_an_update() {
+        let version = |text: &str| semver::Version::parse(text).unwrap();
+        let root = test_root("version");
+        let store = Storage::new(root.clone());
+        assert!(!store.record_version(&version("0.4.8-beta")).unwrap());
+        assert!(!store.record_version(&version("0.4.8-beta")).unwrap());
+        assert!(store.record_version(&version("0.4.9-beta")).unwrap());
+        assert!(!store.record_version(&version("0.4.9-beta")).unwrap());
+        assert!(!store.record_version(&version("0.4.8-beta")).unwrap());
+        assert_eq!(
+            store.load_settings().unwrap().last_seen_version.as_deref(),
+            Some("0.4.8-beta")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn record_version_treats_data_without_a_version_as_an_update() {
+        let version = semver::Version::parse("0.4.8-beta").unwrap();
+        let root = test_root("version-legacy");
+        let store = Storage::new(root.clone());
+        store.save_settings(&Settings::default()).unwrap();
+        assert!(store.record_version(&version).unwrap());
+        assert!(!store.record_version(&version).unwrap());
+        fs::remove_dir_all(&root).unwrap();
+
+        let store = Storage::new(root.clone());
+        store.save_accounts(&[account()]).unwrap();
+        assert!(store.record_version(&version).unwrap());
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -17,6 +17,7 @@ export interface Account {
   /** The game name, or `Studio - <place>` in Roblox Studio. */
   gameName?: string;
   gamePlaceId?: number;
+  /** A place ID, or `@` and a user ID to follow a player. */
   placeId?: string;
   lastPlaceId?: string;
   /** Roblox no longer accepts the saved session, or none is stored. */
@@ -68,6 +69,7 @@ export interface Settings {
   showAvatars: boolean;
   compactMode: boolean;
   sortOrder: SortOrder;
+  /** A place ID, or `@` and a user ID to follow a player. */
   placeId: string;
   multiInstance: boolean;
   joinDelaySeconds: number;
@@ -75,12 +77,31 @@ export interface Settings {
   openOnLaunch: boolean;
   runInBackground: boolean;
   minimizeOnJoin: boolean;
-  showGameNames: boolean;
   notifyOnDrop: boolean;
   alwaysOnTop: boolean;
   showAnimations: boolean;
   ignoreReducedMotion: boolean;
+  /** Hides toasts that confirm a finished action. */
+  reduceToasts: boolean;
+  /** Whose online friends the dashboard lists. */
+  friendsSource: FriendsSource;
+  /** Named sets of accounts that join together. */
+  groups: AccountGroup[];
 }
+
+/** A named set of accounts that join together. Pinning it shows the group on the dashboard, not
+ * its accounts. `accountIds` may name removed accounts, which are left out when shown. */
+export interface AccountGroup {
+  id: string;
+  name: string;
+  accountIds: number[];
+  pinned: boolean;
+  /** Where the group joins: a place ID, or `@` and a user ID. Unset, each account uses its own. */
+  placeId?: string;
+  notes: string;
+}
+
+export type FriendsSource = "all" | "pinned" | "last_played";
 
 /** A friend who is online. */
 export interface OnlineFriend {
@@ -114,6 +135,28 @@ export interface PlaceMatch {
   price?: number;
 }
 
+/** A player found by name. */
+export interface PlayerMatch {
+  id: number;
+  name: string;
+  displayName: string;
+  avatarUrl?: string;
+  verified: boolean;
+}
+
+export type FriendStatus = "none" | "friends" | "requestSent" | "requestReceived";
+
+/** An account's relationship with a player. Fields Roblox didn't answer are absent. */
+export interface Relationship {
+  friend: FriendStatus;
+  following?: boolean;
+  blocked?: boolean;
+}
+
+export type SocialAction = "requestFriend" | "acceptFriend" | "declineFriend" | "unfriend" | "follow" | "unfollow" | "block" | "unblock";
+
+/** A recent join target. `placeId` is a place ID, or `@` and a user ID for a player, whose
+ * `name` is their username. */
 export interface RecentPlace {
   placeId: string;
   name?: string;
@@ -138,7 +181,7 @@ export interface AppState {
   popouts: string[];
 }
 
-export type AppRoute = "/" | "/accounts" | "/accounts/places" | "/widgets" | "/settings" | "/settings/css" | "/settings/log" | `/widgets/${string}`;
+export type AppRoute = "/" | "/accounts" | "/accounts/places" | "/accounts/players" | "/accounts/group" | "/widgets" | "/settings" | "/settings/css" | "/settings/log" | "/settings/changelog" | `/widgets/${string}`;
 
 export type StartupStatus =
   | { phase: "checking" }

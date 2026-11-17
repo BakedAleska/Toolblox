@@ -57,10 +57,16 @@ and installing reviewed game-specific widgets. `PRODUCT.md` is the product autho
   and `destructive`, and status is never conveyed by color alone.
 - Use semantic HTML, visible keyboard focus, labelled controls, reduced-motion support, and
   responsive layouts.
-- Dialogs use `Modal` with one of two shapes: `portrait` (1:1) for forms and lists, `landscape`
-  for short messages and confirmations. Each shape has two scales: `default`, and `small` for
-  dialogs about widgets and dialogs widgets open. Related dialogs share a shape and scale. Don't
-  add other sizes.
+- Avoid popups. A form, list, editor, picker, or anything with more than a sentence and one
+  choice is a page: a route with a `Screen`, a back button in `actions`, and its primary action
+  in `tools`, laid out with `Panel` and `Group` like every other page. Hand the page its subject
+  through a module-level setter (as `editGroup` and `searchDestinationFor` do), and return to the
+  previous page when it opens without one.
+- A popup is only for an extremely simple step: confirming or cancelling an action in one
+  sentence, such as a delete. These use `Modal` with the `landscape` shape: a wide, short
+  rectangle with Cancel and the action beside the text, not on their own row, and the height set
+  by the text. Don't give a confirmation a fixed height. `portrait` remains
+  only for widgets that already use it. Don't add other sizes.
 - Use the shared spacing scale: 4, 8, 12, 16, and 24 pixels.
 - Radii: 6 pixels for controls (`rounded-lg`), 9 for panels (`rounded-xl`), 12 for the hero
   (`rounded-2xl`). Surfaces use tonal layering and hairline rings; only floating layers (menus,

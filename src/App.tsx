@@ -1,24 +1,28 @@
-import { AppWindow, ArrowLeft, ExternalLink, LayoutDashboard, Minimize2, Monitor, Moon, PictureInPicture2, Proportions, Puzzle, Settings as SettingsIcon, ShieldAlert, Sun, Users, X } from "lucide-react";
+import { AppWindow, ArrowLeft, ExternalLink, LayoutDashboard, Minimize2, Monitor, Moon, PictureInPicture2, Proportions, Puzzle, Settings as SettingsIcon, ShieldAlert, Sun, Users } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import "./index.css";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster, parseToast, useToasts, type ToastKind } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { bridge, isDemo } from "@/bridge";
+import { bridge, copyFailureReport, isDemo } from "@/bridge";
+import { ErrorBoundary, PageError } from "@/ErrorBoundary";
 import { pageOf, useCustomTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { SIDEBAR_COLLAPSED, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, clampSidebarWidth, parsePlaceId, stepSidebarWidth } from "@/logic";
+import { SIDEBAR_COLLAPSED, accountName, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, clampSidebarWidth, opaqueSquare, stepSidebarWidth } from "@/logic";
 import { Accounts } from "@/screens/Accounts";
 import { Dashboard } from "@/screens/Dashboard";
 import { MiniWindow } from "@/screens/Mini";
+import { ChangelogScreen, showChangelogAfterUpdate } from "@/screens/Changelog";
+import { GroupEditor } from "@/screens/Groups";
 import { PlaceSearch } from "@/screens/PlaceSearch";
 import { CustomCssScreen } from "@/screens/Themes";
 import { LogScreen, SettingsScreen, WidgetSettingsTab } from "@/screens/Settings";
 import { WidgetContextMenu, useWidgetActions, useWidgetHasSettings } from "@/screens/WidgetMenu";
 import { Widgets } from "@/screens/Widgets";
-import { DiscordButton, EmptyState, IconButton, Modal, PlaceInput, Screen, ScreenTools, Spinner, WidgetFrame, type ConfirmRequest, type PlaceRequest, type ScreenProps, failure } from "@/shared";
+import { DISCORD_URL, DiscordIcon, EmptyState, IconButton, Modal, Screen, ScreenTools, Spinner, WidgetFrame, type ConfirmRequest, type NextJoin, type ScreenProps, failure } from "@/shared";
 import { WidgetBoundary, WidgetPageContext, WidgetSlot, syncWidgetHost, syncWidgetModules, useWidgetRegistry, type CoreScreen } from "@/widgets/host";
-import type { AppRoute, AppState, RecentPlace, Settings, StartupStatus, ThemeMode, WidgetSummary } from "@/types";
+import type { AppRoute, AppState, Settings, StartupStatus, ThemeMode, WidgetSummary } from "@/types";
 
 const coreRoutes = [
   { route: "/" as const, label: "Dashboard", icon: LayoutDashboard },
@@ -29,7 +33,7 @@ const coreRoutes = [
 
 const routeFromHash = (): AppRoute => {
   const value = window.location.hash.slice(1) || "/";
-  return value === "/" || value === "/accounts" || value === "/accounts/places" || value === "/widgets" || value === "/settings" || value === "/settings/css" || value === "/settings/log" || value.startsWith("/widgets/")
+  return value === "/" || value === "/accounts" || value === "/accounts/places" || value === "/accounts/players" || value === "/accounts/group" || value === "/widgets" || value === "/settings" || value === "/settings/css" || value === "/settings/log" || value === "/settings/changelog" || value.startsWith("/widgets/")
     ? (value as AppRoute) : "/";
 };
 
@@ -58,11 +62,30 @@ function useMotion(show: boolean, ignoreReduced: boolean) {
   }, [show, ignoreReduced]);
 }
 
-/** Applies the `dark` class from the saved mode, following the OS while the mode is "system". */
+/** Whether the first theme has been applied. Later changes are revealed as a circle from `themeOrigin`, the last click. */
+let themed = false;
+const themeOrigin = { x: window.innerWidth, y: 0 };
+window.addEventListener("pointerdown", (event) => { themeOrigin.x = event.clientX; themeOrigin.y = event.clientY; }, { capture: true, passive: true });
+
+/** Applies the `dark` class from the saved mode, following the OS while the mode is "system". A
+ * change after the first is revealed as a circle from the last click, unless motion is off or reduced. */
 function useTheme(mode: ThemeMode = "system") {
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => document.documentElement.classList.toggle("dark", mode === "dark" || (mode === "system" && (siteDark ?? media.matches)));
+    const apply = () => {
+      const root = document.documentElement;
+      const dark = mode === "dark" || (mode === "system" && (siteDark ?? media.matches));
+      const first = !themed;
+      themed = true;
+      if (dark === root.classList.contains("dark")) return;
+      if (first || root.dataset.motion || !document.startViewTransition) { root.classList.toggle("dark", dark); return; }
+      const { x, y } = themeOrigin;
+      const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+      void document.startViewTransition(() => { root.classList.toggle("dark", dark); }).ready.then(() => root.animate(
+        { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+        { duration: 560, easing: "cubic-bezier(0.22, 1, 0.36, 1)", pseudoElement: "::view-transition-new(root)" },
+      )).catch(() => undefined);
+    };
     const onMessage = (event: MessageEvent) => {
       if (event.source !== window.parent || event.origin !== window.location.origin || event.data?.type !== "toolblox:scheme") return;
       siteDark = event.data.dark === true;
@@ -94,11 +117,23 @@ function App() {
     setMini(open);
     if (!open) void bridge.setMiniWindow(null).catch((error) => notify(failure(`The window wasn't restored. Does retrying help?`, error)));
   };
+  /** The last pointer press in the window, where a page reveal starts. */
+  const lastPointer = useRef({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+  useEffect(() => {
+    const press = (event: PointerEvent) => { lastPointer.current = { x: event.clientX, y: event.clientY }; };
+    window.addEventListener("pointerdown", press, true);
+    return () => window.removeEventListener("pointerdown", press, true);
+  }, []);
   const [joining, setJoining] = useState<number[]>([]);
+  /** One-time destinations, kept in memory. Each is dropped once a join that used it launches. */
+  const [nextJoin, setNextJoinState] = useState<Record<string, NextJoin>>({});
+  /** The account being joined and the total, while several join in turn. */
+  const [joinProgress, setJoinProgress] = useState<{ done: number; total: number }>();
+  useEffect(() => bridge.onJoinProgress(setJoinProgress), []);
+  /** Accounts whose join was cancelled during the current launch. */
+  const cancelledJoins = useRef(new Set<number>());
   const [confirm, setConfirm] = useState<ConfirmRequest>();
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [placeRequest, setPlaceRequest] = useState<PlaceRequest>();
-  const [placeOpen, setPlaceOpen] = useState(false);
   useTheme(state?.settings.themeMode);
   useMotion(state?.settings.showAnimations ?? true, state?.settings.ignoreReducedMotion ?? false);
   const themes = useCustomTheme(startup?.phase === "ready", !state?.safeMode, notify);
@@ -124,7 +159,9 @@ function App() {
         const status = await bridge.startupStatus();
         if (cancelled) return;
         setStartup(status);
-        if (status.phase === "ready") await load();
+        if (status.phase !== "ready") return;
+        await load();
+        if (!cancelled && await bridge.takeUpdated().catch(() => false)) { showChangelogAfterUpdate(); navigate("/settings/changelog"); }
       } catch (error) {
         if (!cancelled) setStartup({ phase: "failed", message: `The updater failed to start. Does reopening Toolblox help? (${String(error)})` });
       }
@@ -152,39 +189,105 @@ function App() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  const navigate = (next: AppRoute) => { window.location.hash = next; setRoute(next); };
+  /** Where the last click landed, relative to the page area, for the reveal into or out of a page. */
+  const revealFrom = useRef({ x: 0, y: 0 });
+  const navigate = (next: AppRoute) => {
+    const page = document.getElementById("main-content")?.getBoundingClientRect();
+    if (page) revealFrom.current = { x: lastPointer.current.x - page.left, y: lastPointer.current.y - page.top };
+    window.location.hash = next;
+    setRoute(next);
+  };
+  /** The games and players search pages share one page, so switching between them doesn't remount. */
+  const pageKey = route === "/accounts/players" ? "/accounts/places" : route;
+  /** Search slides in from the right and Accounts slides back from the left. Other pages rise. */
+  const [pages, setPages] = useState({ from: pageKey, to: pageKey });
+  if (pages.to !== pageKey) setPages({ from: pages.to, to: pageKey });
+  /** Pages outside the sidebar reveal as a circle from the last click, going in and coming back. */
+  const offSidebar = (page: string) => page === "/accounts/places" || page.startsWith("/settings/");
+  const revealing = pages.from !== pageKey && (offSidebar(pages.from) || offSidebar(pageKey));
+  /** Grows the new page as a circle from the last click to its farthest corner. Runs before the
+   * first paint, with pixel values WebKit can animate. Skipped while motion is off or reduced. */
+  useLayoutEffect(() => {
+    const main = document.getElementById("main-content");
+    if (!revealing || !main || document.documentElement.dataset.motion) return;
+    const { x, y } = revealFrom.current;
+    const radius = Math.hypot(Math.max(x, main.clientWidth - x), Math.max(y, main.clientHeight - y));
+    const circle = (size: number) => `circle(${size}px at ${x}px ${y}px)`;
+    const animation = main.animate([
+      { clipPath: circle(0), webkitClipPath: circle(0), opacity: 0.6 },
+      { clipPath: circle(radius), webkitClipPath: circle(radius), opacity: 1 },
+    ], { duration: 520, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+    return () => animation.cancel();
+  }, [pageKey]);
   if (!startup || startup.phase !== "ready") return <UpdaterGate status={startup} />;
   if (!state) return <main className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground" aria-live="polite">
-    {loadError ? <><p className="max-w-sm text-destructive">{loadError}</p><Button variant="outline" onClick={() => void load()}>Retry</Button></> : <><Spinner className="size-5" />Loading Toolblox…</>}
+    {loadError ? <><p className="max-w-sm text-destructive">{loadError}</p><Button variant="outline" onClick={() => void load()}>Retry</Button></> : <LoadingSkeleton label="Loading Toolblox" />}
   </main>;
 
+  const done = (message: string) => { if (!state.settings.reduceToasts) notify(message); };
   const patchSettings = async <K extends keyof Settings>(key: K, value: Settings[K]) => {
     const settings = { ...state.settings, [key]: value };
     setState((current) => current ? { ...current, settings } : current);
     try { await bridge.saveSettings(settings); }
     catch (error) { notify(failure(`The setting wasn't saved. Does retrying help?`, error)); void load(); }
   };
-  const launch = async (accountIds: number[], placeId?: string) => {
+  const setNextJoin = (key: number | "default", value?: NextJoin) => setNextJoinState(({ [String(key)]: _, ...rest }) => value ? { ...rest, [String(key)]: value } : rest);
+  /** Launches the accounts and resolves to those that weren't cancelled, or none when the join failed. */
+  const launch = async (accountIds: number[], placeId?: string): Promise<number[]> => {
     setJoining(accountIds);
-    try { await bridge.joinAccounts(accountIds, placeId); await load(); }
-    catch (error) { notify(failure(`Join failed. Is Roblox installed and the account signed in?`, error)); await load(); }
-    finally { setJoining([]); }
+    accountIds.forEach((id) => cancelledJoins.current.delete(id));
+    try {
+      await bridge.joinAccounts(accountIds, placeId);
+      const launched = accountIds.filter((id) => !cancelledJoins.current.has(id));
+      const only = launched.length === 1 ? state.accounts.find(({ id }) => id === launched[0]) : undefined;
+      if (!miniRef.current && launched.length) done(only ? `Joining as ${accountName(only)}.` : `Joining with ${launched.length} accounts.`);
+      await load();
+      return launched;
+    }
+    catch (error) { notify(failure(`Join failed. Is Roblox installed and the account signed in?`, error)); await load(); return []; }
+    finally { setJoining([]); setJoinProgress(undefined); }
   };
-  const askPlace = (request: PlaceRequest) => { setPlaceRequest(request); setPlaceOpen(true); };
+  /** An account's one-time destination: its own, or the default one when it has no saved place. */
+  const nextJoinFor = (id: number) => nextJoin[id] ?? (state.accounts.find((account) => account.id === id)?.placeId ? undefined : nextJoin.default);
   const join = (accountIds: number[], placeId?: string) => {
     if (placeId) { void launch(accountIds, placeId); return; }
-    const needsPlace = !state.settings.placeId && accountIds.some((id) => !state.accounts.find((account) => account.id === id)?.placeId);
-    if (!needsPlace) { void launch(accountIds); return; }
-    if (miniRef.current) { notify("Joining requires a default place. Is one set on the Accounts page?"); return; }
-    navigate("/accounts/places");
+    const needsPlace = !state.settings.placeId && accountIds.some((id) => !nextJoinFor(id) && !state.accounts.find((account) => account.id === id)?.placeId);
+    if (needsPlace) {
+      if (miniRef.current) { notify("Joining requires a default place. Is one set on the Accounts page?"); return; }
+      navigate("/accounts/places");
+      return;
+    }
+    const groups = new Map<string | undefined, number[]>();
+    for (const id of accountIds) { const target = nextJoinFor(id)?.target; groups.set(target, [...groups.get(target) ?? [], id]); }
+    void (async () => {
+      for (const [target, ids] of groups) {
+        const launched = await launch(ids, target);
+        if (target === undefined || !launched.length) continue;
+        setNextJoinState((current) => {
+          const next = { ...current };
+          for (const id of launched) if (next[id]?.target === target) delete next[id];
+          if (next.default?.target === target && launched.some((id) => !current[id])) delete next.default;
+          return next;
+        });
+      }
+    })();
   };
   const signIn = async (accountId: number) => {
-    try { await bridge.beginRobloxLogin(accountId); await load(); }
+    try { const account = await bridge.beginRobloxLogin(accountId); done(`Signed in again as ${accountName(account)}.`); await load(); }
     catch (error) { notify(failure(`Sign-in didn't complete. Was the sign-in window closed?`, error)); }
   };
-  const props: ScreenProps = { state, refresh: load, navigate, notify, confirm: (request) => { setConfirm(request); setConfirmOpen(true); }, join, joining, signIn, askPlace, patchSettings, openMini: () => setMiniMode(true) };
+  /** Cancels the joins in progress for `accountIds`. Accounts already in Roblox stay in game. */
+  const cancelJoin = (accountIds: number[]) => {
+    const cancelled = accountIds.filter((id) => joining.includes(id));
+    if (!cancelled.length) return;
+    cancelled.forEach((id) => cancelledJoins.current.add(id));
+    setJoining((current) => current.filter((id) => !cancelled.includes(id)));
+    void bridge.cancelJoin(cancelled).then(() => done(cancelled.length === 1 ? "Join cancelled." : `${cancelled.length} joins cancelled.`))
+      .catch((error) => notify(failure(`The join wasn't cancelled. Does retrying help?`, error)));
+  };
+  const props: ScreenProps = { state, refresh: load, navigate, notify, done, confirm: (request) => { setConfirm(request); setConfirmOpen(true); }, join, joining, joinProgress, cancelJoin, nextJoin, setNextJoin, signIn, patchSettings, openMini: () => setMiniMode(true) };
   host.current = [state, { navigate, notify, refresh: load, join }];
-  if (mini) return <TooltipProvider delay={400}><MiniWindow state={state} join={join} joining={joining} signIn={signIn} notify={notify} exit={() => setMiniMode(false)} /></TooltipProvider>;
+  if (mini) return <TooltipProvider delay={400}><MiniWindow state={state} join={join} joining={joining} cancelJoin={cancelJoin} signIn={signIn} notify={notify} exit={() => setMiniMode(false)} /></TooltipProvider>;
 
   const replaced = (name: CoreScreen) => {
     const entry = registry.screens.get(name);
@@ -193,11 +296,14 @@ function App() {
   let screen: ReactNode;
   if (route === "/") screen = replaced("dashboard") || <Dashboard {...props} />;
   else if (route === "/accounts") screen = replaced("accounts") || <Accounts {...props} />;
-  else if (route === "/accounts/places") screen = <PlaceSearch {...props} />;
+  else if (route === "/accounts/places") screen = <PlaceSearch {...props} kind="games" />;
+  else if (route === "/accounts/players") screen = <PlaceSearch {...props} kind="players" />;
+  else if (route === "/accounts/group") screen = <GroupEditor {...props} />;
   else if (route === "/widgets") screen = replaced("widgets") || <Widgets {...props} />;
   else if (route === "/settings") screen = <SettingsScreen {...props} themes={themes} />;
   else if (route === "/settings/css") screen = <CustomCssScreen {...props} themes={themes} />;
   else if (route === "/settings/log") screen = <LogScreen {...props} />;
+  else if (route === "/settings/changelog") screen = <ChangelogScreen {...props} />;
   else {
     const match = route.match(/^\/widgets\/([\w-]+)(\/settings)?$/);
     const widget = match ? state.installedWidgets.find(({ id }) => id === match[1]) : undefined;
@@ -215,14 +321,24 @@ function App() {
           <span className="flex-1">Safe mode is on. Widgets and the custom theme are disabled for this session.</span>
           <Button variant="outline" size="sm" onClick={() => void bridge.restartApp(false)}>Restart normally</Button>
         </div>}
-        <main key={route} data-page={pageOf(route)} className="min-h-0 flex-1 animate-in duration-200 fade-in-0 slide-in-from-bottom-1" id="main-content">{screen}</main>
+        <main key={pageKey} data-page={pageOf(route)} className={cn("min-h-0 flex-1", !revealing && "animate-in duration-300 ease-enter fade-in-0 slide-in-from-bottom-3 motion-reduce:animate-none")} id="main-content">
+          <ErrorBoundary scope={`page ${route}`} resetKey={route} fallback={(error, reset) => <PageError error={error} reset={reset} home={() => navigate("/")} />}>{screen}</ErrorBoundary>
+        </main>
+        <span className="pointer-events-none absolute right-2 bottom-1 z-10 text-xs text-muted-foreground opacity-50 select-none">v{state.version}{state.channel === "canary" ? "-canary" : ""}</span>
       </div>
-      {placeRequest && <PlaceDialog request={placeRequest} recentPlaces={state.recentPlaces} open={placeOpen} close={() => setPlaceOpen(false)}
-        forget={(placeId) => bridge.forgetRecentPlace(placeId).then(load).catch((error) => notify(failure(`The place wasn't removed. Does retrying help?`, error)))} />}
       {confirm && <ConfirmDialog request={confirm} open={confirmOpen} close={() => setConfirmOpen(false)} notify={notify} />}
-      <Toaster {...toasts} side={state.settings.sidebarPosition === "right" ? "left" : "right"} />
+      <Toaster {...toasts} side={state.settings.sidebarPosition === "right" ? "left" : "right"} copyLogs={copyLogs(notify)} />
     </div>
   </ScreenTools.Provider></TooltipProvider>;
+}
+
+/** Placeholder for the window's content while app state loads. */
+function LoadingSkeleton({ label }: { label: string }) {
+  return <div className="grid w-full max-w-sm gap-3" role="status" aria-label={label}>
+    <Skeleton className="h-16 rounded-xl" />
+    <Skeleton className="h-10 rounded-xl" />
+    <Skeleton className="h-10 rounded-xl" />
+  </div>;
 }
 
 function UpdaterGate({ status }: { status?: StartupStatus }) {
@@ -237,7 +353,7 @@ function UpdaterGate({ status }: { status?: StartupStatus }) {
     {failed ? <div className="flex gap-2">
       <Button variant="outline" onClick={() => void bridge.quitStartup()}>Quit</Button>
       <Button disabled={retrying} onClick={() => { setRetrying(true); void bridge.retryStartupUpdate().then(() => bridge.startupStatus()).then(() => window.location.reload()).finally(() => setRetrying(false)); }}>{retrying && <Spinner />}Retry</Button>
-    </div> : <Spinner className="size-5 text-muted-foreground" />}
+    </div> : <Skeleton className="h-1.5 w-40 rounded-full" role="status" aria-label={status?.phase === "installing" ? "Installing" : "Checking"} />}
   </main>;
 }
 
@@ -247,7 +363,7 @@ const themeModes: { mode: ThemeMode; label: string; icon: ReactNode }[] = [
   { mode: "dark", label: "Dark", icon: <Moon /> },
 ];
 
-/** Discord, theme, window snap, and mini mode, at the right end of every page header. `icons` sit just before them, and `extra` before that, past a separator. */
+/** Theme, window snap, and mini mode, at the right end of every page header. `icons` sit just before them, and `extra` before that, past a separator. */
 function HeaderTools({ themeMode, patchSettings, openMini, icons, extra }: Pick<ScreenProps, "patchSettings" | "openMini"> & { themeMode?: ThemeMode; icons?: ReactNode; extra?: ReactNode }) {
   const themeIndex = Math.max(0, themeModes.findIndex(({ mode }) => mode === themeMode));
   const theme = themeModes[themeIndex];
@@ -255,17 +371,58 @@ function HeaderTools({ themeMode, patchSettings, openMini, icons, extra }: Pick<
   return <div className="flex shrink-0 items-center">
     {extra && <>{extra}<span className="mx-1 h-4 w-px bg-border" aria-hidden="true" /></>}
     {icons}
-    <DiscordButton />
     <IconButton label={`Theme: ${theme.label}`} className="text-muted-foreground" onClick={() => void patchSettings("themeMode", nextTheme.mode)}>{theme.icon}</IconButton>
     {!isDemo() && <IconButton label="Resize to default aspect ratio" className="text-muted-foreground" onClick={() => void bridge.snapWindow()}><Proportions /></IconButton>}
     {!isDemo() && <IconButton label="Open mini mode" className="text-muted-foreground" onClick={openMini}><Minimize2 /></IconButton>}
   </div>;
 }
 
+const trimmedLogos = new Map<string, Promise<string>>();
+
+/** Crops an icon to its visible pixels, as a PNG data URL. Falls back to the original URL when
+ * the image can't be read. */
+const trimLogo = (url: string) => {
+  let trimmed = trimmedLogos.get(url);
+  if (!trimmed) {
+    trimmed = new Promise<string>((resolve) => {
+      const image = new Image();
+      image.crossOrigin = "anonymous";
+      image.onerror = () => resolve(url);
+      image.onload = () => {
+        try {
+          const width = image.naturalWidth || 64, height = image.naturalHeight || 64;
+          const canvas = document.createElement("canvas");
+          canvas.width = width; canvas.height = height;
+          const context = canvas.getContext("2d");
+          if (!context) return resolve(url);
+          context.drawImage(image, 0, 0, width, height);
+          const square = opaqueSquare(context.getImageData(0, 0, width, height).data, width, height);
+          if (!square) return resolve(url);
+          const [x, y, size] = square;
+          const out = document.createElement("canvas");
+          out.width = out.height = size;
+          out.getContext("2d")?.drawImage(canvas, x, y, size, size, 0, 0, size, size);
+          resolve(out.toDataURL());
+        } catch { resolve(url); }
+      };
+      image.src = url;
+    });
+    trimmedLogos.set(url, trimmed);
+  }
+  return trimmed;
+};
+
+/** A widget's icon in the sidebar, cropped to its visible pixels so it fills the row's icon slot. */
+function SidebarLogo({ url }: { url: string }) {
+  const [src, setSrc] = useState<string>();
+  useEffect(() => { let live = true; void trimLogo(url).then((value) => { if (live) setSrc(value); }); return () => { live = false; }; }, [url]);
+  return src ? <img src={src} alt="" className="size-4 shrink-0 rounded-sm object-contain" /> : <span className="size-4 shrink-0" aria-hidden="true" />;
+}
+
 function Sidebar({ route, ...props }: ScreenProps & { route: AppRoute }) {
-  const { state, navigate, refresh, notify } = props;
-  const actions = useWidgetActions(props, async (_id, action, message) => {
-    try { await action(); await refresh(); }
+  const { state, navigate, refresh, notify, done } = props;
+  const actions = useWidgetActions(props, async (_id, action, message, success) => {
+    try { await action(); if (success) done(success); await refresh(); }
     catch (error) { notify(failure(`${message} Does retrying help?`, error)); }
   });
   const [saved, setWidth] = useState(readSidebarWidth);
@@ -287,33 +444,49 @@ function Sidebar({ route, ...props }: ScreenProps & { route: AppRoute }) {
     style.cursor = "col-resize"; style.userSelect = "none";
     return () => { style.cursor = ""; style.userSelect = ""; };
   }, [dragging]);
-  const current = route === "/accounts/places" ? "/accounts" : route.startsWith("/settings/") || route.endsWith("/settings") ? "/settings" : route;
+  const current = route.startsWith("/accounts/") ? "/accounts" : route.startsWith("/settings/") || route.endsWith("/settings") ? "/settings" : route;
+  const nav = useRef<HTMLElement>(null);
+  const [pill, setPill] = useState<{ top: number; height: number }>();
+  /** Moves the current page's highlight to its row, which slides there. */
+  useLayoutEffect(() => {
+    const active = nav.current?.querySelector<HTMLElement>("[aria-current=page]");
+    const next = active ? { top: active.offsetTop, height: active.offsetHeight } : undefined;
+    if (next?.top !== pill?.top || next?.height !== pill?.height) setPill(next);
+  });
+  const rowClass = "relative flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-sm text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:transition-transform [&_svg]:duration-300 [&_svg]:ease-spring hover:[&_svg]:scale-115 active:[&_svg]:scale-90";
   const item = (target: AppRoute, label: string, icon: ReactNode, enabled = true) => <Tooltip key={target}>
-    <TooltipTrigger render={<button className={cn(
-      "flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-sm text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground [&_svg]:size-4 [&_svg]:shrink-0",
-      current === target && "bg-sidebar-accent font-medium text-foreground hover:bg-sidebar-accent",
+    <TooltipTrigger render={<button className={cn(rowClass,
+      current === target && "font-medium text-foreground hover:bg-transparent",
     )} aria-current={current === target ? "page" : undefined} aria-disabled={!enabled || undefined} onClick={() => { if (enabled) navigate(target); }} aria-label={label} />}>
-      {icon}{!collapsed && <span className="truncate">{label}</span>}
+      {icon}{!collapsed && <span className="animate-in truncate duration-300 ease-enter fade-in-0 slide-in-from-left-2">{label}</span>}
     </TooltipTrigger>
     <TooltipContent side={right ? "left" : "right"} className={cn(!collapsed && "hidden")}>{enabled ? label : `${label} is disabled`}</TooltipContent>
   </Tooltip>;
   return <aside data-slot="sidebar" style={{ width }} className={cn("relative flex shrink-0 flex-col gap-1 bg-sidebar p-2", !dragging && "transition-[width] duration-150", right ? "border-l border-sidebar-border" : "border-r border-sidebar-border")} aria-label="Main navigation">
     <Tooltip>
-      <TooltipTrigger render={<button className="mb-2 flex h-10 items-center gap-2 overflow-hidden rounded-lg px-1.5 outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-3 focus-visible:ring-ring/50" onClick={() => void bridge.openExternal("https://toolblox.dev")} aria-label="Toolblox website" />}>
-        <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="" width="24" height="24" className="shrink-0" />
-        {!collapsed && <span className="truncate font-semibold tracking-tight">Toolblox</span>}
+      <TooltipTrigger render={<button className="group/logo mb-2 flex h-10 items-center gap-2 overflow-hidden rounded-lg px-1.5 outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-3 focus-visible:ring-ring/50" onClick={() => void bridge.openExternal("https://toolblox.dev")} aria-label="Toolblox website" />}>
+        <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="" width="24" height="24" className="shrink-0 transition-transform duration-500 ease-spring group-hover/logo:rotate-[-12deg] group-hover/logo:scale-110" />
+        {!collapsed && <span className="animate-in truncate font-semibold tracking-tight duration-300 ease-enter fade-in-0 slide-in-from-left-2">Toolblox</span>}
       </TooltipTrigger>
       <TooltipContent side={right ? "left" : "right"}>Website</TooltipContent>
     </Tooltip>
-    <nav className="flex flex-1 flex-col gap-0.5 overflow-hidden">
+    <nav ref={nav} className="relative flex flex-1 flex-col gap-0.5 overflow-hidden">
+      {pill && <span className="pointer-events-none absolute inset-x-0 top-0 rounded-lg bg-sidebar-accent transition-[translate,height] duration-500 ease-spring" style={{ translate: `0 ${pill.top}px`, height: pill.height }} aria-hidden="true" />}
       {coreRoutes.map(({ route: target, label, icon: Icon }) => item(target, label, <Icon aria-hidden="true" />))}
       {state.installedWidgets.length > 0 && (collapsed ? <hr className="my-2 border-sidebar-border" /> : <p className="mt-4 mb-1 truncate px-2.5 text-xs text-muted-foreground">Widgets</p>)}
       {state.installedWidgets.map((widget) => <WidgetContextMenu key={widget.id} actions={actions(widget)}>
-        {item(`/widgets/${widget.id}`, widget.name, widget.logoUrl ? <img src={widget.logoUrl} alt="" className="size-4 shrink-0 rounded-sm object-cover" /> : <Puzzle aria-hidden="true" />, widget.enabled && !state.safeMode)}
+        {item(`/widgets/${widget.id}`, widget.name, widget.logoUrl ? <SidebarLogo url={widget.logoUrl} /> : <Puzzle aria-hidden="true" />, widget.enabled && !state.safeMode)}
       </WidgetContextMenu>)}
     </nav>
-    {!collapsed && <LoopingRow className="px-0.5">{() => <span className="shrink-0 px-2 py-1 text-xs whitespace-nowrap text-muted-foreground" title={state.channel === "canary" ? "Running from a source checkout." : "The installed, publicly released build."}>v{state.version}{state.channel === "canary" ? "-canary" : ""}</span>}</LoopingRow>}
     <WidgetSlot name="sidebar.footer" props={{ collapsed }} />
+    <hr className="border-sidebar-border" />
+    <Tooltip>
+      <TooltipTrigger render={<button className={rowClass} onClick={() => void bridge.openExternal(DISCORD_URL)} aria-label="Discord server" />}>
+        <span className="flex shrink-0 text-discord"><DiscordIcon /></span>
+        {!collapsed && <><span className="truncate">Discord</span><ExternalLink className="ml-auto size-3.5 opacity-60" aria-hidden="true" /></>}
+      </TooltipTrigger>
+      <TooltipContent side={right ? "left" : "right"} className={cn(!collapsed && "hidden")}>Discord server</TooltipContent>
+    </Tooltip>
     <div role="separator" aria-orientation="vertical" aria-label="Resize sidebar" aria-valuemin={SIDEBAR_COLLAPSED} aria-valuemax={SIDEBAR_MAX} aria-valuenow={width} aria-valuetext={collapsed ? "Icon only" : `${width} pixels`} tabIndex={0}
       className={cn("group absolute inset-y-0 z-20 w-2 cursor-col-resize touch-none outline-none", right ? "-left-1" : "-right-1")}
       onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); }}
@@ -328,50 +501,6 @@ function Sidebar({ route, ...props }: ScreenProps & { route: AppRoute }) {
       <span className={cn("absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 transition-colors group-hover:bg-ring/60 group-focus-visible:bg-ring", dragging && "bg-ring")} />
     </div>
   </aside>;
-}
-
-/**
- * A row that scrolls sideways without an end once it's wider than its container. Three copies sit
- * side by side, and whenever the position leaves the middle copy it moves by one copy's width, so
- * the row wraps around. Only the middle copy is in the tab order and the accessibility tree.
- * Vertical wheel scrolling moves it sideways. A row that fits shows one copy and doesn't scroll.
- */
-function LoopingRow({ className, children }: { className?: string; children: (clone: boolean) => ReactNode }) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const middle = useRef<HTMLDivElement>(null);
-  const [fits, setFits] = useState(true);
-  useLayoutEffect(() => {
-    const element = scroller.current;
-    if (!element) return;
-    const observer = new ResizeObserver(() => setFits((middle.current?.offsetWidth ?? 0) <= element.clientWidth));
-    observer.observe(element);
-    if (middle.current) observer.observe(middle.current);
-    return () => observer.disconnect();
-  }, []);
-  useLayoutEffect(() => {
-    const element = scroller.current;
-    if (!element || fits) return;
-    const cycle = () => middle.current?.offsetWidth ?? 0;
-    element.scrollLeft = cycle();
-    const wrap = () => {
-      const width = cycle();
-      if (!width) return;
-      if (element.scrollLeft < width / 2) element.scrollLeft += width;
-      else if (element.scrollLeft > width * 1.5) element.scrollLeft -= width;
-    };
-    const wheel = (event: WheelEvent) => {
-      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
-      event.preventDefault();
-      element.scrollLeft += event.deltaY;
-    };
-    element.addEventListener("scroll", wrap);
-    element.addEventListener("wheel", wheel, { passive: false });
-    return () => { element.removeEventListener("scroll", wrap); element.removeEventListener("wheel", wheel); };
-  }, [fits]);
-  const copy = (clone: boolean, key: number) => <div key={key} ref={clone ? undefined : middle} aria-hidden={clone || undefined} className="flex shrink-0 items-center gap-1 pr-1">{children(clone)}</div>;
-  return <div ref={scroller} className={cn("flex [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", fits ? "overflow-hidden" : "overflow-x-auto", className)}>
-    {fits ? copy(false, 1) : [copy(true, 0), copy(false, 1), copy(true, 2)]}
-  </div>;
 }
 
 /**
@@ -409,50 +538,16 @@ function NotFound({ navigate }: { navigate: (route: AppRoute) => void }) {
   return <EmptyState icon={<ExternalLink />} title="Page unavailable" action={<Button onClick={() => navigate("/")}>Go to Dashboard</Button>} />;
 }
 
-function PlaceDialog({ request, recentPlaces, open, close, forget }: { request: PlaceRequest; recentPlaces: RecentPlace[]; open: boolean; close: () => void; forget: (placeId: string) => Promise<void> }) {
-  const [value, setValue] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { if (open) { setValue(""); setError(""); setBusy(false); } }, [open]);
-  const save = async (placeId: string) => { setBusy(true); await request.run(placeId); close(); };
-  const submit = async () => {
-    const placeId = parsePlaceId(value);
-    if (!placeId) { setError("No place ID found. Is it a game from the list, a Roblox game link, or a place ID?"); return; }
-    setBusy(true);
-    const exists = await bridge.placeExists(placeId).catch(() => true);
-    setBusy(false);
-    if (exists) void save(placeId);
-    else setError(`Place ${placeId} doesn't exist. Is the ID correct?`);
-  };
-  return <Modal size="portrait" open={open} close={close} title={request.title} description={request.description} action={request.action} busy={busy} disabled={!value.trim()} submit={() => void submit()}>
-    <div className="grid gap-2">
-      <div className="relative">
-        <PlaceInput autoFocus value={value} change={(next) => { setValue(next); setError(""); }} placeholder="Game name, link, or place ID"
-          aria-label="Game name, Roblox game link, or place ID" aria-invalid={!!error} aria-describedby={error ? "place-dialog-error" : undefined} />
-      </div>
-      {error && <p id="place-dialog-error" className="text-xs text-destructive">{error}</p>}
-    </div>
-    {recentPlaces.length > 0 && <section className="grid gap-1" aria-labelledby="place-dialog-recent">
-      <h3 id="place-dialog-recent" className="text-xs text-muted-foreground">Recent places</h3>
-      <ul className="-mx-2 grid">
-        {recentPlaces.map((place) => <li key={place.placeId} className="flex items-center rounded-lg pr-1 hover:bg-muted">
-          <button type="button" disabled={busy} className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" onClick={() => void save(place.placeId)}>
-            <span className="min-w-0 flex-1 truncate" title={place.name}>{place.name || "Unknown game"}</span>
-            <span className="font-mono text-xs text-muted-foreground">{place.placeId}</span>
-          </button>
-          <IconButton type="button" label={`Remove ${place.name || place.placeId} from recent places`} size="icon-xs" disabled={busy} onClick={() => void forget(place.placeId)}><X /></IconButton>
-        </li>)}
-      </ul>
-    </section>}
-  </Modal>;
-}
-
 function ConfirmDialog({ request, open, close, notify }: { request: ConfirmRequest; open: boolean; close: () => void; notify: (message: string) => void }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (open) setBusy(false); }, [open]);
   const submit = async () => { setBusy(true); try { await request.run(); close(); } catch (error) { notify(failure(`The action failed. Does retrying help?`, error)); setBusy(false); } };
   return <Modal size="landscape" scale={request.scale} open={open} close={close} title={request.title} description={request.message} action={request.action} danger={request.danger} busy={busy} submit={() => void submit()} />;
 }
+
+/** Copies an error toast's message with the recent log, and confirms with a toast. */
+const copyLogs = (notify: (message: string) => void) => (message: string) =>
+  void copyFailureReport(message).then(() => notify("Logs copied."), (error) => notify(failure("The logs weren't copied. Does retrying help?", error)));
 
 /** A widget's page and settings in its own window. Only that widget's module runs here. */
 export function PopoutApp({ widgetId }: { widgetId: string }) {
@@ -488,7 +583,7 @@ export function PopoutApp({ widgetId }: { widgetId: string }) {
     });
   });
   if (!state || !widget) return <main className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground" aria-live="polite">
-    {loadError ? <p className="max-w-sm text-destructive">{loadError}</p> : <><Spinner className="size-5" />Loading…</>}
+    {loadError ? <p className="max-w-sm text-destructive">{loadError}</p> : <LoadingSkeleton label="Loading" />}
   </main>;
 
   const Page = pages.get(widget.id);
@@ -510,7 +605,7 @@ export function PopoutApp({ widgetId }: { widgetId: string }) {
         </Screen>
       </main>
     </WidgetPageContext.Provider>
-    <Toaster {...toasts} side="right" />
+    <Toaster {...toasts} side="right" copyLogs={copyLogs(notify)} />
   </ScreenTools.Provider></TooltipProvider>;
 }
 

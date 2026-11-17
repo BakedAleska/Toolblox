@@ -48,6 +48,7 @@
     --radius-2xl: calc(var(--radius) * 2);
     --color-success: var(--success);
     --color-warning: var(--warning);
+    --color-discord: var(--discord);
     --color-overlay: var(--overlay);
     --color-shadow: var(--shadow);
     --spacing-list: calc(var(--spacing) * 2);
@@ -71,6 +72,7 @@
     --destructive: oklch(0.577 0.245 27.325);
     --success: oklch(0.6 0.16 150);
     --warning: oklch(0.68 0.16 65);
+    --discord: oklch(0.59 0.2 277);
     --border: oklch(0.92 0 0);
     --input: oklch(0.9 0 0);
     --ring: oklch(0.55 0 0);
@@ -108,6 +110,7 @@
     --destructive: oklch(0.704 0.191 22.216);
     --success: oklch(0.72 0.17 150);
     --warning: oklch(0.8 0.15 70);
+    --discord: oklch(0.66 0.17 277);
     --border: oklch(1 0 0 / 8%);
     --input: oklch(1 0 0 / 14%);
     --ring: oklch(0.556 0 0);

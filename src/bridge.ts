@@ -3,8 +3,9 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { version } from "../package.json";
+import { failureReport } from "./logic";
 import type { ShareMessage, ShareTransport } from "./widgets/share";
-import type { Account, AppState, CatalogueEntry, LogLevel, OnlineFriend, PlaceMatch, Settings, StartupStatus, WidgetSummary } from "./types";
+import type { Account, AppState, CatalogueEntry, LogLevel, OnlineFriend, PlaceMatch, PlayerMatch, Relationship, Settings, SocialAction, StartupStatus, WidgetSummary } from "./types";
 
 const minutesAgo = (minutes: number) => Date.now() - minutes * 60_000;
 const demoAccount = (id: number, name: string, displayName: string, extra: Partial<Account> = {}): Account =>
@@ -58,11 +59,13 @@ const demoState: AppState = {
     openOnLaunch: false,
     runInBackground: true,
     minimizeOnJoin: false,
-    showGameNames: true,
     notifyOnDrop: false,
     alwaysOnTop: false,
     showAnimations: true,
     ignoreReducedMotion: false,
+    reduceToasts: false,
+    friendsSource: "pinned",
+    groups: [{ id: "demo-farm", name: "Farming alts", accountIds: [101, 106, 108, 107], pinned: true, placeId: "8737899170", notes: "Pet Simulator grind" }],
   },
   safeMode: false,
   popouts: [],
@@ -110,6 +113,22 @@ if (typeof window !== "undefined" && new URLSearchParams(window.location.search)
 }
 
 const demoStores = new Map<string, unknown>();
+
+const demoPlayers: PlayerMatch[] = [
+  { id: 156, name: "builderman", displayName: "builderman", verified: true },
+  { id: 201, name: "obby_runner", displayName: "Obby Runner", verified: false },
+  { id: 204, name: "builder_fan", displayName: "Builder Fan", verified: false },
+];
+const demoRelationships = new Map<string, Relationship>();
+const demoRelationship = (accountId: number, userId: number) => {
+  const key = `${accountId}:${userId}`;
+  if (!demoRelationships.has(key)) demoRelationships.set(key, { friend: userId === 201 ? "friends" : "none", following: false, blocked: false });
+  return demoRelationships.get(key)!;
+};
+const demoSocial: Record<SocialAction, Partial<Relationship>> = {
+  requestFriend: { friend: "requestSent" }, acceptFriend: { friend: "friends" }, declineFriend: { friend: "none" }, unfriend: { friend: "none" },
+  follow: { following: true }, unfollow: { following: false }, block: { blocked: true, friend: "none", following: false }, unblock: { blocked: false },
+};
 
 let demoTheme = "";
 
@@ -193,6 +212,8 @@ async function call<T>(command: string, args: Record<string, unknown>, demo: () 
 }
 
 export const bridge = {
+  /** Whether this launch is the first since an update. Only the first call returns true. */
+  takeUpdated: () => call<boolean>("take_updated", {}, () => false),
   startupStatus: () => call<StartupStatus>("startup_status", {}, demoStartupStatus),
   retryStartupUpdate: () => call<void>("retry_startup_update", {}, () => writeScenario("update")),
   quitStartup: () => call<void>("quit_startup", {}, () => { sessionStorage.removeItem(scenarioKey); window.location.reload(); }),
@@ -231,7 +252,9 @@ export const bridge = {
       for (const account of demoState.accounts) {
         if (!accountIds.includes(account.id)) continue;
         account.lastPlayedAt = Date.now();
-        account.lastPlaceId = placeId || account.placeId || demoState.settings.placeId || undefined;
+        const target = placeId || account.placeId || demoState.settings.placeId || undefined;
+        if (target?.startsWith("@")) { account.presence = "playing"; continue; }
+        account.lastPlaceId = target;
         if (!account.lastPlaceId) continue;
         account.presence = "playing";
         account.gamePlaceId = Number(account.lastPlaceId);
@@ -259,6 +282,21 @@ export const bridge = {
       .map((place, index) => ({ placeId: place.placeId, name: place.name ?? "", playerCount: 12_000 >> index, upVotes: 90 - index * 10, downVotes: 10 + index * 10,
         creatorName: "Demo Studio", creatorVerified: index === 0, visits: 68_648_562 >> index,
         favorites: 172_633 >> index, updated: new Date(minutesAgo(90)).toISOString(), genre: "Action RPG", maturity: "minimal" }))),
+
+  /** Players whose username or display name matches, an exact username first. */
+  searchPlayers: (query: string) =>
+    call<PlayerMatch[]>("search_players", { query }, () => {
+      const text = query.trim().replace(/^@/, "").toLowerCase();
+      return text ? demoPlayers.filter((player) => `${player.name} ${player.displayName}`.toLowerCase().includes(text)) : [];
+    }),
+
+  /** An account's friend, follow, and block status with a player. */
+  getRelationship: (accountId: number, userId: number) =>
+    call<Relationship>("get_relationship", { accountId, userId }, () => demoRelationship(accountId, userId)),
+
+  /** Sends a friend request, follows, blocks, or undoes one of these, as an account. */
+  changeRelationship: (accountId: number, userId: number, action: SocialAction) =>
+    call<void>("change_relationship", { accountId, userId, action }, () => { Object.assign(demoRelationship(accountId, userId), demoSocial[action]); }),
 
   /** The account's online friends, in-game friends first. */
   getOnlineFriends: (accountId: number) =>
@@ -321,6 +359,14 @@ export const bridge = {
   /** Closes a widget's own window, which returns the widget to the main window. */
   closeWidgetPopout: (widgetId: string) => call<void>("close_widget_popout", { widgetId }, () => undefined),
   /** Calls `listener` with the open popouts' widget IDs whenever one opens or closes. Returns a function that stops listening. */
+  /** Cancels the joins in progress for `accountIds`, or all of them. Accounts already in Roblox stay in game. */
+  cancelJoin: (accountIds?: number[]) => call<void>("cancel_join", { accountIds: accountIds ?? null }, () => undefined),
+  /** Calls `listener` with the number of the account being joined and the total. Returns a function that stops listening. */
+  onJoinProgress: (listener: (progress: { done: number; total: number }) => void) => {
+    if (!isTauri()) return () => {};
+    const stop = listen<{ done: number; total: number }>("join-progress", (event) => listener(event.payload));
+    return () => void stop.then((unlisten) => unlisten());
+  },
   onPopoutsChanged: (listener: (widgetIds: string[]) => void) => {
     if (!isTauri()) return () => {};
     const stop = listen<string[]>("widget-popouts-changed", (event) => listener(event.payload));
@@ -365,4 +411,12 @@ export const bridge = {
   exportTheme: () => call<string>("export_theme", {}, downloadDemoTheme),
   closeWidgetSession: (sessionId: string) => call<void>("close_widget_session", { sessionId }, () => undefined),
   widgetRequest: (sessionId: string, widgetId: string, message: unknown) => call<unknown>("widget_request", { sessionId, widgetId, message: JSON.stringify(message) }, () => ({ protocol: 1, requestId: "demo", result: null })),
+};
+
+/** Copies `error` with the app version, platform, and last 200 log lines, for a bug report. The
+ * log is already redacted. A log that can't be read is noted in the report instead. */
+export const copyFailureReport = async (error: string) => {
+  const log = await bridge.readLog(200).catch((reason) => `The log couldn't be read. (${describeError(reason)})`);
+  const platform = /Mac/i.test(navigator.userAgent) ? "macOS" : "Windows";
+  await navigator.clipboard.writeText(failureReport(error, version, platform, log));
 };

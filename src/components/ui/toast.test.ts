@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseToast } from "./toast";
+import { addToast, parseToast, type Toast } from "./toast";
 
 describe("toast messages", () => {
   it("uses the first sentence as the title and the rest as the description", () => {
@@ -11,5 +11,13 @@ describe("toast messages", () => {
   it("treats a recovery question as an error unless a kind is given", () => {
     expect(parseToast("No Roblox windows are open. Is a client running?").kind).toBe("error");
     expect(parseToast("Hello, world!", "info")).toEqual({ kind: "info", title: "Hello, world!", description: "" });
+  });
+
+  it("puts an error in place of the newest visible success", () => {
+    const toast = (id: number, kind: Toast["kind"], leaving = false): Toast => ({ id, kind, message: "", title: "", description: "", leaving });
+    const stack = [toast(1, "success"), toast(2, "info"), toast(3, "success"), toast(4, "success", true)];
+    expect(addToast(stack, toast(5, "error")).map(({ id }) => id)).toEqual([1, 2, 5, 4]);
+    expect(addToast([toast(1, "info")], toast(2, "error")).map(({ id }) => id)).toEqual([1, 2]);
+    expect(addToast(stack, toast(5, "success")).filter(({ leaving }) => !leaving).map(({ id }) => id)).toEqual([2, 3, 5]);
   });
 });

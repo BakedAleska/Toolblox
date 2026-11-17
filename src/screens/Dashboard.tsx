@@ -2,13 +2,15 @@ import { ChevronRight, CircleAlert, CircleArrowUp, KeyRound, MapPin, Play, Plus,
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { bridge } from "@/bridge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { accountName, relativeTime, sortAccounts } from "@/logic";
-import { AccountCard, AccountName, Avatar, IconButton, Panel, Screen, SectionTitle, Spinner, WidgetFrame, placeLabel, presenceLabel, type ScreenProps } from "@/shared";
+import { AccountCard, AccountName, Avatar, Hint, IconButton, Panel, Screen, SectionTitle, Spinner, WidgetFrame, placeLabel, presenceLabel, type ScreenProps } from "@/shared";
 import { showAccountMenu } from "@/screens/Accounts";
 import type { Account, AppRoute, OnlineFriend } from "@/types";
 import { WidgetSlot } from "@/widgets/host";
+import { GroupCard } from "@/screens/Groups";
 
 type Severity = "destructive" | "warning" | "neutral";
 const severityStyles: Record<Severity, string> = {
@@ -33,22 +35,34 @@ function useMoreBelow(shown: boolean) {
   return [ref, more] as const;
 }
 
-/** The account's online friends, refreshed every minute. `undefined` while loading. A failed
- * refresh keeps the last list. */
-function useOnlineFriends(accountId?: number) {
-  const [friends, setFriends] = useState<OnlineFriend[] | "failed">();
+/** An online friend and the account whose friend list found them, which joins them. */
+type SeenFriend = OnlineFriend & { via: number };
+
+/** The online friends of the accounts, refreshed every minute, in-game first. A friend of several
+ * accounts appears once. `undefined` while loading. A refresh where every account fails keeps the
+ * last list. */
+function useOnlineFriends(accountIds: number[]) {
+  const [friends, setFriends] = useState<SeenFriend[] | "failed">();
+  const key = accountIds.join(",");
   useEffect(() => {
-    setFriends(accountId === undefined ? "failed" : undefined);
-    if (accountId === undefined) return;
+    setFriends(accountIds.length ? undefined : "failed");
+    if (!accountIds.length) return;
     let active = true;
-    const load = () => bridge.getOnlineFriends(accountId).then(
-      (found) => { if (active) setFriends(found); },
-      () => { if (active) setFriends((current) => Array.isArray(current) ? current : "failed"); },
-    );
+    const load = async () => {
+      const results = await Promise.allSettled(accountIds.map((id) => bridge.getOnlineFriends(id).then((found) => found.map((friend) => ({ ...friend, via: id })))));
+      if (!active) return;
+      if (results.every(({ status }) => status === "rejected")) { setFriends((current) => Array.isArray(current) ? current : "failed"); return; }
+      const merged = new Map<number, SeenFriend>();
+      for (const result of results) {
+        if (result.status !== "fulfilled") continue;
+        for (const friend of result.value) if (!accountIds.includes(friend.id) && (!merged.has(friend.id) || (friend.inGame && !merged.get(friend.id)!.inGame))) merged.set(friend.id, friend);
+      }
+      setFriends([...merged.values()].sort((a, b) => Number(b.inGame) - Number(a.inGame) || a.displayName.localeCompare(b.displayName)));
+    };
     void load();
     const timer = window.setInterval(() => void load(), 60_000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [accountId]);
+  }, [key]);
   return friends;
 }
 
@@ -59,14 +73,19 @@ const emptySection = "flex min-h-0 flex-1 flex-wrap items-center justify-center 
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
-export function Dashboard({ state, navigate, join, joining, signIn }: ScreenProps) {
+export function Dashboard({ state, navigate, join, joining, cancelJoin, signIn }: ScreenProps) {
   const { accounts, settings, installedWidgets } = state;
   const [hero] = sortAccounts(accounts, "last_played");
   const pinned = sortAccounts(accounts, settings.sortOrder).filter((account) => account.pinned);
   const enabledWidgets = installedWidgets.filter(({ enabled }) => enabled);
   const place = hero?.placeId || settings.placeId;
-  const [pinnedGrid, moreBelow] = useMoreBelow(pinned.length > 0);
-  const friends = useOnlineFriends(hero && !hero.sessionExpired ? hero.id : undefined);
+  const pinnedGroups = (settings.groups ?? []).filter(({ pinned: isPinned }) => isPinned);
+  const [pinnedGrid, moreBelow] = useMoreBelow(pinned.length + pinnedGroups.length > 0);
+  const signedIn = accounts.filter(({ sessionExpired }) => !sessionExpired);
+  const friendSources = settings.friendsSource === "all" ? signedIn
+    : settings.friendsSource === "pinned" && signedIn.some(({ pinned: isPinned }) => isPinned) ? signedIn.filter(({ pinned: isPinned }) => isPinned)
+    : hero && !hero.sessionExpired ? [hero] : [];
+  const friends = useOnlineFriends(friendSources.map(({ id }) => id));
   const hasFriends = Array.isArray(friends) && friends.length > 0;
 
   const expired = accounts.filter(({ sessionExpired }) => sessionExpired).length;
@@ -87,7 +106,8 @@ export function Dashboard({ state, navigate, join, joining, signIn }: ScreenProp
         className="flex-wrap gap-4 rounded-2xl p-3" eyebrow={<p className="text-xs font-medium text-muted-foreground">Continue as</p>}
         actions={hero.sessionExpired
           ? <Button size="lg" className="px-4" onClick={() => void signIn(hero.id)}><KeyRound />Sign in again</Button>
-          : <Button size="lg" className="px-4" disabled={joining.includes(hero.id)} aria-label={`Join as ${accountName(hero)}`} onClick={() => join([hero.id])}>{joining.includes(hero.id) ? <Spinner /> : <Play />}Join</Button>}>
+          : <Button size="lg" className="px-4" aria-label={joining.includes(hero.id) ? `Cancel the join for ${accountName(hero)}` : `Join as ${accountName(hero)}`}
+            onClick={() => joining.includes(hero.id) ? cancelJoin([hero.id]) : join([hero.id])}>{joining.includes(hero.id) ? <><Spinner />Cancel</> : <><Play />Join</>}</Button>}>
         <p className="mt-1 truncate text-sm text-muted-foreground">
           {presenceLabel(hero) || <>{relativeTime(hero.lastPlayedAt)}{place && ` · ${placeLabel(state, place)}`}</>}
         </p>
@@ -102,12 +122,15 @@ export function Dashboard({ state, navigate, join, joining, signIn }: ScreenProp
         <SectionTitle action={<Button variant="ghost" size="sm" className="-mr-2.5 text-muted-foreground" onClick={() => navigate("/accounts")}>
           View all<ChevronRight data-icon="inline-end" aria-hidden="true" />
         </Button>}>Pinned</SectionTitle>
-        {pinned.length ? <div ref={pinnedGrid} className={cn(cardGrid, moreBelow && "mask-b-from-70%")}>
+        {pinned.length + pinnedGroups.length ? <div ref={pinnedGrid} className={cn(cardGrid, moreBelow && "mask-b-from-70%")}>
+          {pinnedGroups.map((group) => <GroupCard key={group.id} state={state} join={join} joining={joining} cancelJoin={cancelJoin} group={group} simple
+            className={settings.compactMode ? "h-12 py-2" : "h-14 py-2"} />)}
           {pinned.map((account) => <AccountCard key={account.id} account={account} showAvatar={settings.showAvatars}
             avatarClassName={settings.compactMode ? "size-8" : "size-9"} className={settings.compactMode ? "h-12 py-2" : "h-14 py-2"}
             actions={account.sessionExpired
               ? <IconButton label={`Sign in again as ${accountName(account)}`} size="icon-sm" onClick={() => void signIn(account.id)}><KeyRound /></IconButton>
-              : <IconButton label={`Join as ${accountName(account)}`} size="icon-sm" disabled={joining.includes(account.id)} onClick={() => join([account.id])}>{joining.includes(account.id) ? <Spinner /> : <Play />}</IconButton>}>
+              : <IconButton label={joining.includes(account.id) ? `Cancel the join for ${accountName(account)}` : `Join as ${accountName(account)}`} size="icon-sm"
+                onClick={() => joining.includes(account.id) ? cancelJoin([account.id]) : join([account.id])}>{joining.includes(account.id) ? <Spinner /> : <Play />}</IconButton>}>
             {!settings.compactMode && <p className="truncate text-xs text-muted-foreground">{presenceLabel(account) || relativeTime(account.lastPlayedAt)}</p>}
           </AccountCard>)}
         </div>
@@ -120,30 +143,40 @@ export function Dashboard({ state, navigate, join, joining, signIn }: ScreenProp
     {accounts.length > 0 && <section aria-label="Online friends" className="flex shrink-0 flex-col gap-1">
       <h2 className="text-sm font-medium text-muted-foreground">Online friends</h2>
       {hasFriends ? <ul className="flex h-14 gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none]" onWheel={(event) => { event.currentTarget.scrollLeft += event.deltaY; }}>
-        {friends.map(friendAccount).map((friend) => {
+        {friends.map(({ via, ...online }) => {
+          const friend = friendAccount(online);
           const status = presenceLabel(friend) || "Online";
+          const joiner = accounts.find(({ id }) => id === via);
+          const joinable = joiner && online.inGame && !online.inStudio;
           return <li key={friend.id} className="w-16 shrink-0">
             <Tooltip>
-              <TooltipTrigger aria-label={`${accountName(friend)}: ${status}`} className="flex w-full flex-col items-center gap-1 rounded-lg text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <TooltipTrigger aria-label={joinable ? `Join ${accountName(friend)} as ${accountName(joiner)}: ${status}` : `${accountName(friend)}: ${status}`}
+                disabled={joinable ? joining.includes(joiner.id) : undefined} onClick={joinable ? () => join([joiner.id], `@${friend.id}`) : undefined}
+                className={cn("flex w-full flex-col items-center gap-1 rounded-lg text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring", joinable && "cursor-pointer hover:bg-muted/50")}>
                 {settings.showAvatars && <Avatar account={friend} className="size-9" />}
                 <AccountName account={friend} />
               </TooltipTrigger>
-              <TooltipContent>{status}</TooltipContent>
+              <TooltipContent>{joinable ? `${status}. Joins as ${accountName(joiner)}.` : status}</TooltipContent>
             </Tooltip>
           </li>;
         })}
       </ul>
+        : friends === undefined ? <ul className="flex h-14 flex-wrap gap-1 overflow-hidden" role="status" aria-label="Loading friends">
+          {Array.from({ length: 32 }, (_, index) => <li key={index} className="flex h-14 w-16 shrink-0 flex-col items-center justify-center gap-1">
+            {settings.showAvatars && <Skeleton className="size-9 rounded-full" />}<Skeleton className="h-3 w-12" />
+          </li>)}
+        </ul>
         : <div className={cn(emptySection, "h-14 flex-none")}>
-          {friends === undefined ? <Spinner /> : <p className="min-w-0 text-sm font-medium">{friends === "failed" ? "Friends unavailable" : "No friends online"}</p>}
+          <p className="min-w-0 text-sm font-medium">{friends === "failed" ? "Friends unavailable" : "No friends online"}</p>
         </div>}
     </section>}
 
     {issues.length > 0 && <div className="grid auto-cols-fr grid-flow-col gap-list">
-      {issues.map(({ severity, icon, title, action, route }) => <button key={title} type="button" title={title} onClick={() => navigate(route)}
+      {issues.map(({ severity, icon, title, action, route }) => <Hint key={title} label={title}><button type="button" onClick={() => navigate(route)}
         className={cn("@container flex h-10 min-w-0 items-center gap-3 rounded-xl px-4 text-left text-sm ring-1 outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 [&_svg]:size-4 [&_svg]:shrink-0", severityStyles[severity])}>
         {icon}<span className="min-w-0 flex-1 truncate font-medium">{title}</span>
         <span className="shrink-0 text-xs text-muted-foreground @max-[18rem]:hidden">{action}</span><ChevronRight className="text-muted-foreground" aria-hidden="true" />
-      </button>)}
+      </button></Hint>)}
     </div>}
 
     <WidgetSlot name="dashboard.sections" props={{}} wrap={(children) => <div className="flex flex-col gap-4">{children}</div>} />

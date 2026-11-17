@@ -1,4 +1,4 @@
-import { CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react";
+import { CircleAlert, CircleCheck, Copy, Info, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -6,11 +6,12 @@ import { cn } from "@/lib/utils";
  * toast sits at the bottom and newer ones stack above it. Toasts slide in from that side's edge and
  * leave the same way, so none crosses another. Each shows an icon, a title, a description of up to
  * two lines, and a ring for the time left. Toasts widen to fit their text before they wrap.
- * Errors stay until dismissed. Keyboard focus pauses the timer, and selecting a toast dismisses it. */
+ * An error replaces the newest success. Errors stay until dismissed, and offer "Copy logs" when
+ * `copyLogs` is given. Keyboard focus pauses the timer, and selecting a toast dismisses it. */
 
 export type ToastKind = "success" | "error" | "warning" | "info";
 
-type Toast = { id: number; kind: ToastKind; title: string; description: string; leaving: boolean };
+export type Toast = { id: number; kind: ToastKind; message: string; title: string; description: string; leaving: boolean };
 
 const KINDS = {
   success: { icon: CircleCheck, color: "text-success", bar: "bg-success" },
@@ -36,22 +37,30 @@ const ENTER = { duration: 300, easing: "cubic-bezier(0.2, 0, 0, 1)" };
 const EXIT = { duration: 180, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" as const };
 let nextId = 0;
 
+/**
+ * Adds a toast to the stack. An error takes the place of the newest visible success, which leaves
+ * at once without sliding out. Past `LIMIT` visible toasts, the oldest start leaving.
+ */
+export function addToast(current: Toast[], toast: Toast) {
+  const replaced = toast.kind === "error" ? current.map(({ kind, leaving }) => kind === "success" && !leaving).lastIndexOf(true) : -1;
+  const next = replaced < 0 ? [...current, toast] : current.map((item, index) => index === replaced ? toast : item);
+  const overflow = next.filter(({ leaving }) => !leaving).length - LIMIT;
+  let dropped = 0;
+  return next.map((item) => !item.leaving && dropped < overflow ? (dropped++, { ...item, leaving: true }) : item);
+}
+
 export function useToasts() {
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const notify = useCallback((message: string, kind?: ToastKind) => setToasts((current) => {
-    const next = [...current, { id: ++nextId, ...parseToast(message, kind), leaving: false }];
-    const overflow = next.filter(({ leaving }) => !leaving).length - LIMIT;
-    let dropped = 0;
-    return next.map((toast) => !toast.leaving && dropped < overflow ? (dropped++, { ...toast, leaving: true }) : toast);
-  }), []);
+  const notify = useCallback((message: string, kind?: ToastKind) => setToasts((current) => addToast(current, { id: ++nextId, message, ...parseToast(message, kind), leaving: false })), []);
   const dismiss = useCallback((id: number) => setToasts((current) => current.map((toast) => toast.id === id ? { ...toast, leaving: true } : toast)), []);
   const remove = useCallback((id: number) => setToasts((current) => current.filter((toast) => toast.id !== id)), []);
   return { toasts, notify, dismiss, remove };
 }
 
-export function Toaster({ toasts, dismiss, remove, side }: ReturnType<typeof useToasts> & { side: "left" | "right" }) {
+/** `copyLogs` receives an error toast's full message. */
+export function Toaster({ toasts, dismiss, remove, side, copyLogs }: ReturnType<typeof useToasts> & { side: "left" | "right"; copyLogs?: (message: string) => void }) {
   return <div data-toaster role="status" aria-live="polite" className="pointer-events-none absolute inset-x-4 bottom-4 z-50 flex flex-col-reverse">
-    {toasts.map((toast) => <ToastItem key={toast.id} toast={toast} side={side} dismiss={() => dismiss(toast.id)} remove={() => remove(toast.id)} />)}
+    {toasts.map((toast) => <ToastItem key={toast.id} toast={toast} side={side} dismiss={() => dismiss(toast.id)} remove={() => remove(toast.id)} copyLogs={copyLogs} />)}
   </div>;
 }
 
@@ -69,9 +78,9 @@ const motion = () => document.documentElement.dataset.motion;
 const frames = (from: Keyframe, to: Keyframe, fade: [number, number]) => motion() ? [{ opacity: fade[0] }, { opacity: fade[1] }] : [from, to];
 const timing = <T extends KeyframeAnimationOptions>(options: T) => motion() === "none" ? { ...options, duration: 0 } : options;
 
-function ToastItem({ toast, side, dismiss, remove }: { toast: Toast; side: "left" | "right"; dismiss: () => void; remove: () => void }) {
+function ToastItem({ toast, side, dismiss, remove, copyLogs }: { toast: Toast; side: "left" | "right"; dismiss: () => void; remove: () => void; copyLogs?: (message: string) => void }) {
   const ring = useRef<SVGCircleElement>(null);
-  const card = useRef<HTMLButtonElement>(null);
+  const card = useRef<HTMLDivElement>(null);
   const timer = useRef<Animation>(undefined);
   const expire = useRef(dismiss);
   const removed = useRef(remove);
@@ -105,20 +114,26 @@ function ToastItem({ toast, side, dismiss, remove }: { toast: Toast; side: "left
   const { icon: Icon, color, bar } = KINDS[toast.kind];
   return <div className={`grid w-full transition-[grid-template-rows] duration-200 ${toast.leaving ? "grid-rows-[0fr] ease-exit" : "grid-rows-[1fr]"}`}>
     <div className={cn("flex min-h-0 items-end", side === "right" ? "justify-end" : "justify-start")}>
-      <button ref={card} type="button" title={toast.description ? `${toast.description}\nSelect to dismiss.` : "Select to dismiss."} disabled={toast.leaving} onClick={dismiss}
-        onFocus={() => timer.current?.pause()} onBlur={() => { if (!toast.leaving) timer.current?.play(); }}
-        className="pointer-events-auto relative mx-2 mt-2 mb-1 flex w-max max-w-[min(560px,100%)] min-w-64 items-start gap-3 overflow-hidden rounded-xl bg-popover py-2 pr-3 pl-4 text-left text-popover-foreground shadow-lg shadow-shadow/20 ring-1 ring-foreground/10 outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+      <div ref={card} className="pointer-events-auto relative mx-2 mt-2 mb-1 flex w-max max-w-[min(560px,100%)] min-w-64 items-start gap-2 overflow-hidden rounded-xl bg-popover py-2 pr-2 pl-4 text-popover-foreground shadow-lg shadow-shadow/20 ring-1 ring-foreground/10 has-[[data-dismiss]:focus-visible]:ring-3 has-[[data-dismiss]:focus-visible]:ring-ring/50">
         <span className={cn("absolute inset-y-0 left-0 w-1", bar)} aria-hidden="true" />
-        <Icon className={cn("mt-px size-5 shrink-0", color)} aria-hidden="true" />
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium">{toast.title}</span>
-          {toast.description && <span className="line-clamp-2 text-sm text-muted-foreground">{toast.description}</span>}
-        </span>
-        {toast.kind !== "error" && <svg viewBox="0 0 16 16" className="mt-0.5 size-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true">
-          <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-25" />
-          <circle ref={ring} cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" pathLength="1" strokeDasharray="1" strokeLinecap="round" />
-        </svg>}
-      </button>
+        <button data-dismiss type="button" title={toast.description ? `${toast.description}\nSelect to dismiss.` : "Select to dismiss."} disabled={toast.leaving} onClick={dismiss}
+          onFocus={() => timer.current?.pause()} onBlur={() => { if (!toast.leaving) timer.current?.play(); }}
+          className="flex min-w-0 flex-1 items-start gap-3 pr-1 text-left outline-none">
+          <Icon className={cn("mt-px size-5 shrink-0", color)} aria-hidden="true" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium">{toast.title}</span>
+            {toast.description && <span className="line-clamp-2 text-sm text-muted-foreground">{toast.description}</span>}
+          </span>
+          {toast.kind !== "error" && <svg viewBox="0 0 16 16" className="mt-0.5 size-4 shrink-0 -rotate-90 text-muted-foreground" aria-hidden="true">
+            <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" className="opacity-25" />
+            <circle ref={ring} cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" pathLength="1" strokeDasharray="1" strokeLinecap="round" />
+          </svg>}
+        </button>
+        {toast.kind === "error" && copyLogs && <button type="button" disabled={toast.leaving} onClick={() => copyLogs(toast.message)}
+          className="flex h-6 shrink-0 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50">
+          <Copy className="size-3" aria-hidden="true" />Copy logs
+        </button>}
+      </div>
     </div>
   </div>;
 }

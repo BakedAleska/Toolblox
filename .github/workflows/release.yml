@@ -1,6 +1,6 @@
 name: Release
 
-# Sets the version and changelog date, tests, builds and signs the Windows installer and the universal macOS app,
+# Sets the version and changelog date, waits for CI to pass, builds and signs the Windows installer and the universal macOS app,
 # commits and tags the version, publishes the GitHub release, and deploys the update manifest that
 # moves installed apps to it.
 on:
@@ -69,12 +69,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          # Docs also has a Windows job named build, and would otherwise share this cache.
+          shared-key: release
       - run: node scripts/set-version.mjs "$VERSION"
       - run: npm ci
-      - run: npm run check
-      - run: npm test
-      - run: cargo test
-        working-directory: src-tauri
       - name: Build
         run: |
           if [ "${{ matrix.platform }}" = macos ]; then
@@ -110,8 +108,31 @@ jobs:
           name: Toolblox-${{ matrix.platform }}-${{ inputs.version }}
           path: release
 
+  # CI runs at the same time as the build. Nothing is published unless it passes on this commit.
+  ci:
+    needs: check
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Wait for CI
+        run: |
+          for attempt in $(seq 12); do
+            id=$(gh run list --workflow ci.yml --branch main --commit "$GITHUB_SHA" -L 1 --json databaseId --jq '.[0].databaseId')
+            if [ -n "$id" ]; then
+              gh run watch "$id" --exit-status --interval 10 > /dev/null
+              exit
+            fi
+            sleep 10
+          done
+          echo "::error::CI hasn't run on this commit. Run Actions → CI on main, then release again."
+          exit 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+
   release:
-    needs: build
+    needs: [build, ci]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     env:

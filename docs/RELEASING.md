@@ -9,8 +9,13 @@
    the current one.
 4. Run it. Tick **Build only** first to test a build without publishing anything.
 
+There's no need to wait for CI first. The workflow builds while CI runs, and publishes only if CI
+passes on the same commit. CI doesn't run on the commit a release makes, so to release again
+straight after one, run **Actions → CI** on `main`. Don't push to `main` while a release runs, or
+its version commit can't be pushed.
+
 The workflow sets the version in every file, replaces `*Unreleased*` in the changelog with the
-date, runs the checks, builds and signs the Windows installer on Windows and the universal macOS app on macOS in parallel, commits
+date, builds and signs the Windows installer on Windows and the universal macOS app on macOS in parallel, commits
 `chore(release): <version>`, tags `v<version>`, and publishes a GitHub release with
 `Toolblox-Setup.exe`, `Toolblox.dmg`, their updater files, notes generated from `feat`, `fix`,
 and `perf` commits, and both SHA-256 digests. It then deploys the update manifest, so installed apps update the next

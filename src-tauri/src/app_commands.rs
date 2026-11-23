@@ -1882,9 +1882,8 @@ pub fn show_notification(app: AppHandle, title: String, body: String) -> Result<
         .map_err(command_error)
 }
 
-/// Ends a widget session.
-/// Event sent to every window after development builds reinstall widgets from the working tree.
-#[cfg(debug_assertions)]
+/// Event sent to every window when the widget catalogue reloads, or when development builds reinstall
+/// widgets from the working tree.
 pub const WIDGETS_CHANGED: &str = "widgets-changed";
 
 /// Reinstalls installed widgets whose folder under `widgets/` in the working tree changed since the

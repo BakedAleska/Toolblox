@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "autohotkey",
+  "name": "AutoHotkey",
+  "version": "1.0.1",
+  "description": "Lists AutoHotkey scripts from a folder on this device, and runs, reloads, stops, creates, and edits them. Shows every running script and opens Window Spy. Needs AutoHotkey installed, on Windows. Nothing is sent anywhere.",
+  "icon": "icon.png",
+  "banner": "banner.png",
+  "module": "main.js",
+  "minAppVersion": "0.4.6",
+  "permissions": ["process.spawn"],
+  "processes": [
+    { "id": "helper-windows", "executable": "optional-bin/ahk.exe" }
+  ]
+}

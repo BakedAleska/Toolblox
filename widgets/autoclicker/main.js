@@ -313,8 +313,8 @@ export async function activate(toolblox) {
       const on = current.pauseWhen.includes(reason.key);
       return h("div", { key: reason.key, className: BIND_ROW }, h(system.TileRow, { actions: h(ui.Switch, { checked: on, "aria-label": `${reason.label}, from ${reason.widgetName}`,
         onCheckedChange: (checked) => changeConfig({ pauseWhen: checked ? [...current.pauseWhen, reason.key] : current.pauseWhen.filter((key) => key !== reason.key) }) }) },
-        ui.FromWidget ? h(ui.FromWidget, { name: reason.widgetName }) : h("span", { className: "text-xs text-muted-foreground" }, reason.widgetName),
-        h("span", { className: "truncate text-sm" }, reason.label)));
+        h("span", { className: "flex min-w-0 items-center gap-2" }, h("span", { className: "truncate text-sm" }, reason.label),
+          ui.FromWidget ? h(ui.FromWidget, { name: reason.widgetName }) : h("span", { className: "text-xs text-muted-foreground" }, reason.widgetName))));
     });
   }
 

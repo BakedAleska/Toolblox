@@ -64,6 +64,11 @@ export function SettingsScreen({ themes, widgetId, ...props }: ScreenProps & { t
           <SwitchRow title="Run in background" description="Closing the window keeps Toolblox running in the system tray or menu bar." checked={settings.runInBackground} change={(value) => void patchSettings("runInBackground", value)} />
           <SwitchRow title="Always on top" checked={settings.alwaysOnTop} change={(value) => void patchSettings("alwaysOnTop", value)} />
         </Panel></Group>
+        <Group title="Roblox"><Panel className="divide-y">
+          <SettingRow title="Close all clients" description="Closes every running Roblox client on this device, and force-closes any that don't respond." control={() =>
+            <Button variant="outline" size="sm" onClick={() => props.confirm({ title: "Close all clients?", message: "Unsaved progress in every open Roblox client is lost.", action: "Close all", danger: true,
+              run: async () => { const count = await bridge.closeAllClients(); props.done(count ? `Closed ${count} ${count === 1 ? "client" : "clients"}.` : "No Roblox clients are running."); } })}>Close all</Button>} />
+        </Panel></Group>
       </TabsContent>
 
       <TabsContent value="about" className={columns}>
@@ -99,6 +104,7 @@ export function SettingsScreen({ themes, widgetId, ...props }: ScreenProps & { t
           <SwitchRow title="Compact list" checked={settings.compactMode} change={(value) => void patchSettings("compactMode", value)} />
         </Panel></Group>
         <Group title="Joining"><Panel className="divide-y">
+          <SwitchRow title="Ask destination on each join" description="Opens the destination picker every time accounts join, and all selected accounts join the chosen destination." checked={settings.askDestination} change={(value) => void patchSettings("askDestination", value)} />
           <SwitchRow title="Minimize on join" description="Minimizes this window once Roblox opens." checked={settings.minimizeOnJoin} change={(value) => void patchSettings("minimizeOnJoin", value)} />
           <SwitchRow title="Multiple instances" description="Allows several Roblox clients to run at the same time." checked={settings.multiInstance} change={(value) => void patchSettings("multiInstance", value)} />
         </Panel></Group>

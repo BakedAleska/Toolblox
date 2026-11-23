@@ -61,8 +61,6 @@ pub enum RobloxError {
     Network,
     /// Roblox refused the request with this HTTP status.
     Rejected(u16),
-    /// The followed player isn't in a game.
-    NotInGame,
     /// Roblox asked for a verification check that only roblox.com can show.
     Challenged,
 }
@@ -85,10 +83,6 @@ impl fmt::Display for RobloxError {
             Self::Rejected(status) => write!(
                 formatter,
                 "Roblox rejected the request (status {status}). Is the account still signed in?"
-            ),
-            Self::NotInGame => write!(
-                formatter,
-                "The player isn't in a game. Can you try again once they're playing?"
             ),
             Self::Challenged => write!(
                 formatter,
@@ -564,9 +558,22 @@ async fn send_with_session(
         return Err(RobloxError::Challenged);
     }
     if !response.status().is_success() {
-        return Err(RobloxError::Rejected(response.status().as_u16()));
+        let status = response.status().as_u16();
+        let body = response.text().await.unwrap_or_default();
+        if let Some(reason) = roblox_error_reason(&body) {
+            log::info!("Roblox rejected a request with status {status}: {reason}");
+        }
+        return Err(RobloxError::Rejected(status));
     }
     Ok(response)
+}
+
+/// Reads the first error code and message from a Roblox error body, at most 200 characters.
+fn roblox_error_reason(body: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    let error = value["errors"].as_array()?.first()?;
+    let reason = format!("code {} {}", error["code"], error["message"]);
+    Some(reason.chars().take(200).collect())
 }
 
 /// A player found by name.
@@ -1612,6 +1619,16 @@ mod tests {
         assert!(uri.contains("request%3DRequestGame%26"));
         assert!(uri.contains("placeId%3D1818%26"));
         assert!(!uri.contains("request=RequestGame"));
+    }
+
+    #[test]
+    fn error_reason_reads_only_the_first_roblox_error() {
+        assert_eq!(
+            roblox_error_reason(r#"{"errors":[{"code":14,"message":"captcha"},{"code":1}]}"#),
+            Some(r#"code 14 "captcha""#.into())
+        );
+        assert_eq!(roblox_error_reason("<html>"), None);
+        assert_eq!(roblox_error_reason("{}"), None);
     }
 
     #[test]

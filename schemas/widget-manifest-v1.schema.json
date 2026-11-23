@@ -82,6 +82,11 @@
       "enum": ["portrait", "landscape"],
       "default": "portrait"
     },
+    "popoutOnTop": {
+      "description": "Keeps the widget's own window above other windows.",
+      "type": "boolean",
+      "default": false
+    },
     "processes": {
       "type": "array",
       "items": {

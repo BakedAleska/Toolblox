@@ -187,6 +187,48 @@ where
     Ok(())
 }
 
+/// Window label of the signed-in Roblox profile webview.
+pub const PROFILE_WINDOW_LABEL: &str = "roblox-profile";
+
+/// Opens an isolated, incognito roblox.com window signed in with `session`, on the profile of
+/// `user_id`, for actions Roblox only allows after a verification check it shows itself. An open
+/// profile window is replaced. The session cookie is HTTP-only, so the page can't read it, and
+/// the incognito data is discarded when the window closes. Navigation is limited to HTTPS Roblox
+/// hosts, and new windows are blocked.
+pub fn open_roblox_profile(
+    app: &tauri::AppHandle,
+    session: &crate::credentials::Secret,
+    user_id: u64,
+) -> Result<(), LoginError> {
+    if let Some(window) = app.get_webview_window(PROFILE_WINDOW_LABEL) {
+        let _ = window.destroy();
+    }
+    let blank = "about:blank".parse().map_err(|_| LoginError::Window)?;
+    let window = WebviewWindowBuilder::new(app, PROFILE_WINDOW_LABEL, WebviewUrl::External(blank))
+        .title("Roblox")
+        .inner_size(1000.0, 720.0)
+        .incognito(true)
+        .devtools(false)
+        .on_navigation(|url| url.as_str() == "about:blank" || is_allowed_roblox_navigation(url))
+        .on_new_window(|_, _| NewWindowResponse::Deny)
+        .build()
+        .map_err(|_| LoginError::Window)?;
+    let cookie = tauri::webview::cookie::Cookie::build((SECURITY_COOKIE_NAME, session.expose()))
+        .domain(".roblox.com")
+        .path("/")
+        .secure(true)
+        .http_only(true)
+        .build();
+    let profile = format!("https://www.roblox.com/users/{user_id}/profile")
+        .parse()
+        .map_err(|_| LoginError::Window)?;
+    if window.set_cookie(cookie).is_err() || window.navigate(profile).is_err() {
+        let _ = window.destroy();
+        return Err(LoginError::Window);
+    }
+    Ok(())
+}
+
 /// Allows navigation only to `roblox.com` and its subdomains over HTTPS.
 pub fn is_allowed_roblox_navigation(url: &tauri::Url) -> bool {
     url.scheme() == "https"

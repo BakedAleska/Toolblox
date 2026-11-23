@@ -18,11 +18,41 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-/// Closes the singleton handles of Roblox processes that started since the last call, so the next
-/// client can open alongside them.
+/// The named event `RobloxPlayerBeta.exe` creates to refuse a second client.
+#[cfg(windows)]
+const ROBLOX_SINGLETON: &str = "ROBLOX_singletonEvent";
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn CreateMutexW(
+        attributes: *const std::ffi::c_void,
+        initial_owner: i32,
+        name: *const u16,
+    ) -> *mut std::ffi::c_void;
+    fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
+}
+
+/// The handle of the mutex holding the Roblox singleton name, or 0.
+#[cfg(windows)]
+static SINGLETON_HANDLE: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+
+/// Creates a mutex under `name` and returns its handle. Returns `None` when the name is already
+/// taken by an object of another type, such as an event.
+#[cfg(windows)]
+fn hold_name(name: &str) -> Option<usize> {
+    let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+    // SAFETY: `wide` is NUL-terminated and outlives the call; null attributes are allowed.
+    let handle = unsafe { CreateMutexW(std::ptr::null(), 0, wide.as_ptr()) };
+    (!handle.is_null()).then_some(handle as usize)
+}
+
+/// Lets the next Roblox client open alongside running ones.
 ///
-/// `cleared` holds the process IDs already handled and drops IDs that have exited. Does nothing
-/// outside Windows.
+/// Holds Roblox's singleton name as a mutex, so clients started afterwards can't create the
+/// shared event and never signal or wait on each other. When a client already owns the event,
+/// the helper closes the handle of each process not yet in `cleared`, once, and the name is
+/// held after that. `cleared` drops IDs that have exited. Does nothing outside Windows.
 pub fn clear_new_roblox_instances(
     helper: Option<&Path>,
     cleared: &mut HashSet<u32>,
@@ -34,28 +64,66 @@ pub fn clear_new_roblox_instances(
     }
     #[cfg(windows)]
     {
-        let helper = helper.filter(|path| path.is_file()).ok_or_else(|| {
-            "The multi-instance helper isn't installed. Can you reinstall Toolblox?".to_string()
-        })?;
-        let running = crate::roblox_process::roblox_pids()?;
-        cleared.retain(|pid| running.contains(pid));
-        let new: Vec<_> = running.difference(cleared).copied().collect();
-        if new.is_empty() {
+        let mut held = SINGLETON_HANDLE
+            .lock()
+            .map_err(|_| "The multi-instance state is busy. Can you try again?".to_string())?;
+        if *held != 0 {
             return Ok(());
         }
-        let status = Command::new(helper)
-            .args(new.iter().map(u32::to_string))
-            .creation_flags(CREATE_NO_WINDOW)
-            .status()
-            .map_err(|_| {
-                "The multi-instance helper couldn't start. Can you try again?".to_string()
-            })?;
-        if !status.success() {
-            return Err("The multi-instance helper failed. Can you try again?".into());
+        if let Some(handle) = hold_name(ROBLOX_SINGLETON) {
+            *held = handle;
+            return Ok(());
         }
-        cleared.extend(new);
+        close_singleton_handles(helper, cleared)?;
+        match hold_name(ROBLOX_SINGLETON) {
+            Some(handle) => *held = handle,
+            None => {
+                log::warn!("Roblox's single-instance name couldn't be held after clearing it");
+                cleared.clear();
+            }
+        }
         Ok(())
     }
+}
+
+/// Releases the Roblox singleton name, so Roblox allows one client again. Does nothing when the
+/// name isn't held or outside Windows.
+pub fn release_roblox_singleton() {
+    #[cfg(windows)]
+    if let Ok(mut held) = SINGLETON_HANDLE.lock()
+        && *held != 0
+    {
+        // SAFETY: `held` is an open handle from `CreateMutexW`, closed only here.
+        unsafe { CloseHandle(*held as *mut std::ffi::c_void) };
+        *held = 0;
+    }
+}
+
+/// Runs the helper on Roblox processes not yet in `cleared`.
+#[cfg(windows)]
+fn close_singleton_handles(
+    helper: Option<&Path>,
+    cleared: &mut HashSet<u32>,
+) -> Result<(), String> {
+    let helper = helper.filter(|path| path.is_file()).ok_or_else(|| {
+        "The multi-instance helper isn't installed. Can you reinstall Toolblox?".to_string()
+    })?;
+    let running = crate::roblox_process::roblox_pids()?;
+    cleared.retain(|pid| running.contains(pid));
+    let new: Vec<_> = running.difference(cleared).copied().collect();
+    if new.is_empty() {
+        return Ok(());
+    }
+    let status = Command::new(helper)
+        .args(new.iter().map(u32::to_string))
+        .creation_flags(CREATE_NO_WINDOW)
+        .status()
+        .map_err(|_| "The multi-instance helper couldn't start. Can you try again?".to_string())?;
+    if !status.success() {
+        return Err("The multi-instance helper failed. Can you try again?".into());
+    }
+    cleared.extend(new);
+    Ok(())
 }
 
 /// The POSIX semaphore the macOS Roblox player uses to refuse a second client.
@@ -157,6 +225,43 @@ mod tests {
 
         std::fs::create_dir_all(first.path().join("Roblox.app").join(PLAYER_EXECUTABLE)).unwrap();
         assert_eq!(find_roblox_player(&dirs), Some(player));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn held_name_blocks_an_event_with_the_same_name() {
+        unsafe extern "system" {
+            fn CreateEventW(
+                attributes: *const std::ffi::c_void,
+                manual_reset: i32,
+                initial_state: i32,
+                name: *const u16,
+            ) -> *mut std::ffi::c_void;
+        }
+        let create_event = |name: &str| {
+            let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+            // SAFETY: `wide` is NUL-terminated and outlives the call.
+            unsafe { CreateEventW(std::ptr::null(), 0, 0, wide.as_ptr()) }
+        };
+        // SAFETY: each handle is open and closed once.
+        let close = |handle: *mut std::ffi::c_void| unsafe { CloseHandle(handle) };
+
+        let held = format!("tbx-held-{}", std::process::id());
+        let first = hold_name(&held).unwrap();
+        let second = hold_name(&held).unwrap();
+        assert!(create_event(&held).is_null());
+        close(first as _);
+        close(second as _);
+        let event = create_event(&held);
+        assert!(!event.is_null());
+        close(event);
+
+        let taken = format!("tbx-taken-{}", std::process::id());
+        let event = create_event(&taken);
+        assert!(!event.is_null());
+        assert_eq!(hold_name(&taken), None);
+        close(event);
+        close(hold_name(&taken).unwrap() as _);
     }
 
     #[cfg(target_os = "macos")]

@@ -1,5 +1,5 @@
-import { MoreHorizontal, Plus, Puzzle, RefreshCw } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { MoreHorizontal, Plus, Puzzle, RefreshCw, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
@@ -27,6 +27,7 @@ export function Widgets({ state, refresh, navigate, notify, done, confirm }: Scr
   const catalogue = useRef<HTMLElement>(null);
   const stop = useRef(() => {});
   const { showAnimations, ignoreReducedMotion, widgetsOpenInstalled } = state.settings;
+  const browsable = state.installedWidgets.length > 0 && state.catalogue.length > 0;
   const still = () => !showAnimations || (!ignoreReducedMotion && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const toCatalogue = () => {
     stop.current();
@@ -49,7 +50,7 @@ export function Widgets({ state, refresh, navigate, notify, done, confirm }: Scr
     const events = ["wheel", "pointerdown", "keydown", "touchstart"] as const;
     const cancel = () => { window.clearTimeout(timer); stop.current(); };
     events.forEach((name) => window.addEventListener(name, cancel, { passive: true }));
-    const timer = widgetsOpenInstalled || !state.installedWidgets.length ? 0 : window.setTimeout(toCatalogue, still() ? 0 : 800);
+    const timer = widgetsOpenInstalled || !browsable ? 0 : window.setTimeout(toCatalogue, still() ? 0 : 800);
     return () => { cancel(); events.forEach((name) => window.removeEventListener(name, cancel)); };
   }, []);
   const install = (entry: CatalogueEntry) => confirm({ scale: "small", title: `Install ${entry.name}?`, message: entry.permissions.length ? `Requested permissions: ${permissionSummary(entry.permissions)}. No other access is granted.` : "This widget requests no special permissions.", action: "Install", run: () => run(entry.id, () => bridge.installWidget(entry), `${entry.name} couldn't be installed.`, `${entry.name} installed.`) });
@@ -66,8 +67,8 @@ export function Widgets({ state, refresh, navigate, notify, done, confirm }: Scr
         error={errors.get(widget.id)} />)}</div>
     </section>}
 
-    <section ref={catalogue} className={cn("flex scroll-mt-16 flex-col gap-2", state.installedWidgets.length > 0 && "min-h-[calc(100dvh-5rem)]")} aria-labelledby="catalogue-title">
-      <SectionTitle>{state.installedWidgets.length ? <button type="button" id="catalogue-title" className="inline-flex items-center gap-1 rounded-sm outline-none transition-colors hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50" onClick={toCatalogue}>Catalogue</button> : <span id="catalogue-title">Catalogue</span>}{!state.catalogueError && !state.catalogue.length && <span className="ml-2 font-normal text-muted-foreground/80">No widgets available</span>}</SectionTitle>
+    <section ref={catalogue} className={cn("flex scroll-mt-16 flex-col gap-2", browsable && "min-h-[calc(100dvh-5rem)]")} aria-labelledby="catalogue-title">
+      <SectionTitle>{browsable ? <button type="button" id="catalogue-title" className="inline-flex items-center gap-1 rounded-sm outline-none transition-colors hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50" onClick={toCatalogue}>Catalogue</button> : <span id="catalogue-title">Catalogue</span>}{!state.catalogueError && !state.catalogue.length && <span className="ml-2 font-normal text-muted-foreground/80">No widgets available</span>}</SectionTitle>
       {state.catalogueError ? <Panel className="flex items-center gap-3 px-4 py-3">
         <p className="flex-1 text-sm text-destructive">The catalogue couldn't be loaded. Is the connection working? ({state.catalogueError})</p>
         <Button variant="outline" size="sm" disabled={working.has("catalogue")} onClick={() => void run("catalogue", () => bridge.retryCatalogue(), "The catalogue couldn't be refreshed.", "Catalogue refreshed.")}>{working.has("catalogue") ? <Spinner /> : <RefreshCw />}Retry</Button>
@@ -90,6 +91,10 @@ function WidgetCard({ name, logoUrl, bannerUrl, meta, description, permissions, 
   const [bannerFailed, setBannerFailed] = useState(false);
   const logo = logoUrl && !failed ? logoUrl : undefined;
   const banner = bannerUrl && !bannerFailed ? bannerUrl : undefined;
+  const text = useRef<HTMLParagraphElement>(null);
+  const [clipped, setClipped] = useState(false);
+  const [reading, setReading] = useState(false);
+  useLayoutEffect(() => { const el = text.current; if (el) setClipped(el.scrollHeight > el.clientHeight + 1); }, [description]);
   return <Panel className={cn("group/card relative isolate flex aspect-square w-64 flex-col overflow-hidden", lift, className)}>
     <div className={cn("absolute inset-x-0 top-0 -z-10 h-16 overflow-hidden bg-muted mask-[linear-gradient(to_bottom,black,transparent)] transition-[filter]", !active && "grayscale")} aria-hidden="true">
       {banner && <img src={banner} alt="" className="size-full object-cover transition-transform duration-700 ease-enter group-hover/card:scale-110" onError={() => setBannerFailed(true)} />}
@@ -106,12 +111,22 @@ function WidgetCard({ name, logoUrl, bannerUrl, meta, description, permissions, 
         {meta && <p className="text-xs text-muted-foreground">{meta}</p>}
       </div>
       <div className="min-h-0 flex-1 space-y-1 overflow-hidden">
-        <p className="line-clamp-2 text-sm text-muted-foreground">{description || "No description."}</p>
+        <div className="group/text relative">
+          <p ref={text} className={cn("line-clamp-2 text-sm text-muted-foreground", clipped && "transition-colors group-hover/text:text-foreground")}>{description || "No description."}</p>
+          {clipped && <button type="button" className="absolute inset-0 cursor-pointer rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50" aria-label={`Read the full description of ${name}`} onClick={() => setReading(true)} />}
+        </div>
         <p className="line-clamp-1 text-xs text-muted-foreground/80">{access(permissions)}</p>
         {requirement}
       </div>
       <div className="flex shrink-0 items-center gap-2">{footer}</div>
     </div>
+    {reading && <div className="absolute inset-0 z-10 flex flex-col gap-2 bg-card p-4" role="region" aria-label={`${name} description`} onKeyDown={(event) => { if (event.key === "Escape") setReading(false); }}>
+      <div className="flex shrink-0 items-center gap-2">
+        <p className="min-w-0 flex-1 truncate font-semibold tracking-tight">{name}</p>
+        <Button variant="ghost" size="icon-sm" autoFocus aria-label="Close description" onClick={() => setReading(false)}><X /></Button>
+      </div>
+      <p className="-mr-2 min-h-0 flex-1 overflow-y-auto overscroll-contain pr-2 text-sm/relaxed whitespace-pre-line text-muted-foreground [scrollbar-width:thin]">{description}</p>
+    </div>}
   </Panel>;
 }
 

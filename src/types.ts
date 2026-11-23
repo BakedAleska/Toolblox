@@ -74,10 +74,11 @@ export interface Settings {
   /** A place ID, or `@` and a user ID to follow a player. */
   placeId: string;
   multiInstance: boolean;
-  joinDelaySeconds: number;
   autoRejoin: boolean;
   openOnLaunch: boolean;
   runInBackground: boolean;
+  /** Opens the destination picker before every manual join. */
+  askDestination: boolean;
   minimizeOnJoin: boolean;
   notifyOnDrop: boolean;
   alwaysOnTop: boolean;

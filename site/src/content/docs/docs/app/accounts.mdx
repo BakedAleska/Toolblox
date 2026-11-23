@@ -531,7 +531,7 @@ that URI to the operating system, which starts the installed Roblox client.
                                        if multiInstance on macOS: open_new_roblox_instance(uri)
                                        else: opener::open("roblox-player:1+...")  ─► OS ─► Roblox client
                                        if record_play: record_play(now, place)
-                                       sleep(delay) before the next account
+                                       wait_until_in_game before the next account
         ▼
  if minimizeOnJoin: minimize main window
 ```
@@ -585,8 +585,14 @@ the ticket, it's never logged or returned; the doc comment on `build_join_uri` s
 Ticket requests that fail for any reason other than `InvalidPlace` are retried up to
 `LAUNCH_RETRIES` (3) times. Each failure doubles the delay with `next_launch_delay`, starting at
 `FIRST_LAUNCH_DELAY` (1 s) and capped at `MAX_LAUNCH_DELAY` (5 s), so the sequence is 1, 2, 4, 5, 5
-seconds. The increased delay persists for the rest of the batch and is also the gap between
-consecutive launches. An `InvalidPlace` fails immediately.
+seconds. The increased delay persists for later retries in the same batch. An `InvalidPlace` fails
+immediately.
+
+Accounts join as a queue. After opening Roblox for one account, `wait_until_in_game` checks that
+account's presence every `QUEUE_POLL` (2 s) and launches the next account once Roblox reports it in
+game, or after `QUEUE_TIMEOUT` (120 s) for a client that crashed or never finished loading. An
+account that was already in game counts as joined at once. Cancelling stops the wait. There's no
+setting for this.
 
 ### Opening the client and recording the join
 
@@ -604,7 +610,10 @@ path doesn't.
 
 Roblox normally allows one client per machine by holding a singleton handle. With
 **multiInstance** on, `join_account_ids` calls
-`multi_instance::clear_new_roblox_instances` before opening each URI:
+`multi_instance::clear_new_roblox_instances` before opening each URI. It first creates a mutex
+named `ROBLOX_singletonEvent` and holds it until Toolblox exits or an account opens with `multiInstance` off.
+Clients started afterwards can't create their event under that name, so they never share one,
+and nothing else runs. Only when a client already owns the event does the helper run:
 
 <Steps>
 

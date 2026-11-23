@@ -54,10 +54,10 @@ const demoState: AppState = {
     sortOrder: "last_played",
     placeId: "",
     multiInstance: false,
-    joinDelaySeconds: 1,
     autoRejoin: false,
     openOnLaunch: false,
     runInBackground: true,
+    askDestination: false,
     minimizeOnJoin: false,
     notifyOnDrop: false,
     alwaysOnTop: false,
@@ -303,6 +303,10 @@ export const bridge = {
   changeRelationship: (accountId: number, userId: number, action: SocialAction) =>
     call<void>("change_relationship", { accountId, userId, action }, () => { Object.assign(demoRelationship(accountId, userId), demoSocial[action]); }),
 
+  /** Opens a player's Roblox profile in a window signed in as an account, where Roblox shows its own verification checks. */
+  openRobloxProfile: (accountId: number, userId: number) =>
+    call<void>("open_roblox_profile", { accountId, userId }, () => { window.open(`https://www.roblox.com/users/${userId}/profile`, "_blank", "noopener"); }),
+
   /** The account's online friends, in-game friends first. */
   getOnlineFriends: (accountId: number) =>
     call<OnlineFriend[]>("get_online_friends", { accountId }, () => [
@@ -405,6 +409,8 @@ export const bridge = {
   readFullLog: () => call<string>("read_log", { lines: null, all: true }, () => demoLog.join("\n")),
   openLogFolder: () => call<void>("open_log_folder", {}, () => undefined),
   openDataFolder: () => call<void>("open_data_folder", {}, () => undefined),
+  /** Closes every running Roblox client, force-closing any that don't respond, and returns how many were running. */
+  closeAllClients: () => call<number>("close_all_clients", {}, () => 0),
   writeLog,
   /** The custom theme CSS. */
   getTheme: () => call<string>("get_theme", {}, () => demoTheme),

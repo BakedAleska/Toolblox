@@ -194,6 +194,7 @@ pub fn run() {
                 widgets_root,
                 catalogue: Mutex::new(None),
                 catalogue_error: Mutex::new(None),
+                catalogue_checked: Mutex::new(None),
                 processes: Arc::clone(&processes),
                 widget_sessions: Mutex::new(widget_ipc::WidgetSessions::default()),
                 multi_instance_helper: Some(
@@ -321,6 +322,7 @@ pub fn run() {
             app_commands::search_players,
             app_commands::get_relationship,
             app_commands::change_relationship,
+            app_commands::open_roblox_profile,
             app_commands::forget_recent_place,
             app_commands::get_widget_store,
             app_commands::set_widget_store,
@@ -347,6 +349,7 @@ pub fn run() {
             app_commands::read_log,
             app_commands::open_log_folder,
             app_commands::open_data_folder,
+            app_commands::close_all_clients,
             app_commands::write_log,
             app_commands::get_theme,
             app_commands::save_theme,

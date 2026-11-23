@@ -30,6 +30,8 @@ pub struct Runtime {
     pub catalogue: Mutex<Option<Catalogue>>,
     /// Why the catalogue couldn't be loaded, shown on the Widgets screen.
     pub catalogue_error: Mutex<Option<String>>,
+    /// When the catalogue was last requested, successfully or not.
+    pub catalogue_checked: Mutex<Option<std::time::Instant>>,
     pub processes: Arc<Mutex<WidgetProcessManager>>,
     /// Active widget frame sessions.
     pub widget_sessions: Mutex<crate::widget_ipc::WidgetSessions>,
@@ -106,11 +108,11 @@ pub struct SettingsDto {
     sort_order: crate::models::SortOrder,
     place_id: String,
     multi_instance: bool,
-    #[serde(default = "default_join_delay_seconds")]
-    join_delay_seconds: u64,
     auto_rejoin: bool,
     open_on_launch: bool,
     run_in_background: bool,
+    #[serde(default)]
+    ask_destination: bool,
     minimize_on_join: bool,
     notify_on_drop: bool,
     always_on_top: bool,
@@ -138,10 +140,10 @@ impl From<&Settings> for SettingsDto {
             sort_order: settings.sort_order.clone(),
             place_id: settings.place_id.clone(),
             multi_instance: settings.multi_instance,
-            join_delay_seconds: settings.join_delay_seconds,
             auto_rejoin: settings.auto_rejoin,
             open_on_launch: settings.open_on_launch,
             run_in_background: settings.run_in_background,
+            ask_destination: settings.ask_destination,
             minimize_on_join: settings.minimize_on_join,
             notify_on_drop: settings.notify_on_drop,
             always_on_top: settings.always_on_top,
@@ -550,26 +552,66 @@ pub fn take_updated(runtime: State<'_, Runtime>) -> bool {
         .swap(false, std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Returns the full interface state, loading the catalogue first if it hasn't been tried.
+/// How long a loaded catalogue is used before the next state request checks for newer widgets.
+const CATALOGUE_FRESH: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+/// How soon a failed catalogue download is retried, such as when Toolblox starts before the
+/// network is up.
+const CATALOGUE_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Whether the catalogue should be requested again.
+fn catalogue_due(
+    checked: Option<std::time::Instant>,
+    failed: bool,
+    now: std::time::Instant,
+) -> bool {
+    let wait = if failed {
+        CATALOGUE_RETRY
+    } else {
+        CATALOGUE_FRESH
+    };
+    checked.is_none_or(|at| now.saturating_duration_since(at) >= wait)
+}
+
+/// Records a catalogue check when one is due. Returns whether this is the first check.
+fn claim_catalogue_check(runtime: &Runtime) -> Option<bool> {
+    let failed = runtime
+        .catalogue_error
+        .lock()
+        .is_ok_and(|error| error.is_some());
+    let mut checked = runtime.catalogue_checked.lock().ok()?;
+    let now = std::time::Instant::now();
+    if !catalogue_due(*checked, failed, now) {
+        return None;
+    }
+    let first = checked.is_none();
+    *checked = Some(now);
+    Some(first)
+}
+
+/// Returns the full interface state. The first call waits for the catalogue; later calls recheck
+/// it in the background when it's stale and announce `WIDGETS_CHANGED` once it loads.
 /// Development builds without a catalogue URL rebuild it from the working tree on every call.
 #[tauri::command]
 pub async fn get_app_state(
     app: AppHandle,
     runtime: State<'_, Runtime>,
 ) -> Result<AppStateDto, String> {
-    let catalogue_unset = runtime
-        .catalogue
-        .lock()
-        .map(|value| value.is_none())
-        .unwrap_or(false)
-        && runtime
-            .catalogue_error
-            .lock()
-            .map(|value| value.is_none())
-            .unwrap_or(false);
-    let local_catalogue = cfg!(debug_assertions) && option_env!("TOOLBLOX_CATALOGUE_URL").is_none();
-    if catalogue_unset || local_catalogue {
+    if cfg!(debug_assertions) && option_env!("TOOLBLOX_CATALOGUE_URL").is_none() {
         let _ = refresh_catalogue_data(&runtime).await;
+    } else if let Some(first) = claim_catalogue_check(&runtime) {
+        if first {
+            let _ = refresh_catalogue_data(&runtime).await;
+        } else {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if refresh_catalogue_data(&app.state::<Runtime>())
+                    .await
+                    .is_ok()
+                {
+                    let _ = app.emit(WIDGETS_CHANGED, ());
+                }
+            });
+        }
     }
     let settings = runtime.storage.load_settings().map_err(command_error)?;
     let settings = name_recent_places(&runtime, settings).await;
@@ -668,10 +710,10 @@ pub async fn save_settings(
         })
         .map_err(command_error)?;
     saved.multi_instance = settings.multi_instance;
-    saved.join_delay_seconds = settings.join_delay_seconds;
     saved.auto_rejoin = settings.auto_rejoin;
     saved.open_on_launch = settings.open_on_launch;
     saved.run_in_background = settings.run_in_background;
+    saved.ask_destination = settings.ask_destination;
     saved.minimize_on_join = settings.minimize_on_join;
     saved.notify_on_drop = settings.notify_on_drop;
     saved.always_on_top = settings.always_on_top;
@@ -1044,6 +1086,21 @@ pub async fn change_relationship(
         }
         Err(error) => Err(command_error(error)),
     }
+}
+
+/// Opens a player's Roblox profile in a window signed in as an account, for friend requests and
+/// follows Roblox only allows after its own verification check.
+#[tauri::command]
+pub async fn open_roblox_profile(
+    app: AppHandle,
+    account_id: u64,
+    user_id: u64,
+    runtime: State<'_, Runtime>,
+) -> Result<(), String> {
+    other_player(account_id, user_id)?;
+    let secret = runtime.session(account_id).map_err(command_error)?;
+    crate::login::open_roblox_profile(&app, &secret, user_id)
+        .map_err(|_| "The Roblox window couldn't open. Would trying again help?".into())
 }
 
 /// Joins each account, at `place_id` when given, then minimizes the window if that setting is on.
@@ -1514,9 +1571,17 @@ async fn refresh_catalogue_data(runtime: &Runtime) -> Result<(), String> {
     }
 }
 
-/// Records a catalogue error and returns it.
+/// Records a catalogue error and returns it. A catalogue that already loaded stays in use, so a
+/// failed recheck doesn't hide it.
 fn set_catalogue_error(runtime: &Runtime, error: &str) -> Result<(), String> {
     log::warn!("Widget catalogue unavailable: {error}");
+    if runtime
+        .catalogue
+        .lock()
+        .is_ok_and(|catalogue| catalogue.is_some())
+    {
+        return Err(error.to_owned());
+    }
     *runtime
         .catalogue_error
         .lock()
@@ -1931,6 +1996,7 @@ pub async fn open_widget_popout(
             .title(&widget.manifest.name)
             .inner_size(width, height)
             .min_inner_size(min_width, min_height)
+            .always_on_top(widget.manifest.popout_on_top)
             .build()
             .map_err(|_| "The widget window didn't open. Does retrying help?".to_string())?;
     let handle = app.clone();
@@ -2194,7 +2260,7 @@ pub(crate) async fn join_account_ids(
     let default_place = crate::roblox::parse_join_target(&settings.place_id).ok();
     let accounts = runtime.storage.load_accounts().map_err(command_error)?;
     let mut expired = Vec::new();
-    let mut delay = std::time::Duration::from_secs(settings.join_delay_seconds);
+    let mut delay = std::time::Duration::ZERO;
     'accounts: for (index, id) in account_ids.iter().enumerate() {
         if cancelled() {
             log::info!(
@@ -2292,6 +2358,8 @@ pub(crate) async fn join_account_ids(
                 &mut cleared,
             )
             .inspect_err(|error| log::warn!("Multiple instances couldn't be enabled: {error}"))?;
+        } else {
+            crate::multi_instance::release_roblox_singleton();
         }
         if settings.multi_instance && cfg!(target_os = "macos") {
             crate::multi_instance::open_new_roblox_instance(&uri).inspect_err(|error| {
@@ -2323,14 +2391,11 @@ pub(crate) async fn join_account_ids(
                 .map_err(command_error)?;
         }
         if index + 1 < account_ids.len() {
-            let deadline = tokio::time::Instant::now() + delay;
             let next = account_ids[index + 1];
-            while !cancelled()
-                && !cancelled_account(next, false)
-                && tokio::time::Instant::now() < deadline
-            {
-                tokio::time::sleep(CANCEL_POLL.min(deadline - tokio::time::Instant::now())).await;
-            }
+            wait_until_in_game(runtime, &secret, *id, || {
+                cancelled() || cancelled_account(next, false)
+            })
+            .await;
         }
     }
     match expired.as_slice() {
@@ -2345,9 +2410,9 @@ pub(crate) async fn join_account_ids(
     }
 }
 
-/// Checks that a followed player is in a game, as the joining account sees them, and returns their
-/// place when Roblox shows it. A presence lookup that fails doesn't stop the join, because the
-/// Roblox client reports a failed follow itself.
+/// Returns a followed player's place when the joining account can see it. Only Roblox Studio stops
+/// the join: privacy settings report a player in game as online or offline to accounts that can't
+/// see their game, and the Roblox client reports a failed follow itself.
 async fn followed_place(
     runtime: &Runtime,
     secret: &Secret,
@@ -2364,9 +2429,6 @@ async fn followed_place(
         }
     };
     match detail.map(|detail| (detail.state, detail.place_id)) {
-        Some((crate::models::PresenceState::Offline | crate::models::PresenceState::Online, _)) => {
-            Err(command_error(crate::roblox::RobloxError::NotInGame))
-        }
         Some((crate::models::PresenceState::InStudio, _)) => {
             Err("The player is in Roblox Studio. Can you try again once they're in a game?".into())
         }
@@ -2396,22 +2458,55 @@ pub fn cancel_join(account_ids: Option<Vec<u64>>, runtime: State<'_, Runtime>) {
     }
 }
 
-fn default_join_delay_seconds() -> u64 {
-    Settings::default().join_delay_seconds
-}
-
-/// Minimum retry wait when the configured batch delay is zero.
+/// First wait before a ticket request is retried.
 const FIRST_LAUNCH_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 /// Longest gap between launches after failures.
 const MAX_LAUNCH_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
 /// Ticket requests retried per account before the join fails.
 const LAUNCH_RETRIES: u32 = 3;
 
-/// Increases retry waits up to five seconds without shortening a longer configured delay.
+/// Doubles a retry wait, from one second up to five.
 fn next_launch_delay(current: std::time::Duration) -> std::time::Duration {
-    (current * 2)
-        .clamp(FIRST_LAUNCH_DELAY, MAX_LAUNCH_DELAY)
-        .max(current)
+    (current * 2).clamp(FIRST_LAUNCH_DELAY, MAX_LAUNCH_DELAY)
+}
+
+/// How often the queue checks whether the account it launched is in game.
+const QUEUE_POLL: std::time::Duration = std::time::Duration::from_secs(2);
+/// Longest the queue waits for one account before launching the next, for a client that crashed
+/// or never finished loading.
+const QUEUE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Waits until Roblox reports `account_id` in game, `stop` returns `true`, or [`QUEUE_TIMEOUT`]
+/// passes. An account that was already in game counts as joined at once, because Roblox keeps
+/// reporting its old server until the new client takes over.
+async fn wait_until_in_game(
+    runtime: &Runtime,
+    secret: &Secret,
+    account_id: u64,
+    stop: impl Fn() -> bool,
+) {
+    let deadline = tokio::time::Instant::now() + QUEUE_TIMEOUT;
+    let mut next_check = tokio::time::Instant::now() + QUEUE_POLL;
+    while !stop() && tokio::time::Instant::now() < deadline {
+        if tokio::time::Instant::now() >= next_check {
+            next_check = tokio::time::Instant::now() + QUEUE_POLL;
+            let result =
+                crate::roblox::fetch_presence(&runtime.client, secret, &[account_id]).await;
+            runtime.note_session(account_id, &result);
+            if result.is_ok_and(|states| {
+                states.get(&account_id) == Some(&crate::models::PresenceState::InGame)
+            }) {
+                return;
+            }
+        }
+        tokio::time::sleep(CANCEL_POLL).await;
+    }
+    if !stop() {
+        log::info!(
+            "Account {account_id} wasn't in game after {} seconds; launching the next account",
+            QUEUE_TIMEOUT.as_secs()
+        );
+    }
 }
 
 /// Fetches an HTTPS URL for a widget and returns the status and a text body of up to 1 MB.
@@ -2548,6 +2643,20 @@ pub fn open_log_folder() -> Result<(), String> {
         .map_err(|_| "The log folder couldn't be opened. Does it still exist?".to_string())
 }
 
+/// Closes every running Roblox client, force-closing any that don't close normally, and returns
+/// how many were running.
+#[tauri::command]
+pub async fn close_all_clients() -> Result<usize, String> {
+    crate::auto_rejoin::note_closed_all();
+    let count = tauri::async_runtime::spawn_blocking(crate::roblox_process::close_all)
+        .await
+        .map_err(|_| {
+            "Toolblox couldn't close the Roblox clients. Can you try again?".to_string()
+        })??;
+    log::info!("Closed {count} Roblox clients");
+    Ok(count)
+}
+
 /// Opens the app folder, which holds the `widgets` folder, in Explorer or Finder.
 #[tauri::command]
 pub fn open_data_folder(runtime: State<'_, Runtime>) -> Result<(), String> {
@@ -2627,6 +2736,16 @@ pub fn export_theme(app: AppHandle, runtime: State<'_, Runtime>) -> Result<Strin
 mod tests {
 
     #[test]
+    fn catalogue_rechecks_when_stale_and_retries_failures_sooner() {
+        let start = std::time::Instant::now();
+        assert!(catalogue_due(None, false, start));
+        assert!(!catalogue_due(Some(start), false, start + CATALOGUE_RETRY));
+        assert!(catalogue_due(Some(start), false, start + CATALOGUE_FRESH));
+        assert!(!catalogue_due(Some(start), true, start));
+        assert!(catalogue_due(Some(start), true, start + CATALOGUE_RETRY));
+    }
+
+    #[test]
     fn module_urls_change_with_the_installed_package() {
         let first = module_url("sample", "main.js", "0123456789abcdef0123", "1.0.0");
         let second = module_url("sample", "main.js", "fedcba98765432100123", "1.0.0");
@@ -2702,30 +2821,5 @@ mod tests {
         .map(|delay| delay.as_secs())
         .collect();
         assert_eq!(delays, [1, 2, 4, 5, 5]);
-    }
-
-    #[test]
-    fn retry_delay_respects_zero_and_long_batch_delays() {
-        use std::time::Duration;
-        assert_eq!(next_launch_delay(Duration::ZERO), Duration::from_secs(1));
-        for seconds in [5, 10, 60] {
-            assert_eq!(
-                next_launch_delay(Duration::from_secs(seconds)),
-                Duration::from_secs(seconds)
-            );
-        }
-        let dto = SettingsDto::from(&Settings {
-            join_delay_seconds: 12,
-            ..Settings::default()
-        });
-        assert_eq!(serde_json::to_value(&dto).unwrap()["joinDelaySeconds"], 12);
-        let mut legacy = serde_json::to_value(dto).unwrap();
-        legacy.as_object_mut().unwrap().remove("joinDelaySeconds");
-        assert_eq!(
-            serde_json::from_value::<SettingsDto>(legacy)
-                .unwrap()
-                .join_delay_seconds,
-            1
-        );
     }
 }

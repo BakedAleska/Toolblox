@@ -44,7 +44,7 @@ builds add the `examples/hello_world/` widget to the widgets folder once, as a s
 | Member | Purpose |
 | --- | --- |
 | `widget` | This widget's `id`, `name`, and `version`. |
-| `React`, `ui` | The app's React instance and components: `AccountCard`, `AccountName`, `Avatar`, `Badge`, `Button`, `Checkbox`, `ChoiceRow`, `DropdownMenu*`, `EmptyState`, `Group`, `IconButton`, `Input`, `Modal`, `Panel`, `PopoutButton`, `SectionTitle`, `SettingRow`, `SliderRow`, `Spinner`, `StatTile`, `Switch`, `SwitchRow`, `Tabs*`, `ToggleGroup*`, `FromWidget` (the mark for anything from another widget), `Tooltip*`, `cn`, and `system`, the control-surface style for system widgets: `Console`, `PowerButton`, `Split`, `Tiles`, `Tile`, `LabelButton`, `TileRow`, `Stepper`, `Segmented`, `Keycap`, `AddButton`, `RemoveButton`, `SelectButton`, and `usePopout`. |
+| `React`, `ui` | The app's React instance and components: `AccountCard`, `AccountName`, `Avatar`, `Badge`, `Button`, `Checkbox`, `ChoiceRow`, `DropdownMenu*`, `EmptyState`, `Group`, `IconButton`, `Input`, `Modal`, `Panel`, `PopoutButton`, `SectionTitle`, `SettingRow`, `SliderRow`, `Spinner`, `StatTile`, `Switch`, `SwitchRow`, `Tabs*`, `ToggleGroup*`, `FromWidget` (the one mark for anything from a widget, which Toolblox also puts on every slot contribution except `page.topbar`), `Tooltip*`, `cn`, and `system`, the control-surface style for system widgets: `Console`, `PowerButton`, `Split`, `Tiles`, `Tile`, `LabelButton`, `TileRow`, `Stepper`, `Segmented`, `Keycap`, `AddButton`, `RemoveButton`, `SelectButton`, and `usePopout`. |
 | `getState()`, `useAppState()`, `onStateChange(listener)` | Current app state: accounts, settings, widgets, and recent places. |
 | `navigate(route)`, `notify(message, kind)`, `refresh()`, `join(accountIds)` | App actions, including the Join flow with its place prompt. |
 | `registerPage(Component)` | The widget's page at `/widgets/<id>`. |
@@ -64,6 +64,7 @@ contributions when it's disabled, updated, or uninstalled.
 | --- | --- | --- |
 | `accounts.row` | `{ account }` | Under each account's name on the Accounts page. |
 | `accounts.toolbar` | none | Start of the Accounts page toolbar. |
+| `accounts.selection` | none | The Accounts selection bar, after **Join selected**. Added in 0.5.2. |
 | `dashboard.stats` | none | Below the **Continue as** card on the Dashboard. Use `ui.StatTile`. |
 | `dashboard.sections` | none | Below the Dashboard's online friends and issues. |
 | `sidebar.footer` | `{ collapsed }` | Bottom of the sidebar. |
@@ -164,7 +165,10 @@ Review rejects widgets that:
   indicator on screen while it runs. Conditions and scripts can pause or stop that input, but not
   start it;
 - read or change Roblox client memory or files, or inject code into the client, including
-  through `optional-bin/` executables;
+  through `optional-bin/` executables. The exceptions are writing `ClientAppSettings.json` with
+  flags on Roblox's allowlist, restoring the user's own file when turned off, and reading the logs
+  Roblox writes for the server address of a join, as the Bootstrapper widget does. Changing a
+  client's priority or efficiency mode doesn't touch its memory or files;
 - send account names, user IDs, notes, or widget data anywhere the widget's description doesn't
   state;
 - trade, sell, transfer, or share accounts, Robux, or items outside Roblox's own features;

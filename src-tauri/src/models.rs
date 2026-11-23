@@ -58,13 +58,13 @@ pub struct Settings {
     pub widget_settings: BTreeMap<String, Value>,
     /// Allow several Roblox clients at once (Windows only).
     pub multi_instance: bool,
-    /// Seconds between account launches in a batch.
-    pub join_delay_seconds: u64,
     pub auto_rejoin: bool,
     /// Launch Toolblox at login.
     pub open_on_launch: bool,
     /// Closing the window hides to the tray instead of quitting.
     pub run_in_background: bool,
+    /// Open the destination picker before every manual join.
+    pub ask_destination: bool,
     /// Minimize the window after a manual join.
     pub minimize_on_join: bool,
     /// Notify when an account leaves a game.
@@ -121,10 +121,10 @@ impl Default for Settings {
             disabled_widgets: Vec::new(),
             widget_settings: BTreeMap::new(),
             multi_instance: false,
-            join_delay_seconds: 1,
             auto_rejoin: false,
             open_on_launch: false,
             run_in_background: true,
+            ask_destination: false,
             minimize_on_join: false,
             notify_on_drop: false,
             always_on_top: false,
@@ -146,9 +146,6 @@ impl Settings {
     /// Checks the place IDs, recent places, widget IDs, and core limit. Returns a
     /// user-facing message on failure.
     pub fn validate(&self) -> Result<(), String> {
-        if self.join_delay_seconds > 60 {
-            return Err("The join delay isn't valid. Can you choose 0 to 60 seconds?".into());
-        }
         if !self.place_id.is_empty() && !is_join_target(&self.place_id) {
             return Err("The saved place ID isn't valid. Can you enter it again?".into());
         }
@@ -529,32 +526,6 @@ mod tests {
         assert!(settings.run_in_background);
         assert!(!settings.auto_rejoin);
         assert!(!settings.minimize_on_join);
-        assert_eq!(settings.join_delay_seconds, 1);
-    }
-
-    #[test]
-    fn join_delay_defaults_and_validates_saved_values() {
-        let legacy: Settings = serde_json::from_str("{}").unwrap();
-        assert_eq!(legacy.join_delay_seconds, 1);
-        for seconds in [0, 1, 10, 60, 61] {
-            let saved: Settings = serde_json::from_value(serde_json::json!({
-                "joinDelaySeconds": seconds
-            }))
-            .unwrap();
-            assert_eq!(saved.validate().is_ok(), seconds <= 60);
-        }
-        for value in [
-            serde_json::json!(-1),
-            serde_json::json!(1.5),
-            serde_json::json!("5"),
-        ] {
-            assert!(
-                serde_json::from_value::<Settings>(serde_json::json!({
-                    "joinDelaySeconds": value
-                }))
-                .is_err()
-            );
-        }
     }
 
     #[test]

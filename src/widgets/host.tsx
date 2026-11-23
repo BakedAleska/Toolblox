@@ -1,5 +1,5 @@
 import * as React from "react";
-import { AppWindow, Link2, PictureInPicture2 } from "lucide-react";
+import { AppWindow, PictureInPicture2, Puzzle } from "lucide-react";
 import { Component, createContext, useContext, useSyncExternalStore, type ComponentProps, type ComponentType, type ErrorInfo, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,8 @@ export type CoreScreen = "dashboard" | "accounts" | "widgets";
 export type SlotProps = {
   "accounts.row": { account: Account };
   "accounts.toolbar": Record<string, never>;
+  /** The Accounts selection bar, after Join selected. */
+  "accounts.selection": Record<string, never>;
   "dashboard.stats": Record<string, never>;
   "dashboard.sections": Record<string, never>;
   "sidebar.footer": { collapsed: boolean };
@@ -94,17 +96,22 @@ function PopoutButton() {
 }
 
 /**
- * Marks something that comes from another widget and appears only because both are installed,
- * such as an option one widget offers in another's page. Every such integration uses this mark.
+ * The one mark for anything a widget adds outside its own page: the Widgets icon in a small dot,
+ * naming the widget on hover. The host puts it on slot contributions, and widgets use it for
+ * what another widget offers in their page.
  */
-function FromWidget({ name, className }: { name: string; className?: string }) {
+export function FromWidget({ name, className }: { name: string; className?: string }) {
   return <Tooltip>
-    <TooltipTrigger render={<Badge variant="outline" className={cn("shrink-0 gap-1", className)} aria-label={`From ${name}, shown because both widgets are installed`} />}>
-      <Link2 aria-hidden="true" />{name}
+    <TooltipTrigger render={<span role="img" aria-label={`From ${name}`} data-from-widget=""
+      className={cn("inline-grid size-4 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground ring-1 ring-border only:hidden", className)} />}>
+      <Puzzle className="size-2.5" aria-hidden="true" />
     </TooltipTrigger>
-    <TooltipContent>From {name}, shown because both widgets are installed</TooltipContent>
+    <TooltipContent>From {name}</TooltipContent>
   </Tooltip>;
 }
+
+/** Slots placed as blocks rather than inline. `page.topbar` is the widget's own page, so it's unmarked. */
+const blockSlots: SlotName[] = ["dashboard.stats", "dashboard.sections"];
 
 /** The app's dialog at the small scale unless the widget passes another. */
 const WidgetModal = (props: ComponentProps<typeof Modal>) => <Modal scale="small" {...props} />;
@@ -239,14 +246,21 @@ export class WidgetBoundary extends Component<{ widgetId: string; children: Reac
   }
 }
 
-/** Renders every widget contribution for a slot, or only `widgetId`'s when it's set. */
+/** Renders every widget contribution for a slot, or only `widgetId`'s when it's set. Outside
+ * `page.topbar`, each carries `FromWidget` at its top-right corner. */
 export function WidgetSlot<S extends SlotName>({ name, props, widgetId, wrap }: { name: S; props: SlotProps[S]; widgetId?: string; wrap?: (children: ReactNode) => ReactNode }) {
   const { slots: current } = useWidgetRegistry();
   const items = (current.get(name) ?? []).filter((item) => !widgetId || item.widgetId === widgetId);
   if (!items.length) return null;
   const rendered = items.map(({ widgetId, value }, index) => {
     const Contribution = value as ComponentType<SlotProps[S]>;
-    return <WidgetBoundary key={`${widgetId}-${index}`} widgetId={widgetId}><Contribution {...props} /></WidgetBoundary>;
+    const widgetName = appState?.installedWidgets.find(({ id }) => id === widgetId)?.name ?? widgetId;
+    return <WidgetBoundary key={`${widgetId}-${index}`} widgetId={widgetId}>
+      {name === "page.topbar" ? <Contribution {...props} /> : <span className={cn("relative", blockSlots.includes(name) ? "block" : "inline-flex")}>
+        <Contribution {...props} />
+        <FromWidget name={widgetName} className="absolute -top-1 -right-1 z-10" />
+      </span>}
+    </WidgetBoundary>;
   });
   return <>{wrap ? wrap(rendered) : rendered}</>;
 }

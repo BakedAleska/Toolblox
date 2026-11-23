@@ -9,7 +9,7 @@ import { accountName, relativeTime, sortAccounts } from "@/logic";
 import { AccountCard, AccountName, Avatar, Hint, IconButton, Panel, Screen, SectionTitle, Spinner, WidgetFrame, failure, placeLabel, presenceLabel, type ScreenProps } from "@/shared";
 import { showAccountMenu } from "@/screens/Accounts";
 import type { Account, AppRoute, OnlineFriend } from "@/types";
-import { WidgetSlot } from "@/widgets/host";
+import { FromWidget, WidgetSlot } from "@/widgets/host";
 import { GroupCard } from "@/screens/Groups";
 
 type Severity = "destructive" | "warning" | "neutral";
@@ -103,7 +103,12 @@ export function Dashboard({ state, navigate, notify, join, joining, cancelJoin, 
       const sent = `${accountName(hero)} isn't friends with ${accountName(friendAccount(friend))}, so a friend request was sent.`;
       notify(other ? `${sent} Join as ${accountName(other)} instead?` : sent, "info", other && { label: `Join as ${accountName(other)}`, run: () => join([other.id], `@${friend.id}`) });
     }
-    catch (error) { notify(failure(`The friend request wasn't sent. Does it work on roblox.com?`, error)); }
+    catch (error) {
+      const message = failure(`The friend request wasn't sent. Does it work on roblox.com?`, error);
+      notify(message, "error", other
+        ? { label: `Join as ${accountName(other)}`, run: () => join([other.id], `@${friend.id}`) }
+        : { label: "Open on Roblox", run: () => void bridge.openRobloxProfile(hero.id, friend.id).catch((reason) => notify(failure(`The Roblox window couldn't open. Would trying again help?`, reason))) });
+    }
   };
 
   const expired = accounts.filter(({ sessionExpired }) => sessionExpired).length;
@@ -200,7 +205,7 @@ export function Dashboard({ state, navigate, notify, join, joining, cancelJoin, 
     <WidgetSlot name="dashboard.sections" props={{}} wrap={(children) => <div className="flex flex-col gap-4">{children}</div>} />
 
     {enabledWidgets.filter((widget) => widget.hasDashboardTile).map((widget) => <section key={widget.id} className="flex flex-col gap-2">
-      <SectionTitle>{widget.name}</SectionTitle>
+      <SectionTitle><span className="inline-flex items-center gap-2">{widget.name}<FromWidget name={widget.name} /></span></SectionTitle>
       <WidgetFrame widget={widget} surface="dashboard" title={`${widget.name} dashboard`} />
     </section>)}
 

@@ -138,6 +138,7 @@ The widget lifecycle is covered in the widget reference; this table lists the co
 | `read_log` | `lines: Option<usize>`, `all: Option<bool>` | `String` | The most recent log lines, 300 by default, or the whole log with `all`. | `readLog(lines?)`, `readFullLog()` |
 | `open_log_folder` | — | `()` | Opens the log folder in Explorer or Finder. | `openLogFolder()` |
 | `open_data_folder` | — | `()` | Opens the app folder, which holds the `widgets` folder, in Explorer or Finder. | `openDataFolder()` |
+| `close_all_clients` | — | `usize` | Asks every running Roblox client to close, force-closes any still running after 5 seconds, and returns how many were running. Auto-rejoin ignores drops for the next 2 minutes. | `closeAllClients()` |
 | `get_theme` | — | `String` | Loads the custom theme CSS from `theme.css`, or an empty string when there's none. | `getTheme()` |
 | `save_theme` | `css: String` | `()` | Validates and saves the custom theme CSS. It must be under 16 MB and can't load anything except data URLs. | `saveTheme(css)` |
 | `embed_theme_files` | `css: String` | `String` | Inlines each unconditional `@import` of a local CSS file and replaces each `url()` that names a local image or font file with a data URL. Absolute paths and `file:` URLs are local, and paths inside an imported file resolve against its folder. Other URLs are left unchanged. | `embedThemeFiles(css)` |

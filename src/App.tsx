@@ -15,7 +15,7 @@ import { Dashboard } from "@/screens/Dashboard";
 import { MiniWindow } from "@/screens/Mini";
 import { ChangelogScreen, showChangelogAfterUpdate } from "@/screens/Changelog";
 import { GroupEditor } from "@/screens/Groups";
-import { PlaceSearch } from "@/screens/PlaceSearch";
+import { PlaceSearch, searchDestinationToJoin } from "@/screens/PlaceSearch";
 import { CustomCssScreen } from "@/screens/Themes";
 import { LogScreen, SettingsScreen, WidgetSettingsTab } from "@/screens/Settings";
 import { WidgetContextMenu, useWidgetActions, useWidgetHasSettings } from "@/screens/WidgetMenu";
@@ -251,6 +251,7 @@ function App() {
   const nextJoinFor = (id: number) => nextJoin[id] ?? (state.accounts.find((account) => account.id === id)?.placeId ? undefined : nextJoin.default);
   const join = (accountIds: number[], placeId?: string) => {
     if (placeId) { void launch(accountIds, placeId); return; }
+    if (state.settings.askDestination && !miniRef.current && accountIds.length) { searchDestinationToJoin(accountIds); navigate("/accounts/places"); return; }
     const needsPlace = !state.settings.placeId && accountIds.some((id) => !nextJoinFor(id) && !state.accounts.find((account) => account.id === id)?.placeId);
     if (needsPlace) {
       if (miniRef.current) { notify("Joining requires a default place. Is one set on the Accounts page?"); return; }

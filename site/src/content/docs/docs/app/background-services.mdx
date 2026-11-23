@@ -328,7 +328,11 @@ normally.
 
 `join_account_ids` in `app_commands.rs` calls
 `multi_instance::clear_new_roblox_instances` for every account it launches, after the join ticket
-is obtained and before the `roblox-player:` URI is opened, whenever `multiInstance` is on:
+is obtained and before the `roblox-player:` URI is opened, whenever `multiInstance` is on. It
+first tries to hold `ROBLOX_singletonEvent` as a mutex for the rest of the session, which stops
+later clients from creating the event at all. The handle is closed when a launch runs with
+`multiInstance` off. The helper steps below run only when a running client already owns the
+event, and the mutex is taken right after:
 
 <Steps>
 

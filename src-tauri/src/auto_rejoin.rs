@@ -18,6 +18,26 @@ const LAUNCH_WINDOW: Duration = Duration::from_secs(60);
 /// A drop within this time of an automatic rejoin pauses auto-rejoin for the account.
 const REJOIN_GRACE: Duration = Duration::from_secs(45);
 
+/// Drops within this time of closing every client are treated as intended.
+const CLOSE_GRACE: Duration = Duration::from_secs(120);
+
+/// When every Roblox client was last closed from Toolblox.
+static CLOSED_ALL_AT: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+
+/// Records that every client was closed on purpose, so the drops that follow don't rejoin or notify.
+pub fn note_closed_all() {
+    *CLOSED_ALL_AT
+        .lock()
+        .unwrap_or_else(|error| error.into_inner()) = Some(Instant::now());
+}
+
+fn closed_all_recently() -> bool {
+    CLOSED_ALL_AT
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .is_some_and(|closed| closed.elapsed() < CLOSE_GRACE)
+}
+
 /// Presence history for one account between checks.
 #[derive(Default)]
 struct Entry {
@@ -119,6 +139,9 @@ pub async fn run(app: AppHandle) {
                 PresenceState::InGame | PresenceState::InStudio => entry.was_in_game = true,
                 PresenceState::Offline | PresenceState::Online if entry.was_in_game => {
                     entry.was_in_game = false;
+                    if closed_all_recently() {
+                        continue;
+                    }
                     let name = accounts
                         .iter()
                         .find(|account| account.id == id)

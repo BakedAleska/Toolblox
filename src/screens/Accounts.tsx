@@ -1,4 +1,4 @@
-import { ArrowDown, FolderInput, FolderPlus, ArrowUp, Copy, ExternalLink, KeyRound, GripVertical, ListChecks, MapPin, MapPinOff, MoreHorizontal, NotebookPen, Play, Repeat1, Plus, Search, Star, Tag, Timer, Trash2, Undo2, UserRound, Users, X } from "lucide-react";
+import { ArrowDown, FolderInput, FolderPlus, ArrowUp, Copy, KeyRound, GripVertical, ListChecks, MapPin, MapPinOff, MoreHorizontal, Play, Repeat1, Plus, Search, Star, Tag, Trash2, Undo2, UserRound, Users, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import { Badge, badgeVariants } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -85,18 +85,6 @@ export function Accounts({ state, refresh, navigate, notify, done, confirm, join
   /** Selection starts from the header button or a double-click, and stays on until stopped. */
   const [selectMode, setSelectMode] = useState(false);
   const selecting = selectMode || selected.size > 0;
-  /** The join delay as typed. It's saved as whole seconds from 0 to 60 when the field is left. */
-  const [delayText, setDelayText] = useState(String(settings.joinDelaySeconds));
-  /** The delay box stays collapsed behind its timer button until opened. */
-  const [delayOpen, setDelayOpen] = useState(false);
-  useEffect(() => setDelayText(String(settings.joinDelaySeconds)), [settings.joinDelaySeconds]);
-  const saveDelay = () => {
-    const seconds = Number(delayText);
-    if (delayText.trim() === "" || !Number.isFinite(seconds)) { setDelayText(String(settings.joinDelaySeconds)); return; }
-    const delay = Math.min(60, Math.max(0, Math.round(seconds)));
-    setDelayText(String(delay));
-    if (delay !== settings.joinDelaySeconds) void patchSettings("joinDelaySeconds", delay);
-  };
   /** Selected accounts whose join is in progress, which the selection bar can cancel together. */
   const joiningSelected = [...selected].filter((id) => joining.includes(id));
   const stopSelecting = () => { setSelected(new Set()); setSelectMode(false); };
@@ -182,24 +170,8 @@ export function Accounts({ state, refresh, navigate, notify, done, confirm, join
           <Spinner />{joinProgress && joinProgress.total > 1 ? `Joining ${joinProgress.done} of ${joinProgress.total}` : "Joining"} · Cancel
         </Button>
         : <Button size="sm" disabled={joining.length > 0 || selected.size === 0} onClick={() => join([...selected])}><Play />Join selected</Button>}
+      <WidgetSlot name="accounts.selection" props={{}} />
       <IconButton label="Group the selected accounts" size="icon-sm" className="text-muted-foreground" disabled={selected.size === 0} onClick={() => newGroup([...selected])}><FolderPlus /></IconButton>
-      <div className="flex items-center">
-        <IconButton label={`Join delay: ${settings.joinDelaySeconds} s between accounts`} size="icon-sm" className="text-muted-foreground" aria-expanded={delayOpen}
-          onPointerDown={(event) => { if (delayOpen) event.preventDefault(); }} onClick={() => { if (delayOpen) { saveDelay(); setDelayOpen(false); } else setDelayOpen(true); }}><Timer /></IconButton>
-        <span className={cn("grid grid-cols-[0fr] transition-[grid-template-columns,opacity] duration-200 ease-out motion-reduce:transition-none", delayOpen ? "grid-cols-[1fr] opacity-100" : "opacity-0")}>
-          <span className="min-w-0 overflow-hidden p-0.5">
-            <label className="relative flex items-center" style={{ width: `calc(${Math.max(1, delayText.length)}ch + 4rem)` }}>
-              {delayOpen && <Input autoFocus type="number" inputMode="numeric" min={0} max={60} step={1} value={delayText} aria-label="Seconds between accounts when joining"
-                className="h-7 pr-2 pl-2.5 text-xs tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                onChange={(event) => setDelayText(event.target.value)} onBlur={() => { saveDelay(); setDelayOpen(false); }}
-                onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); else if (event.key === "Escape") { event.preventDefault(); setDelayText(String(settings.joinDelaySeconds)); setDelayOpen(false); } }} />}
-              <span className="pointer-events-none absolute inset-0 flex items-center border border-transparent px-2.5 text-xs whitespace-pre" aria-hidden="true">
-                <span className="invisible tabular-nums">{delayText}</span><span className="text-muted-foreground"> s delay</span>
-              </span>
-            </label>
-          </span>
-        </span>
-      </div>
       <IconButton label="Stop selecting" size="icon-sm" onClick={stopSelecting}><X /></IconButton>
     </Panel>}
 
@@ -257,12 +229,8 @@ export function Accounts({ state, refresh, navigate, notify, done, confirm, join
                     </DropdownMenuContent>
                   </DropdownMenu>
                     : <IconButton label="Add to a new group" size="icon-sm" className="text-muted-foreground" onClick={() => { setMenuFor(undefined); newGroup([account.id]); }}><FolderInput /></IconButton>}
-                  {!settings.compactMode && <IconButton label="Edit note" size="icon-sm" className="text-muted-foreground"
-                    onClick={() => { setMenuFor(undefined); document.querySelector<HTMLTextAreaElement>(`[data-account-id="${account.id}"] textarea[name=notes]`)?.focus(); }}><NotebookPen /></IconButton>}
                   <IconButton label="Copy username" size="icon-sm" className="text-muted-foreground"
                     onClick={() => { setMenuFor(undefined); navigator.clipboard.writeText(account.name).then(() => done(`Copied @${account.name}.`), (error) => notify(failure(`The username wasn't copied. Does retrying help?`, error))); }}><Copy /></IconButton>
-                  <IconButton label="Open Roblox profile" size="icon-sm" className="text-muted-foreground"
-                    onClick={() => { setMenuFor(undefined); void bridge.openExternal(`https://www.roblox.com/users/${account.id}/profile`); }}><ExternalLink /></IconButton>
                   {!account.sessionExpired && <IconButton label="Sign in again" size="icon-sm" className="text-muted-foreground" onClick={() => { setMenuFor(undefined); void signIn(account.id); }}><KeyRound /></IconButton>}
                   <IconButton label="Remove" size="icon-sm" className="text-muted-foreground hover:text-destructive" onClick={() => { setMenuFor(undefined); confirm({ title: `Remove ${accountName(account)}?`, message: "Removes the account and its saved session from this device.", action: "Remove", danger: true, run: async () => { await bridge.removeAccount(account.id); done(`Removed ${accountName(account)}.`); await refresh(); } }); }}><Trash2 /></IconButton>
                 </>}

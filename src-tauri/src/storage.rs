@@ -365,7 +365,6 @@ mod tests {
         let store = Storage::new(root.clone());
         let mut settings = Settings::default();
         settings.extra.insert("future_setting".into(), true.into());
-        settings.join_delay_seconds = 12;
         store.save_settings(&settings).unwrap();
         assert_eq!(store.load_settings().unwrap(), settings);
         fs::remove_dir_all(root).unwrap();

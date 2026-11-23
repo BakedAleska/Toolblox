@@ -459,6 +459,7 @@ widget may add any number of components to the same slot. Returns a disposer.
 | --- | --- |
 | `accounts.row` | `{ account: Account }` |
 | `accounts.toolbar` | none |
+| `accounts.selection` | none |
 | `dashboard.stats` | none |
 | `dashboard.sections` | none |
 | `sidebar.footer` | `{ collapsed: boolean }` |
@@ -545,8 +546,9 @@ Values that widgets share with each other while they run. Added in Toolblox 0.4.
   must survive `JSON.stringify`, so it can't hold functions.
 - `get` lists every widget's value for a topic, this widget's included. `use` does the same as a
   React hook, and `subscribe` calls the listener after any shared value changes.
-- Show anything that comes from another widget with `ui.FromWidget({ name })`, a link badge with
-  that widget's name. It's the one mark for "shown because both widgets are installed".
+- Show anything that comes from another widget with `ui.FromWidget({ name })`, a small dot with
+  the Widgets icon that names the widget on hover. It's the one mark for "this came from a
+  widget". Toolblox already puts it on every slot contribution, so don't add your own label there.
 - Values reach every Toolblox window, including widgets in their own window, and are removed
   when the widget unloads. Nothing is saved: a widget sets its values again when it loads.
 

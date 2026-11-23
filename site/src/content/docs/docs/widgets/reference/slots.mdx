@@ -46,10 +46,15 @@ and [`src/screens/Dashboard.tsx`](https://github.com/BakedAleska/Toolblox/blob/m
 | --- | --- | --- | --- |
 | `accounts.row` | `{ account: Account }` | Under each account's name on the Accounts page, above the notes field. Rendered once per account row. | `<div class="mt-1 flex flex-wrap items-center gap-1.5">` around all contributions for that row. |
 | `accounts.toolbar` | `{}` | Start of the Accounts page header actions, before the default place field. | None. Contributions sit directly in the header's flex row. |
+| `accounts.selection` | `{}` | The Accounts selection bar, shown while selecting accounts, after **Join selected**. Added in 0.5.2. | None. Contributions sit in the bar's flex row. |
 | `dashboard.stats` | `{}` | After the three built-in Dashboard stat tiles (Accounts, In game, Widgets enabled), in the same grid. | None. Each contribution is a grid item. |
 | `dashboard.sections` | `{}` | Below the Dashboard stats and the Recently played list, above the `dashboard.html` frames. | `<div class="flex flex-col gap-4">` around all contributions. |
 | `sidebar.footer` | `{ collapsed: boolean }` | Bottom of the sidebar, below the GitHub link and version. | None. |
 | `page.topbar` | `{}` | The header of the contributing widget's own page, before the theme and window buttons, in the main window and in the widget's own window. Only the page's own widget's contributions render. | None. Contributions sit in the header's flex row. |
+
+Outside `page.topbar`, Toolblox wraps each contribution in a `relative` element and puts the
+`ui.FromWidget` mark at its top-right corner. The wrapper is `block` in `dashboard.stats` and
+`dashboard.sections`, and `inline-flex` elsewhere. A contribution that renders nothing shows no mark.
 
 ### `accounts.row`
 

@@ -4,7 +4,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { accountName, targetUserId } from "@/logic";
 import { Avatar, Group, Hint, IconButton, Panel, Screen, Spinner, placeLabel, type ScreenProps } from "@/shared";
@@ -79,9 +78,10 @@ export function GroupCard({ state, join, joining, cancelJoin, group, simple = fa
           <Badge variant="outline" className="min-w-0 shrink text-muted-foreground">{targetUserId(group.placeId) === undefined ? <MapPin /> : <UserRound />}<span className="truncate">{placeLabel(state, group.placeId)}</span></Badge>
         </Hint>}
       </div>
-      <p className="truncate text-xs text-muted-foreground" title={group.notes || undefined}>
-        {members.length} {members.length === 1 ? "account" : "accounts"}{!simple && group.notes ? ` · ${group.notes}` : ""}
-      </p>
+      <p className="truncate text-xs text-muted-foreground">{members.length} {members.length === 1 ? "account" : "accounts"}</p>
+      {!simple && patchGroup && !state.settings.compactMode && <textarea key={group.notes} rows={1} name="notes" maxLength={1000} defaultValue={group.notes} placeholder="Add a note" aria-label={`Notes for ${group.name}`}
+        className="-mx-1 mt-0.5 block max-h-16 w-full min-w-0 resize-none rounded-lg bg-transparent px-1 text-xs text-muted-foreground outline-none [field-sizing:content] placeholder:text-muted-foreground hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring"
+        onBlur={(event) => { const notes = event.target.value.trim(); if (notes !== group.notes) patchGroup({ ...group, notes }); }} />}
     </div>
     {!simple && <div className="mr-1 flex items-center gap-1">
       <span data-group-actions={group.id} inert={!open} className={cn("grid transition-[grid-template-columns,opacity] duration-200 ease-out motion-reduce:transition-none", open ? "grid-cols-[1fr] opacity-100" : "grid-cols-[0fr] opacity-0")}>
@@ -113,13 +113,12 @@ export function GroupCard({ state, join, joining, cancelJoin, group, simple = fa
 let editorGroup: AccountGroup | undefined;
 export const editGroup = (group: AccountGroup) => { editorGroup = group; };
 
-/** Creates or edits the group set by `editGroup`: its name, notes, and accounts. Without one, it
+/** Creates or edits the group set by `editGroup`: its name and accounts. Without one, it
  * returns to Accounts. */
 export function GroupEditor({ state, navigate, patchSettings, done }: ScreenProps) {
   const [group] = useState(() => editorGroup);
   useEffect(() => { if (!group) navigate("/accounts"); }, [group]);
   const [name, setName] = useState(group?.name ?? "");
-  const [notes, setNotes] = useState(group?.notes ?? "");
   const [members, setMembers] = useState(() => group?.accountIds.filter((id) => state.accounts.some((account) => account.id === id)) ?? []);
   if (!group) return null;
   const groups = state.settings.groups;
@@ -129,7 +128,7 @@ export function GroupEditor({ state, navigate, patchSettings, done }: ScreenProp
   const back = () => navigate("/accounts");
   const save = async () => {
     if (!valid) return;
-    const saved = { ...group, name: name.trim(), notes: notes.trim(), accountIds: members };
+    const saved = { ...group, name: name.trim(), accountIds: members };
     await patchSettings("groups", exists ? groups.map((current) => current.id === group.id ? saved : current) : [...groups, saved]);
     done(`Saved ${saved.name}.`);
     back();
@@ -143,9 +142,6 @@ export function GroupEditor({ state, navigate, patchSettings, done }: ScreenProp
         <Panel className="grid gap-3 p-4">
           <label className="grid gap-1 text-xs text-muted-foreground">Name
             <Input autoFocus value={name} maxLength={50} placeholder="Farming alts" onChange={(event) => setName(event.target.value)} />
-          </label>
-          <label className="grid gap-1 text-xs text-muted-foreground">Note
-            <Textarea value={notes} maxLength={1000} rows={3} placeholder="Games, roles, or anything else" onChange={(event) => setNotes(event.target.value)} />
           </label>
         </Panel>
       </Group>

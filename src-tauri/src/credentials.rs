@@ -172,7 +172,11 @@ pub(crate) mod tests {
     /// allowed to do it and how often. A new entry needs security review: it must not return the
     /// secret to JavaScript, a widget, a log, or a non-Roblox host.
     const SECRET_ACCESS: &[(&str, &[(&str, usize)])] = &[
-        (".expose()", &[("app_commands.rs", 1), ("roblox.rs", 1)]),
+        (
+            ".expose()",
+            &[("app_commands.rs", 1), ("login.rs", 1), ("roblox.rs", 1)],
+        ),
+        (".set_cookie(", &[("login.rs", 1)]),
         (".expose_secret()", &[("app_commands.rs", 2)]),
         ("cookie_header(", &[("roblox.rs", 5)]),
         ("keyring::", &[("credentials.rs", 4)]),

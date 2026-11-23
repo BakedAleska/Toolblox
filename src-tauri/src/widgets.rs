@@ -59,6 +59,9 @@ pub struct WidgetManifest {
     /// Shape of the widget's own window.
     #[serde(default)]
     pub popout: PopoutShape,
+    /// Keeps the widget's own window above other windows.
+    #[serde(default)]
+    pub popout_on_top: bool,
     /// Oldest Toolblox version the widget runs on, as SemVer.
     #[serde(default)]
     pub min_app_version: Option<String>,
@@ -1012,6 +1015,7 @@ mod tests {
             network_origins: Vec::new(),
             processes: Vec::new(),
             popout: PopoutShape::Portrait,
+            popout_on_top: false,
             min_app_version: None,
         }
     }

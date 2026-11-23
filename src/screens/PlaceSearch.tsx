@@ -1,4 +1,4 @@
-import { ArrowLeft, BadgeCheck, Ban, BellOff, BellPlus, ChevronDown, Clock, ExternalLink, Eye, Gamepad2, Heart, MapPinOff, Repeat1, RotateCcw, Search, ShieldOff, ThumbsUp, UserRound, X, UserRoundCheck, UserRoundMinus, UserRoundPlus, UserRoundX, Users } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Ban, BellOff, BellPlus, ChevronDown, Clock, ExternalLink, Eye, Gamepad2, Heart, Repeat1, RotateCcw, Search, ShieldOff, ThumbsUp, UserRound, X, UserRoundCheck, UserRoundMinus, UserRoundPlus, UserRoundX, Users } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Toggle } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -36,6 +36,10 @@ export const searchDestinationFor = (accountId: number) => { destinationAccount 
 let destinationGroup: string | undefined;
 export const searchGroupDestinationFor = (groupId: string) => { destinationGroup = groupId; };
 
+/** Accounts that join the next search's pick, when a destination is asked for on each join. */
+let destinationJoin: number[] | undefined;
+export const searchDestinationToJoin = (accountIds: number[]) => { destinationJoin = accountIds; };
+
 /** Set when a default destination is saved, so Accounts shows it beside the pin for a moment. */
 export const destinationPeek = { pending: false };
 
@@ -46,7 +50,8 @@ export function PlaceSearch({ state: appState, ...rest }: ScreenProps & { kind: 
   const { navigate, patchSettings, refresh, notify, kind } = rest;
   const [forAccount] = useState(() => appState.accounts.find(({ id }) => id === destinationAccount));
   const [forGroup] = useState(() => appState.settings.groups.find(({ id }) => id === destinationGroup));
-  useEffect(() => () => { destinationAccount = undefined; destinationGroup = undefined; }, []);
+  const [joinIds] = useState(() => destinationJoin);
+  useEffect(() => () => { destinationAccount = undefined; destinationGroup = undefined; destinationJoin = undefined; }, []);
   /** The results mark the destination being changed as current. */
   const current = forGroup ? forGroup.placeId : forAccount ? forAccount.placeId : appState.settings.placeId;
   const state = forAccount || forGroup ? { ...appState, settings: { ...appState.settings, placeId: current ?? "" } } : appState;
@@ -68,7 +73,8 @@ export function PlaceSearch({ state: appState, ...rest }: ScreenProps & { kind: 
     return places.matches.find(({ placeId }) => placeId === target)?.name ?? (player ? `@${player.name}` : placeLabel(appState, target));
   };
   const choose = (target: string) => {
-    if (once) {
+    if (joinIds) rest.join(joinIds, target);
+    else if (once) {
       const name = nameOf(target);
       rest.setNextJoin(forAccount?.id ?? "default", { target, name });
       if (!forAccount) destinationPeek.pending = true;
@@ -82,28 +88,40 @@ export function PlaceSearch({ state: appState, ...rest }: ScreenProps & { kind: 
     else { destinationPeek.pending = true; void patchSettings("placeId", target); }
     navigate("/accounts");
   };
+  /** Submitting an empty search clears the destination being changed. */
+  const clearDestination = () => {
+    if (joinIds || !current) return;
+    if (forGroup) {
+      void patchSettings("groups", appState.settings.groups.map((group) => group.id === forGroup.id ? { ...group, placeId: undefined } : group));
+      rest.done(`${forGroup.name} uses each account's destination.`);
+    }
+    else if (forAccount) void bridge.setAccountPlace(forAccount.id, null).then(() => { rest.done(`${accountName(forAccount)} uses the default destination.`); return refresh(); }).catch((error) => notify(failure(`The destination wasn't saved. Does retrying help?`, error)));
+    else {
+      void patchSettings("placeId", "");
+      rest.done("No default destination. Accounts show their general notes and tags.");
+    }
+    navigate("/accounts");
+  };
   const firstMatch = kind === "games" ? places.matches[0]?.placeId : players.matches[0] && `@${players.matches[0].id}`;
   const FieldIcon = kind === "games" ? Gamepad2 : UserRound;
 
-  return <Screen title={forGroup ? `Destination for ${forGroup.name}` : forAccount ? `Destination for ${accountName(forAccount)}` : kind === "games" ? "Find a game" : "Find a player"} actions={<IconButton label="Back to accounts" onClick={() => navigate("/accounts")}><ArrowLeft /></IconButton>} toolbar={<>
-    <form role="search" className="relative min-w-40 flex-1" onSubmit={(event) => { event.preventDefault(); const target = typed || firstMatch; if (target) choose(target); }}>
+  return <Screen title={joinIds ? (joinIds.length === 1 ? "Destination for this join" : `Destination for ${joinIds.length} accounts`) : forGroup ? `Destination for ${forGroup.name}` : forAccount ? `Destination for ${accountName(forAccount)}` : kind === "games" ? "Find a game" : "Find a player"} actions={<IconButton label="Back to accounts" onClick={() => navigate("/accounts")}><ArrowLeft /></IconButton>} toolbar={<>
+    <form role="search" className="relative min-w-40 flex-1" onSubmit={(event) => { event.preventDefault(); const target = typed || firstMatch; if (target) choose(target); else if (!query.trim()) clearDestination(); }}>
       <TargetKindToggle kind={kind === "players" ? "player" : "place"} gameIcon={<Gamepad2 />} className="left-1.5 h-7"
         toggle={() => navigate(kind === "games" ? "/accounts/players" : "/accounts/places")} />
       <Input autoFocus type="search" name="place-search" value={query} placeholder={kind === "games" ? "Game name, link, or place ID" : "Username, display name, or profile link"}
         aria-label={kind === "games" ? "Search Roblox games" : "Search Roblox players"} spellCheck={false} autoComplete="off"
-        className={cn("h-10 pl-14 text-base", kind === "players" && "bg-muted/50")} onChange={(event) => setQuery(event.target.value)}
+        className={cn("h-10 pl-14 text-base", !forGroup && !joinIds && "pr-10", kind === "players" && "bg-muted/50")} onChange={(event) => setQuery(event.target.value)}
         onKeyDown={(event) => { if (event.key === "Escape" && !query) navigate("/accounts"); }} />
+      {!forGroup && !joinIds && <Tooltip>
+        <TooltipTrigger render={<Toggle type="button" size="sm" className="absolute inset-y-0 right-1.5 z-10 my-auto size-7 min-w-0 px-0" pressed={once} onPressedChange={setOnce}
+          onPointerDown={(event) => event.preventDefault()}
+          aria-label={once ? "Next join only is on. Picks set a one-time destination" : "Next join only. Picks set a one-time destination"} />}>
+          <Repeat1 />
+        </TooltipTrigger>
+        <TooltipContent>{once ? "Next join only: on" : "Next join only"}</TooltipContent>
+      </Tooltip>}
     </form>
-    {!forGroup && <Tooltip>
-      <TooltipTrigger render={<Toggle variant="outline" className="size-10" pressed={once} onPressedChange={setOnce}
-        aria-label={once ? "Next join only is on. Picks set a one-time destination" : "Next join only. Picks set a one-time destination"} />}>
-        <Repeat1 />
-      </TooltipTrigger>
-      <TooltipContent>{once ? "Next join only: on" : "Next join only"}</TooltipContent>
-    </Tooltip>}
-    {!forAccount && !forGroup && appState.settings.placeId && <Button variant="outline" className="h-10" onClick={() => { void patchSettings("placeId", ""); rest.done("No default destination. Accounts show their general notes and tags."); navigate("/accounts"); }}>
-      <MapPinOff />No default
-    </Button>}
     {kind === "players" && accounts.length > 0 && <DropdownMenu>
       <DropdownMenuTrigger render={<Button ref={actorField} variant="outline" className="h-10 max-w-48" aria-label={`Acting account: ${actor ? accountName(actor) : "none"}`} />}>
         {actor && state.settings.showAvatars && <Avatar account={actor} className="size-6" status={false} />}
@@ -213,7 +231,15 @@ function PlayerRow({ state, notify, confirm, actor, choose, player }: PlayerProp
     };
     const prompt = confirmations[action];
     if (prompt) confirm({ title: `${prompt.verb} ${name}?`, message: prompt.message(name, accountName(ready)), action: prompt.verb, danger: true, run: change });
-    else void change().catch((error) => notify(failure(`The change didn't go through. Does retrying help?`, error)));
+    else void change().catch((error) => notify(failure(`The change didn't go through. Does retrying help?`, error), "error", { label: "Open on Roblox", run: openProfile }));
+  };
+  /** Opens the profile signed in as the account when there is one, and reloads the status once
+   * Toolblox is focused again. */
+  const openProfile = () => {
+    if (!ready) { void bridge.openExternal(`https://www.roblox.com/users/${player.id}/profile`); return; }
+    bridge.openRobloxProfile(ready.id, player.id)
+      .then(() => window.addEventListener("focus", load, { once: true }))
+      .catch((error) => notify(failure(`The Roblox window couldn't open. Would trying again help?`, error)));
   };
   const known = typeof relationship === "object" ? relationship : undefined;
   const action = (label: string, social: SocialAction, icon: ReactNode, className?: string) =>
@@ -221,12 +247,12 @@ function PlayerRow({ state, notify, confirm, actor, choose, player }: PlayerProp
 
   return <div className="flex items-center gap-3 rounded-xl bg-muted/50 p-3">
     <Tooltip>
-      <TooltipTrigger render={<button type="button" aria-label={`Open the Roblox profile of ${name}`} onClick={() => void bridge.openExternal(`https://www.roblox.com/users/${player.id}/profile`)}
+      <TooltipTrigger render={<button type="button" aria-label={ready ? `Open the Roblox profile of ${name} as ${accountName(ready)}` : `Open the Roblox profile of ${name}`} onClick={openProfile}
         className="group/avatar relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-full bg-background text-muted-foreground ring-1 ring-foreground/8 outline-none transition-shadow hover:ring-2 hover:ring-ring focus-visible:ring-2 focus-visible:ring-ring" />}>
         {player.avatarUrl && state.settings.showAvatars ? <img src={player.avatarUrl} alt="" className="size-full object-cover" /> : <UserRound className="size-5" />}
         <span className="absolute inset-0 grid place-items-center bg-background/70 text-foreground opacity-0 transition-opacity motion-reduce:transition-none group-hover/avatar:opacity-100 group-focus-visible/avatar:opacity-100" aria-hidden="true"><ExternalLink className="size-4" /></span>
       </TooltipTrigger>
-      <TooltipContent>Open profile</TooltipContent>
+      <TooltipContent>{ready ? `Open profile as ${accountName(ready)}` : "Open profile"}</TooltipContent>
     </Tooltip>
     <button type="button" onClick={() => choose(target)} aria-label={`Set ${name} as the destination`}
       className="-m-1 flex min-w-0 flex-1 items-center gap-3 rounded-lg p-1 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">

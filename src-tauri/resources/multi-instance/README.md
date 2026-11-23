@@ -85,6 +85,14 @@ pizzaboxer/bloxstrap#1691), which points to the underlying fragility being
 in Roblox's own client rather than something fixable purely from this
 helper's side.
 
+### Mitigation: Toolblox holds the name
+
+`multi_instance.rs` now creates a mutex named `ROBLOX_singletonEvent` and keeps it open for
+Toolblox's lifetime. Roblox clients started after that can't create the event (the name is
+taken by an object of another type), so they proceed as the first instance without ever sharing
+an event. This helper then runs at most once, only when a client that already owns the event
+was running before Toolblox took the name.
+
 ## What's verified vs. not
 
 During development, this was verified against a real, locally running

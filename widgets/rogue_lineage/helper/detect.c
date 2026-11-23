@@ -3,8 +3,11 @@
  *
  * The mana bar is a tall tan frame around a dark mauve interior. Mana fills the interior from the
  * bottom in any color, so a row counts as filled when it isn't the empty interior's color. The
- * colors were measured from the game's interface, which lighting doesn't change.
+ * colors were measured from the game's interface. Some scenes show a brighter interface, with a
+ * cream frame and a lighter interior; those colors come from the Rogue Lineage Assist Tool and
+ * haven't been checked against a screenshot here.
  */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,8 +19,14 @@
 #define EMPTY_R 83
 #define EMPTY_G 65
 #define EMPTY_B 73
+/* The empty interior in the bright interface. */
+#define BRIGHT_R 151
+#define BRIGHT_G 120
+#define BRIGHT_B 136
 /* How far a channel may sit from the empty color before the row counts as filled. */
 #define EMPTY_TOLERANCE 15
+/* The most rows the area mana fills can have. */
+#define MAX_ROWS 4096
 
 struct run {
     int x, top, bottom;
@@ -31,18 +40,24 @@ static int inside(const struct image *image, int x, int y) {
     return x >= 0 && y >= 0 && x < image->width && y < image->height;
 }
 
-/* The frame's tan, loosely, since its thin lines blend with whatever is behind them. */
+/* The frame's tan, loosely, since its thin lines blend with whatever is behind them, or the bright interface's cream. */
 static int is_frame(const uint8_t *p) {
     int b = p[0], g = p[1], r = p[2];
-    return r >= 135 && r - b >= 40 && g - b >= 12 && r - g >= 12;
+    if (r >= 135 && r - b >= 40 && g - b >= 12 && r - g >= 12) return 1;
+    return r >= 215 && g >= 205 && b >= 150 && b <= r - 28 && abs(r - g) <= 40;
 }
 
-/* The empty interior's mauve at any brightness, including the shading at its ends. */
-static int is_empty(int r, int g, int b) {
-    double scale = (r + g + b) / (double)(EMPTY_R + EMPTY_G + EMPTY_B);
+/* A color near `empty_r`, `empty_g`, `empty_b` scaled to its brightness, including the shading at the interior's ends. */
+static int near_empty(int r, int g, int b, int empty_r, int empty_g, int empty_b) {
+    double scale = (r + g + b) / (double)(empty_r + empty_g + empty_b);
     if (scale < 0.65 || scale > 1.3 || b < g - 6) return 0;
-    return abs(r - (int)(EMPTY_R * scale)) <= EMPTY_TOLERANCE && abs(g - (int)(EMPTY_G * scale)) <= EMPTY_TOLERANCE &&
-           abs(b - (int)(EMPTY_B * scale)) <= EMPTY_TOLERANCE;
+    return abs(r - (int)(empty_r * scale)) <= EMPTY_TOLERANCE && abs(g - (int)(empty_g * scale)) <= EMPTY_TOLERANCE &&
+           abs(b - (int)(empty_b * scale)) <= EMPTY_TOLERANCE;
+}
+
+/* The empty interior's mauve, in the normal or the bright interface. */
+static int is_empty(int r, int g, int b) {
+    return near_empty(r, g, b, EMPTY_R, EMPTY_G, EMPTY_B) || near_empty(r, g, b, BRIGHT_R, BRIGHT_G, BRIGHT_B);
 }
 
 static int empty_at(const struct image *image, int x, int y) {
@@ -163,18 +178,33 @@ int bar_present(const struct image *image, const struct bar *bar) {
     return found * 10 >= checks * 6;
 }
 
+/*
+ * The fill's top edge is the row that splits the area with the fewest rows on the wrong side:
+ * filled rows above it and empty rows below. A few odd rows anywhere, such as a line drawn over the
+ * bar, don't move it. This is the Rogue Lineage Assist Tool's method.
+ */
 double read_fill(const struct image *image, const struct bar *bar, uint32_t *color) {
-    int rows = bar->fill_bottom - bar->fill_top + 1, filled = 0, misses = 0;
-    for (int y = bar->fill_bottom; y >= bar->fill_top && misses < 2; y--) {
+    static uint8_t full[MAX_ROWS];
+    int rows = bar->fill_bottom - bar->fill_top + 1, empties = 0;
+    if (rows > MAX_ROWS) rows = MAX_ROWS;
+    for (int i = 0; i < rows; i++) {
         int r, g, b;
-        row_color(image, bar, y, &r, &g, &b);
-        if (is_empty(r, g, b)) {
-            misses++;
-        } else {
-            filled += 1 + misses;
-            misses = 0;
+        row_color(image, bar, bar->fill_top + i, &r, &g, &b);
+        full[i] = !is_empty(r, g, b);
+        empties += !full[i];
+    }
+    int edge = rows, fewest = rows + 1, above = 0, below = empties;
+    for (int i = 0; i <= rows; i++) {
+        if (above + below < fewest) {
+            fewest = above + below;
+            edge = i;
+        }
+        if (i < rows) {
+            above += full[i];
+            below -= !full[i];
         }
     }
+    int filled = rows - edge;
     if (filled >= 3) {
         int r = 0, g = 0, b = 0, count = 0;
         for (int y = bar->fill_bottom - filled / 4; y > bar->fill_bottom - filled + filled / 4; y--, count++) {
@@ -582,4 +612,225 @@ int letter_count(const char *text) {
     int count = 0;
     for (; *text; text++) count += (*text >= 'a' && *text <= 'z') || (*text >= 'A' && *text <= 'Z');
     return count;
+}
+
+void train_band(int min, int max, int middle, double *low, double *high) {
+    double trim = (max - min) * (1.0 - middle / 100.0) / 2.0;
+    *low = min + trim;
+    *high = max - trim;
+    if (*high - *low < TRAIN_MIN_BAND) {
+        double center = (min + max) / 2.0;
+        *low = center - TRAIN_MIN_BAND / 2;
+        *high = center + TRAIN_MIN_BAND / 2;
+    }
+}
+
+int train_start(double level, double low) {
+    return level < low ? TRAIN_CHARGE : TRAIN_CAST;
+}
+
+int train_next(int phase, double level, double low, double high, unsigned elapsed, int full) {
+    if (phase == TRAIN_CHARGE) return level >= high || full || elapsed >= TRAIN_CHARGE_MAX_MS ? TRAIN_CAST : TRAIN_CHARGE;
+    if (phase == TRAIN_CAST) return level < low ? TRAIN_RECOVER : TRAIN_CAST;
+    return elapsed >= TRAIN_RECOVER_MS ? TRAIN_CHARGE : TRAIN_RECOVER;
+}
+
+int smith_actions(const int *slots, const int *clicks, int steps, struct smith_action out[SMITH_ACTIONS]) {
+    int count = 0;
+    for (int i = 0; i < steps && i < SMITH_STEPS; i++) {
+        int times = clicks[i] < 1 ? 1 : clicks[i] > SMITH_CLICKS ? SMITH_CLICKS : clicks[i];
+        for (int k = 0; k < times; k++) {
+            out[count++] = (struct smith_action){SMITH_PICK, slots[i]};
+            out[count++] = (struct smith_action){SMITH_ANVIL, -1};
+        }
+    }
+    out[count++] = (struct smith_action){SMITH_HAMMER, -1};
+    return count;
+}
+
+#define PI 3.14159265358979323846
+
+/* An in-place complex FFT of `n` points, a power of two. */
+static void fft(double *re, double *im, int n) {
+    for (int i = 1, j = 0; i < n; i++) {
+        int bit = n >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j |= bit;
+        if (i < j) {
+            double t = re[i];
+            re[i] = re[j], re[j] = t;
+            t = im[i];
+            im[i] = im[j], im[j] = t;
+        }
+    }
+    for (int length = 2; length <= n; length <<= 1) {
+        double angle = -2 * PI / length;
+        for (int start = 0; start < n; start += length) {
+            for (int k = 0; k < length / 2; k++) {
+                double wr = cos(angle * k), wi = sin(angle * k);
+                double *ar = &re[start + k], *ai = &im[start + k], *br = &re[start + k + length / 2], *bi = &im[start + k + length / 2];
+                double tr = *br * wr - *bi * wi, ti = *br * wi + *bi * wr;
+                *br = *ar - tr, *bi = *ai - ti;
+                *ar += tr, *ai += ti;
+            }
+        }
+    }
+}
+
+/* Writes the magnitudes of the Hann-windowed `samples`' spectrum, `n` / 2 + 1 of them. */
+static void spectrum(const float *samples, int n, double *magnitudes) {
+    double re[CAST_BLOCK], im[CAST_BLOCK];
+    for (int i = 0; i < n; i++) {
+        re[i] = samples[i] * (0.5 - 0.5 * cos(2 * PI * i / (n - 1)));
+        im[i] = 0;
+    }
+    fft(re, im, n);
+    for (int i = 0; i <= n / 2; i++) magnitudes[i] = sqrt(re[i] * re[i] + im[i] * im[i]);
+}
+
+static int by_value(const void *a, const void *b) {
+    double x = *(const double *)a, y = *(const double *)b;
+    return (x > y) - (x < y);
+}
+
+/* The chime's tones, and how far a tone must stand above the median of 0.5 to 8 kHz. */
+#define DING_LOW_FROM 3050.0
+#define DING_LOW_TO 3350.0
+#define DING_HIGH_FROM 4650.0
+#define DING_HIGH_TO 5000.0
+#define DING_CONTRAST 15.0
+#define DING_FLOOR 5e-3
+/* The high tone follows the low one within DING_GAP seconds, and an echo within DING_REFRACTORY isn't another chime. */
+#define DING_GAP 0.35
+#define DING_REFRACTORY 0.6
+
+void ding_reset(struct ding *ding) {
+    *ding = (struct ding){.low_at = -1, .last = -1e9};
+}
+
+/* Looks for the chime's tones in one block. Returns 1 when the high tone follows the low one. */
+static int ding_block(struct ding *ding, int rate) {
+    double magnitudes[DING_BLOCK / 2 + 1], reference[DING_BLOCK / 2 + 1], low = 0, high = 0;
+    int count = 0;
+    spectrum(ding->samples, DING_BLOCK, magnitudes);
+    for (int i = 0; i <= DING_BLOCK / 2; i++) {
+        double frequency = (double)i * rate / DING_BLOCK;
+        if (frequency >= 500 && frequency <= 8000) reference[count++] = magnitudes[i];
+        if (frequency >= DING_LOW_FROM && frequency <= DING_LOW_TO && magnitudes[i] > low) low = magnitudes[i];
+        if (frequency >= DING_HIGH_FROM && frequency <= DING_HIGH_TO && magnitudes[i] > high) high = magnitudes[i];
+    }
+    if (!count) return 0;
+    qsort(reference, (size_t)count, sizeof reference[0], by_value);
+    double median = reference[count / 2] + 1e-9;
+    if (low > DING_FLOOR && low / median >= DING_CONTRAST) ding->low_at = ding->now;
+    if (high > DING_FLOOR && high / median >= DING_CONTRAST && ding->low_at >= 0 && ding->now - ding->low_at <= DING_GAP &&
+        ding->now - ding->last >= DING_REFRACTORY) {
+        ding->low_at = -1;
+        ding->last = ding->now;
+        return 1;
+    }
+    return 0;
+}
+
+int ding_feed(struct ding *ding, const float *samples, int count, int rate) {
+    int heard = 0;
+    if (rate <= 0 || rate > 96000) return 0;
+    for (int i = 0; i < count; i++) {
+        ding->samples[ding->filled++] = samples[i];
+        if (ding->filled < DING_BLOCK) continue;
+        heard += ding_block(ding, rate);
+        memmove(ding->samples, ding->samples + DING_BLOCK / 2, sizeof(float) * (DING_BLOCK / 2));
+        ding->filled = DING_BLOCK / 2;
+        ding->now += (double)(DING_BLOCK / 2) / rate;
+    }
+    return heard;
+}
+
+/* The spectrum's shape, by band, at the loudest moment of the recorded spell-cast sound. */
+const double CAST_TEMPLATE[CAST_BANDS] = {0.14,  0.062, 0.111, 0.062, 0.091, 0.108, 0.156, 0.211, 0.231, 0.412,
+                                          0.371, 0.361, 0.318, 0.259, 0.248, 0.175, 0.16,  0.178, 0.17,  0.185};
+#define CAST_HOP 256
+#define CAST_FROM 1200.0
+#define CAST_TO 16000.0
+/* A burst is louder than the sound CAST_BEFORE frames earlier by CAST_JUMP times, and the loudest of the CAST_LOOK frames on each side. */
+#define CAST_JUMP 6.0
+#define CAST_BEFORE 5
+#define CAST_LOOK 3
+#define CAST_FLOOR 1e-4
+#define CAST_REFRACTORY 0.05
+
+void cast_band_edges(int rate, double edges[CAST_BANDS + 1]) {
+    double top = rate / 2.0 - 100 < CAST_TO ? rate / 2.0 - 100 : CAST_TO;
+    for (int i = 0; i <= CAST_BANDS; i++) edges[i] = CAST_FROM * pow(top / CAST_FROM, (double)i / CAST_BANDS);
+}
+
+void cast_sound_reset(struct cast_sound *sound, double match) {
+    *sound = (struct cast_sound){.last = -1e9, .match = match};
+}
+
+/* Adds one frame's band powers and checks whether the frame CAST_LOOK back is a cast's burst. */
+static int cast_frame(struct cast_sound *sound, int rate) {
+    double magnitudes[CAST_BLOCK / 2 + 1], edges[CAST_BANDS + 1], bands[CAST_BANDS] = {0}, total = 0;
+    spectrum(sound->samples, CAST_BLOCK, magnitudes);
+    cast_band_edges(rate, edges);
+    for (int band = 0; band < CAST_BANDS; band++) {
+        int any = 0;
+        for (int i = 0; i <= CAST_BLOCK / 2; i++) {
+            double frequency = (double)i * rate / CAST_BLOCK;
+            if (frequency >= edges[band] && frequency < edges[band + 1]) {
+                bands[band] += magnitudes[i] * magnitudes[i];
+                any = 1;
+            }
+        }
+        if (!any) {
+            int nearest = (int)lround((edges[band] + edges[band + 1]) / 2 * CAST_BLOCK / rate);
+            if (nearest > CAST_BLOCK / 2) nearest = CAST_BLOCK / 2;
+            bands[band] = magnitudes[nearest] * magnitudes[nearest];
+        }
+        total += bands[band];
+    }
+    if (sound->frames == CAST_FRAMES) {
+        memmove(sound->totals, sound->totals + 1, sizeof sound->totals[0] * (CAST_FRAMES - 1));
+        memmove(sound->bands, sound->bands + 1, sizeof sound->bands[0] * (CAST_FRAMES - 1));
+        sound->frames--;
+    }
+    sound->totals[sound->frames] = total;
+    memcpy(sound->bands[sound->frames], bands, sizeof bands);
+    if (++sound->frames < CAST_FRAMES) return 0;
+
+    int peak = CAST_FRAMES - 1 - CAST_LOOK;
+    double loudest = sound->totals[peak];
+    if (loudest < CAST_FLOOR || loudest < CAST_JUMP * sound->totals[peak - CAST_BEFORE]) return 0;
+    for (int i = peak - CAST_LOOK; i <= peak + CAST_LOOK; i++) {
+        if (sound->totals[i] > loudest) return 0;
+    }
+    double dot = 0, norm = 0, template_norm = 0;
+    for (int band = 0; band < CAST_BANDS; band++) {
+        double shape = sqrt(sound->bands[peak][band] / (loudest + 1e-30));
+        dot += shape * CAST_TEMPLATE[band];
+        norm += shape * shape;
+        template_norm += CAST_TEMPLATE[band] * CAST_TEMPLATE[band];
+    }
+    sound->score = dot / (sqrt(norm) * sqrt(template_norm) + 1e-30);
+    if (sound->score < sound->match || sound->now - sound->last < CAST_REFRACTORY) return 0;
+    sound->last = sound->now;
+    return 1;
+}
+
+int cast_sound_feed(struct cast_sound *sound, const float *samples, int count, int rate) {
+    int heard = 0;
+    if (rate <= 0 || rate > 96000) return 0;
+    if (rate != sound->rate) {
+        sound->rate = rate;
+        sound->filled = sound->frames = 0;
+    }
+    for (int i = 0; i < count; i++) {
+        sound->samples[sound->filled++] = samples[i];
+        if (sound->filled < CAST_BLOCK) continue;
+        heard += cast_frame(sound, rate);
+        memmove(sound->samples, sound->samples + CAST_HOP, sizeof(float) * (CAST_BLOCK - CAST_HOP));
+        sound->filled = CAST_BLOCK - CAST_HOP;
+        sound->now += (double)CAST_HOP / rate;
+    }
+    return heard;
 }

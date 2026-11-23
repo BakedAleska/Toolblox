@@ -12,11 +12,21 @@
  * like the hotbar's above it. Open, it reads each slot's name like the hotbar's, shades skills that
  * are cooling down, and tells the widget it's open, so other widgets can react.
  *
- * It never sends input and never touches the Roblox process. While the cooldown overlay is on,
- * low-level hooks observe the hotbar keys and the left mouse button, and pass every event on
- * unchanged. Its windows are left out of screen capture, so the helper reads the game's pixels and
- * not its own drawing. Screenshots and recordings of the screen leave them out too. Windows before
- * 10 version 2004 can't do that, and there the helper reports that it isn't supported.
+ * Automation runs one task at a time on its own thread, started and stopped by its key while Roblox
+ * is focused: snap training casts a spell and puts it away while mana stays in the spell's range,
+ * and blacksmithing picks each item and clicks the anvil and hammer. Only these tasks send input,
+ * with SendInput, and only while the Roblox window they started in is focused. A label over that
+ * window shows the task while it runs. Everything they send carries INPUT_TAG, which the hooks skip. The helper never touches the Roblox process.
+ *
+ * While snap training is on and game sound is allowed, it listens to the focused
+ * Roblox process's sound, and only that process's, for the mana-full chime and spell casts (see
+ * audio.h). The chime ends snap training's charging, and casts heard are counted.
+ *
+ * While the cooldown overlay or a task is on, low-level hooks observe the hotbar keys, the task
+ * keys, and the left mouse button, and pass every event on unchanged. Its windows are left out of screen capture, so the helper reads the game's pixels and
+ * not its own drawing. Screenshots and recordings of the screen leave them out too. Where Windows can't
+ * leave them out, the helper reads the focused Roblox window on its own instead (see `source`),
+ * and screenshots show the overlays.
  *
  * In debug mode it also labels what both overlays detect on a third click-through window over the
  * Roblox window, and writes each step, and why a step failed, to the Toolblox log. Anything
@@ -27,6 +37,7 @@
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <mmsystem.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -34,10 +45,12 @@
 #include <string.h>
 #include <wchar.h>
 
+#include "audio.h"
+#include "capture.h"
 #include "detect.h"
 #include "ocr.h"
 
-#define HELPER_VERSION "1.4.0"
+#define HELPER_VERSION "1.5.0"
 /* The focused process the helper reads, as the end of its path. */
 #ifndef TARGET_EXE
 #define TARGET_EXE L"\\RobloxPlayerBeta.exe"
@@ -55,6 +68,10 @@
 #define WM_LEFT_CLICK (WM_APP + 6)
 #define WM_SLOT_TEXT (WM_APP + 7)
 #define WM_READER (WM_APP + 8)
+#define WM_TASK_KEY (WM_APP + 9)
+#define WM_TASK_DONE (WM_APP + 10)
+#define WM_PICK (WM_APP + 11)
+#define WM_AUDIO (WM_APP + 12)
 #define TICK_MS 16
 /* Time between looks for the bar, the hotbar, and the Gate prompt, on the whole Roblox window. */
 #define SEARCH_MS 500
@@ -119,6 +136,18 @@ struct config {
     int cooldowns, shade_opacity, countdown, debug, backpack;
     uint32_t shade;
     struct zone zones[MAX_ZONES];
+    /*
+     * Automation: whether each task is on, the virtual key that starts and stops it, and its
+     * settings. Spots on screen are in ten-thousandths of the Roblox window's client area, or -1.
+     * `train_name` is the spell snap training casts, as the hotbar shows it. Its slot is found on
+     * the hotbar when training starts, and `train_slot` holds it for the task.
+     */
+    int train, train_key, train_slot, train_min, train_max, train_middle;
+    char train_name[32];
+    /* Whether game sound may be listened to. */
+    int listen;
+    int smith, smith_key, smith_steps, smith_slots[SMITH_STEPS], smith_clicks[SMITH_STEPS], smith_count;
+    int anvil_x, anvil_y, hammer_x, hammer_y, smith_click_ms, smith_pick_ms, smith_before_ms, smith_after_ms;
 };
 
 /* A skill from the catalogue. `ready_at` is when its cooldown ends. */
@@ -152,10 +181,28 @@ struct layer {
 static CRITICAL_SECTION config_lock;
 static struct config incoming, config;
 static int supported;
+/* Why the windows couldn't be left out of capture: the first error and the Windows build it happened on. */
+static DWORD support_error, windows_build;
 
 static HWND flash;
-static struct layer mana_layer, cooldown_layer, debug_layer, backpack_layer;
+static struct layer mana_layer, cooldown_layer, debug_layer, backpack_layer, task_layer;
 static HDC screen_dc, capture_dc;
+/*
+ * Where captures come from. GRAPHICS reads the focused Roblox window through
+ * Windows.Graphics.Capture (capture.h), which leaves out the overlays above it. SCREEN copies the
+ * screen, which leaves them out only where Windows can exclude them from capture. PRINT renders the
+ * window with PrintWindow, the slowest, for where neither works. `frame_blank` is set while the
+ * window comes back all black.
+ */
+enum { SOURCE_SCREEN, SOURCE_GRAPHICS, SOURCE_PRINT };
+static const char *const SOURCE_NAMES[] = {"screen", "graphics", "print"};
+static int source = SOURCE_SCREEN, frame_blank = -1;
+static HDC frame_dc;
+static HBITMAP frame_bitmap;
+static uint8_t *frame_pixels;
+static HWND frame_window;
+static int frame_width, frame_height;
+static ULONGLONG frame_at;
 static HBITMAP capture_bitmap;
 static uint8_t *capture_pixels;
 static int capture_width, capture_height;
@@ -251,6 +298,58 @@ static volatile LONG64 key_seen;
 static HANDLE watcher;
 static DWORD watcher_id;
 
+/*
+ * Automation. `job` is the settings a task started with, and `task_window` the Roblox window it
+ * sends to. The main thread writes `mana_level` while the mana bar is read, for snap training.
+ * ponytail: training sees mana once per TICK_MS tick, later while a full-window scan runs, and a
+ * stale level for up to LOST_TICKS after the bar is covered. The band's margin absorbs this; give
+ * training its own capture of the bar's column if casts land outside it.
+ */
+enum task { TASK_NONE, TASK_TRAIN, TASK_SMITH };
+static const char *const TASK_NAMES[] = {"", "train", "smith"};
+#define INPUT_TAG 0x524C4155
+#define SCAN_CHARGE 0x22
+#define TRAIN_STEP_MS 5
+#define TRAIN_REST_MS 100
+#define TRAIN_G_HOLD_MS 200
+#define TRAIN_G_GAP_MS 20
+/* How long training waits for the mana bar to come back before it stops. */
+#define TRAIN_LOST_MS 2000
+#define SMITH_ARRIVE_MS 20
+#define SMITH_HOLD_MS 5
+#define PROGRESS_MS 250
+static struct config job;
+static HANDLE automation, automation_stop;
+static HWND task_window;
+static volatile LONG task, task_count, mana_valid;
+static volatile double mana_level;
+static const char *volatile task_reason;
+static int held_charge, held_button, emitted_count = -1;
+static DWORD charge_since;
+static ULONGLONG last_progress;
+/* The task keys the hook watches, by task, and which are held. */
+static volatile LONG task_keys[3];
+static unsigned task_held;
+/* The spot the next left click in Roblox sets: 0 for none, 1 for the anvil, 2 for the hammer. */
+static int picking;
+static void emit_task(int running, const char *reason);
+/*
+ * Game sound: the Roblox process listened to, or 0, the listening state, when a failed start may be
+ * retried, and what's been heard. `full_at` is when the chime was last heard, by timeGetTime.
+ */
+enum audio_state { AUDIO_OFF, AUDIO_STARTING, AUDIO_ON, AUDIO_FAILED };
+static const char *const AUDIO_STATES[] = {"off", "starting", "listening", "failed"};
+#define AUDIO_RETRY_MS 5000
+static DWORD audio_process;
+static int audio_state, chimes, casts_heard, cast_match;
+static long audio_error;
+static ULONGLONG audio_retry_at;
+static volatile DWORD full_at;
+static volatile LONG task_heard;
+static void update_audio(ULONGLONG now);
+static void show_task(POINT origin);
+static void stop_task(void);
+
 static void emit(const char *format, ...) {
     va_list arguments;
     va_start(arguments, format);
@@ -335,7 +434,51 @@ static void *create_bitmap(HDC dc, HBITMAP *bitmap, int width, int height) {
     return pixels;
 }
 
-/* Copies a rectangle of the screen. The image is valid until the next capture. */
+/* ponytail: PrintWindow renders the whole client at most every PRINT_REUSE_MS, so readings run at about 20 a second there. */
+#define PRINT_REUSE_MS 50
+
+/* Renders `window`'s client area with PrintWindow, unless the last frame is recent. */
+static int print_frame(HWND window, const uint8_t **pixels, int *width, int *height, int *stride) {
+    RECT client;
+    if (!GetClientRect(window, &client) || client.right < 1 || client.bottom < 1) return 0;
+    ULONGLONG now = GetTickCount64();
+    if (window != frame_window || client.right != frame_width || client.bottom != frame_height || now - frame_at >= PRINT_REUSE_MS) {
+        if (client.right != frame_width || client.bottom != frame_height) {
+            uint8_t *next = create_bitmap(frame_dc, &frame_bitmap, client.right, client.bottom);
+            if (!next) return 0;
+            frame_pixels = next;
+            frame_width = client.right;
+            frame_height = client.bottom;
+        }
+        frame_window = NULL;
+        if (!PrintWindow(window, frame_dc, PW_CLIENTONLY | PW_RENDERFULLCONTENT)) return 0;
+        GdiFlush();
+        frame_window = window;
+        frame_at = now;
+    }
+    *pixels = frame_pixels;
+    *width = frame_width;
+    *height = frame_height;
+    *stride = frame_width * 4;
+    return 1;
+}
+
+/* Reports when the window's frames start or stop coming back all black. */
+static void check_blank(const uint8_t *pixels, int width, int height, int stride) {
+    int blank = 1;
+    for (int y = 0; y < height && blank; y += 16)
+        for (int x = 0; x < width && blank; x += 16) blank = !(*(const uint32_t *)(pixels + (size_t)y * stride + (size_t)x * 4) & 0xffffff);
+    if (blank == frame_blank) return;
+    frame_blank = blank;
+    emit("{\"type\":\"capture\",\"blank\":%s}", blank ? "true" : "false");
+    if (blank) note("warn", "The Roblox window comes back black when read on its own (%s), so nothing can be read from it.", SOURCE_NAMES[source]);
+}
+
+/*
+ * Copies a rectangle of the screen, in screen coordinates. Unless the source is the screen, it's
+ * cut from the focused Roblox window's frame, and parts outside the window are black. The image is
+ * valid until the next capture.
+ */
 static int capture(int x, int y, int width, int height, struct image *image) {
     if (width > capture_width || height > capture_height) {
         int next_width = width > capture_width ? width : capture_width;
@@ -346,8 +489,27 @@ static int capture(int x, int y, int width, int height, struct image *image) {
         capture_width = next_width;
         capture_height = next_height;
     }
-    if (!BitBlt(capture_dc, 0, 0, width, height, screen_dc, x, y, SRCCOPY)) return 0;
-    GdiFlush();
+    if (source == SOURCE_SCREEN) {
+        if (!BitBlt(capture_dc, 0, 0, width, height, screen_dc, x, y, SRCCOPY)) return 0;
+        GdiFlush();
+    } else {
+        HWND window = GetForegroundWindow();
+        POINT origin = {0, 0};
+        const uint8_t *frame;
+        int frame_w, frame_h, stride;
+        if (!is_target(window) || !ClientToScreen(window, &origin)) return 0;
+        if (!(source == SOURCE_GRAPHICS ? graphics_frame(window, &frame, &frame_w, &frame_h, &stride) : print_frame(window, &frame, &frame_w, &frame_h, &stride))) return 0;
+        check_blank(frame, frame_w, frame_h, stride);
+        x -= origin.x;
+        y -= origin.y;
+        for (int row = 0; row < height; row++) {
+            uint8_t *out = capture_pixels + (size_t)row * capture_width * 4;
+            memset(out, 0, (size_t)width * 4);
+            int from_y = y + row, start = x < 0 ? -x : 0, end = x + width > frame_w ? frame_w - x : width;
+            if (from_y < 0 || from_y >= frame_h || start >= end) continue;
+            memcpy(out + (size_t)start * 4, frame + (size_t)from_y * stride + (size_t)(x + start) * 4, (size_t)(end - start) * 4);
+        }
+    }
     *image = (struct image){capture_pixels, width, height, capture_width * 4};
     return 1;
 }
@@ -612,6 +774,8 @@ static void emit_status(ULONGLONG now) {
  * Reports each slot's skill ID, "" for an empty slot, or "?" for a name that isn't in the catalogue,
  * and in `names`, the text read from each slot, without quotes or backslashes.
  */
+static int find_slot(const char *name);
+
 static void emit_hotbar(void) {
     char line[HOTBAR_SLOTS * 120 + 120];
     int used = snprintf(line, sizeof line, "{\"type\":\"hotbar\",\"selected\":%d,\"reader\":%s,\"small\":%s,\"slots\":[",
@@ -630,7 +794,7 @@ static void emit_hotbar(void) {
         name[length] = 0;
         used += snprintf(line + used, sizeof line - (size_t)used, "%s\"%s\"", i ? "," : "", name);
     }
-    snprintf(line + used, sizeof line - (size_t)used, "]}");
+    snprintf(line + used, sizeof line - (size_t)used, "],\"train\":%d}", config.train ? find_slot(config.train_name) : -1);
     hotbar_dirty = 0;
     emit("%s", line);
 }
@@ -669,6 +833,7 @@ static void learn_rate(ULONGLONG now, double level) {
 
 static void idle(enum state next) {
     set_state(next);
+    mana_valid = 0;
     hide(&mana_layer);
     pending = 0;
     prompt = 0;
@@ -724,9 +889,11 @@ static void track_mana(ULONGLONG now, POINT origin, int clicked) {
     }
     if (reading != percent || state != STATE_TRACKING) status_dirty = 1;
     percent = reading;
+    mana_level = level;
+    mana_valid = 1;
     set_state(STATE_TRACKING);
 
-    if (config.gate) {
+    if (config.enabled && config.gate) {
         int seen = prompt, held = gate_held;
         int candidate = clicked && !pending && held != 0 && now >= quiet_until && fill_rate > 0 && percent >= CAST_MIN_PERCENT &&
                         percent <= CAST_MAX_PERCENT;
@@ -789,7 +956,8 @@ static void track_mana(ULONGLONG now, POINT origin, int clicked) {
         pending = 0;
         prompt = 0;
     }
-    show_overlay(origin);
+    if (config.enabled) show_overlay(origin);
+    else hide(&mana_layer);
 }
 
 /* Returns the skill named by any of the texts read from a slot, or SLOT_UNKNOWN. */
@@ -809,6 +977,14 @@ static int slot_says(int slot, const char *name) {
     if (slot < 0 || slot >= slot_count || skill_in[slot] == SLOT_EMPTY) return 0;
     if (match_lines(texts[slot], &name, 1) == 0) return 1;
     return small_hotbar || letter_count(texts[slot]) < SLOT_MIN_LETTERS ? -1 : 0;
+}
+
+/* Returns the hotbar slot that shows `name`, or -1 when none does or the hotbar isn't read yet. */
+static int find_slot(const char *name) {
+    if (!name[0] || hotbar_state != STATE_TRACKING) return -1;
+    for (int i = 0; i < slot_count; i++)
+        if (slot_says(i, name) == 1) return i;
+    return -1;
 }
 
 /*
@@ -1222,10 +1398,20 @@ static void press_key(int slot) {
  */
 static LRESULT CALLBACK on_key(int code, WPARAM message, LPARAM data) {
     const KBDLLHOOKSTRUCT *key = (const KBDLLHOOKSTRUCT *)data;
-    int slot = (int)key->scanCode - 2;
-    if (code == HC_ACTION && slot >= 0 && slot < HOTBAR_SLOTS && !(key->flags & LLKHF_EXTENDED)) {
+    int slot = (int)key->scanCode - 2, up = message == WM_KEYUP || message == WM_SYSKEYUP;
+    if (code != HC_ACTION || key->dwExtraInfo == INPUT_TAG) return CallNextHookEx(NULL, code, message, data);
+    for (int which = TASK_TRAIN; which <= TASK_SMITH && !(key->flags & LLKHF_INJECTED); which++) {
+        if (!task_keys[which] || key->vkCode != (DWORD)task_keys[which]) continue;
+        if (up) {
+            task_held &= ~(1u << which);
+        } else if (!(task_held & 1u << which)) {
+            task_held |= 1u << which;
+            PostMessageW(mana_layer.window, WM_TASK_KEY, (WPARAM)which, 0);
+        }
+    }
+    if (slot >= 0 && slot < HOTBAR_SLOTS && !(key->flags & LLKHF_EXTENDED)) {
         unsigned bit = 1u << slot;
-        if (message == WM_KEYUP || message == WM_SYSKEYUP) {
+        if (up) {
             held_keys &= ~bit;
         } else if (!(held_keys & bit)) {
             held_keys |= bit;
@@ -1237,8 +1423,8 @@ static LRESULT CALLBACK on_key(int code, WPARAM message, LPARAM data) {
 }
 
 static LRESULT CALLBACK on_mouse(int code, WPARAM message, LPARAM data) {
-    if (code == HC_ACTION && message == WM_LBUTTONDOWN) {
-        const MSLLHOOKSTRUCT *mouse = (const MSLLHOOKSTRUCT *)data;
+    const MSLLHOOKSTRUCT *mouse = (const MSLLHOOKSTRUCT *)data;
+    if (code == HC_ACTION && message == WM_LBUTTONDOWN && mouse->dwExtraInfo != INPUT_TAG) {
         PostMessageW(mana_layer.window, WM_LEFT_CLICK, (WPARAM)(LONG_PTR)mouse->pt.x, (LPARAM)mouse->pt.y);
     }
     return CallNextHookEx(NULL, code, message, data);
@@ -1249,6 +1435,7 @@ static DWORD WINAPI watch_input(void *ready) {
     HINSTANCE instance = GetModuleHandleW(NULL);
     PeekMessageW(&message, NULL, 0, 0, PM_NOREMOVE);
     held_keys = 0;
+    task_held = 0;
     HHOOK keyboard = SetWindowsHookExW(WH_KEYBOARD_LL, on_key, instance, 0);
     HHOOK mouse = SetWindowsHookExW(WH_MOUSE_LL, on_mouse, instance, 0);
     SetEvent(ready);
@@ -1258,7 +1445,7 @@ static DWORD WINAPI watch_input(void *ready) {
     return 0;
 }
 
-/* Watches input only while the cooldown overlay is on. The thread's queue exists before this returns, so it can always be stopped. */
+/* Watches input only while it's needed. The thread's queue exists before this returns, so it can always be stopped. */
 static void hook_input(int on) {
     if (on && !watcher) {
         HANDLE ready = CreateEventW(NULL, TRUE, FALSE, NULL);
@@ -1492,8 +1679,12 @@ static void start_debug(void) {
     }
     if (config.enabled && !config.gate) note("info", "The Gate prompt isn't looked for while the Gate backfire warning is off.");
     if (!config.cooldowns) note("info", "Left clicks and hotbar keys aren't watched, so no cooldown starts, while the cooldown overlay is off.");
-    if (!config.cooldowns && !(config.enabled && config.gate)) {
-        note("info", "The hotbar isn't read while the cooldown overlay and the Gate backfire warning are both off.");
+    if (!config.cooldowns && !(config.enabled && config.gate) && !config.smith) {
+        note("info", "The hotbar isn't read while the cooldown overlay, the Gate backfire warning, and blacksmithing are all off.");
+    }
+    if (config.train || config.smith) {
+        note("info", "Automation on: snap training %s (key code %d), blacksmithing %s (key code %d). Keys start and stop it only while Roblox "
+             "is focused.", config.train ? "on" : "off", config.train_key, config.smith ? "on" : "off", config.smith_key);
     }
     if (locked) note("info", "Mana bar tracked: its frame runs from %d,%d to %d,%d.", bar.left, bar.top, bar.right, bar.bottom);
     if (hotbar_locked) note("info", "Hotbar tracked: %d slots from %ld,%ld to %ld,%ld.", slot_count, hotbar.left, hotbar.top, hotbar.right, hotbar.bottom);
@@ -1506,11 +1697,14 @@ static void tick(void) {
     POINT origin = {0, 0};
     int down = (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0, clicked = down && !right_down;
     right_down = down;
-    if (!supported || (!config.enabled && !config.cooldowns && !config.backpack)) {
+    update_audio(now);
+    if (!supported || (!config.enabled && !config.cooldowns && !config.backpack && !config.train && !config.smith)) {
         idle(STATE_OFF);
         hotbar_idle(STATE_OFF);
         set_backpack(0);
+        if (source == SOURCE_GRAPHICS) graphics_stop();
         hide(&debug_layer);
+        hide(&task_layer);
         return;
     }
     int focused = is_target(window) && !IsIconic(window) && GetClientRect(window, &client) && ClientToScreen(window, &origin) &&
@@ -1530,6 +1724,7 @@ static void tick(void) {
         hotbar_idle(config.cooldowns ? STATE_WAITING : STATE_OFF);
         set_backpack(0);
         hide(&debug_layer);
+        hide(&task_layer);
         return;
     }
     if (client.right != client_width || client.bottom != client_height) {
@@ -1541,7 +1736,7 @@ static void tick(void) {
         locked = 0;
         hotbar_locked = 0;
     }
-    if (config.cooldowns || (config.enabled && config.gate)) track_hotbar(now, origin);
+    if (config.cooldowns || (config.enabled && config.gate) || config.smith || config.train) track_hotbar(now, origin);
     else hotbar_idle(STATE_OFF);
     if (config.cooldowns || config.backpack) track_backpack(now, origin);
     else set_backpack(0);
@@ -1549,11 +1744,383 @@ static void tick(void) {
     if (held != gate_held) status_dirty = 1;
     gate_held = held;
     if (config.enabled && config.gate) note_gate(held);
-    if (config.enabled) track_mana(now, origin, clicked);
+    if (config.enabled || config.train) track_mana(now, origin, clicked);
     else idle(STATE_OFF);
     if (hotbar_dirty && hotbar_locked) emit_hotbar();
+    if (automation && task_count != emitted_count && now - last_progress >= PROGRESS_MS) emit_task(1, NULL);
     if (config.debug) show_debug(now, origin);
     else hide(&debug_layer);
+    show_task(origin);
+}
+
+/*
+ * The label over the Roblox window while a task runs: the task, its progress, and the key that
+ * stops it. It's redrawn when the progress or the window's width changes.
+ */
+static void show_task(POINT origin) {
+    static LONG drawn_count = -1;
+    static int drawn_width;
+    static HFONT font;
+    struct layer *layer = &task_layer;
+    if (!automation) {
+        hide(layer);
+        drawn_count = -1;
+        return;
+    }
+    int changed = task_count != drawn_count || client_width != drawn_width;
+    if (changed) {
+        wchar_t string[96];
+        int height = client_height / 45 < 13 ? 13 : client_height / 45 > 22 ? 22 : client_height / 45;
+        int key = (task == TASK_TRAIN ? job.train_key : job.smith_key) - 0x70 + 1;
+        _snwprintf(string, 96, task == TASK_TRAIN ? L"Snap training: %ld casts \x00B7 F%d stops" : L"Blacksmithing: %ld made \x00B7 F%d stops",
+                   (long)task_count, key);
+        if (font) DeleteObject(font);
+        font = create_font(height, FW_SEMIBOLD);
+        int width = text_width(layer, string, font) + 24, band = height + 12;
+        if ((layer->width != width || layer->height != band) && !resize(layer, width, band)) return;
+        memset(layer->pixels, 0, (size_t)layer->width * (size_t)layer->height * 4);
+        blend(layer, 0, 0, width - 1, band - 1, DARK, 0.85);
+        blend(layer, 0, 0, 2, band - 1, DEBUG_FOUND, 1);
+        text(layer, string, 6, 0, width - 1, band - 1, font, LIGHT, 1);
+        drawn_count = task_count;
+        drawn_width = client_width;
+    }
+    present(layer, origin.x + (client_width - layer->width) / 2, origin.y + 8, changed);
+}
+
+/* Hooks input while the cooldown overlay or a task is on, or while a spot is being set. */
+static void listen_input(void) {
+    hook_input(supported && (config.cooldowns || config.train || config.smith || picking));
+}
+
+/* Reports the task that runs or last ran: whether it's running, how many it has done, and why it stopped. */
+static void emit_task(int running, const char *reason) {
+    emitted_count = (int)task_count;
+    last_progress = GetTickCount64();
+    emit("{\"type\":\"automation\",\"task\":\"%s\",\"running\":%s,\"count\":%d,\"heard\":%ld,\"reason\":\"%s\"}", TASK_NAMES[task],
+         running ? "true" : "false", emitted_count, (long)task_heard, reason ? reason : "");
+}
+
+static void emit_audio(void) {
+    emit("{\"type\":\"audio\",\"state\":\"%s\",\"chimes\":%d,\"casts\":%d,\"match\":%d,\"error\":\"%08lx\"}", AUDIO_STATES[audio_state], chimes,
+         casts_heard, cast_match, (unsigned long)audio_error);
+}
+
+/*
+ * Listens to the focused Roblox process while snap training is on and game sound is allowed, and
+ * stops otherwise. Another Roblox window coming into focus moves listening to its process.
+ */
+static void update_audio(ULONGLONG now) {
+    int needed = supported && config.listen && config.train;
+    DWORD process = 0;
+    HWND window = GetForegroundWindow();
+    if (needed && is_target(window)) GetWindowThreadProcessId(window, &process);
+    if (!needed && audio_process) {
+        audio_stop();
+        audio_process = 0;
+        audio_state = AUDIO_OFF;
+        emit_audio();
+    } else if (needed && process && process != audio_process && now >= audio_retry_at) {
+        audio_stop();
+        audio_process = process;
+        audio_state = audio_start(mana_layer.window, WM_AUDIO, process) ? AUDIO_STARTING : AUDIO_FAILED;
+        if (audio_state == AUDIO_FAILED) audio_retry_at = now + AUDIO_RETRY_MS;
+        note("info", "Game sound: listening to Roblox's process %lu.", (unsigned long)process);
+        emit_audio();
+    }
+}
+
+/* Handles what the listening thread posts. */
+static void audio_event(WPARAM event, LPARAM data) {
+    if (event == AUDIO_LISTENING) {
+        audio_state = AUDIO_ON;
+        audio_error = 0;
+        note("info", "Game sound: listening for the mana-full chime and spell casts.");
+    } else if (event == AUDIO_ENDED) {
+        if (!data) return;
+        audio_state = AUDIO_FAILED;
+        audio_error = (long)data;
+        audio_process = 0;
+        audio_retry_at = GetTickCount64() + AUDIO_RETRY_MS;
+        note("warn", "Game sound stopped with error %08lx. It's tried again in %d seconds. Process loopback needs Windows 10 version 2004 or later.",
+             (unsigned long)data, AUDIO_RETRY_MS / 1000);
+    } else if (event == AUDIO_CHIME) {
+        full_at = timeGetTime();
+        chimes++;
+        note("info", "Game sound: mana-full chime heard.");
+    } else if (event == AUDIO_CAST) {
+        casts_heard++;
+        cast_match = (int)data;
+        if (automation && task == TASK_TRAIN) InterlockedIncrement(&task_heard);
+        note("info", "Game sound: spell cast heard, matching the recorded cast sound by %.3f.", data / 1000.0);
+    }
+    emit_audio();
+}
+
+static void send_key(int scan, int up) {
+    INPUT input = {0};
+    input.type = INPUT_KEYBOARD;
+    input.ki.wScan = (WORD)scan;
+    input.ki.dwFlags = KEYEVENTF_SCANCODE | (up ? KEYEVENTF_KEYUP : 0);
+    input.ki.dwExtraInfo = INPUT_TAG;
+    SendInput(1, &input, sizeof input);
+}
+
+static void send_button(int up) {
+    INPUT input = {0};
+    input.type = INPUT_MOUSE;
+    input.mi.dwFlags = up ? MOUSEEVENTF_LEFTUP : MOUSEEVENTF_LEFTDOWN;
+    input.mi.dwExtraInfo = INPUT_TAG;
+    SendInput(1, &input, sizeof input);
+}
+
+/* Moves the cursor with a mouse move event too, as the game learns where the cursor is only from those. */
+static void send_move(int x, int y) {
+    int left = GetSystemMetrics(SM_XVIRTUALSCREEN), top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    int width = GetSystemMetrics(SM_CXVIRTUALSCREEN), height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+    INPUT input = {0};
+    SetCursorPos(x, y);
+    input.type = INPUT_MOUSE;
+    input.mi.dx = (LONG)((long long)(x - left) * 65535 / (width > 1 ? width - 1 : 1));
+    input.mi.dy = (LONG)((long long)(y - top) * 65535 / (height > 1 ? height - 1 : 1));
+    input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+    input.mi.dwExtraInfo = INPUT_TAG;
+    SendInput(1, &input, sizeof input);
+}
+
+/* Presses and lets go of a key. Both are sent, so a key is never left down. */
+static void tap(int scan) {
+    send_key(scan, 0);
+    Sleep(1);
+    send_key(scan, 1);
+}
+
+/*
+ * Waits `ms` on the task thread. Returns 0 when the task should stop: it was stopped, or the Roblox
+ * window it started in is no longer focused, which is checked before anything is sent.
+ */
+static int task_wait(DWORD ms) {
+    if (WaitForSingleObject(automation_stop, ms) == WAIT_OBJECT_0) return 0;
+    if (GetForegroundWindow() == task_window) return 1;
+    task_reason = "Roblox isn't focused";
+    return 0;
+}
+
+static void hold_charge(int down) {
+    if (down == held_charge) return;
+    send_key(SCAN_CHARGE, !down);
+    held_charge = down;
+    charge_since = timeGetTime();
+}
+
+/*
+ * While casting, the charge key is pressed for TRAIN_G_HOLD_MS every TRAIN_G_GAP_MS to keep mana
+ * up, and let go once mana reaches `high`, as the Rogue Lineage Assist Tool does.
+ */
+static void spam_charge(double high) {
+    DWORD since = timeGetTime() - charge_since;
+    if (mana_level >= high) hold_charge(0);
+    else if (since >= (held_charge ? TRAIN_G_HOLD_MS : TRAIN_G_GAP_MS)) hold_charge(!held_charge);
+}
+
+/* Waits `ms` while keeping the charge key going. Returns 0 when the task should stop. */
+static int rest(DWORD ms, double high) {
+    DWORD start = timeGetTime();
+    for (;;) {
+        spam_charge(high);
+        if (timeGetTime() - start >= ms) return 1;
+        if (!task_wait(2)) return 0;
+    }
+}
+
+/* Equips the spell, casts it, and puts it away before the cast finishes, then rests. */
+static int snap(int slot, double high) {
+    tap(slot + 2);
+    Sleep(TRAIN_STEP_MS);
+    send_button(0);
+    Sleep(1);
+    send_button(1);
+    Sleep(TRAIN_STEP_MS);
+    tap(slot + 2);
+    return rest(TRAIN_REST_MS, high);
+}
+
+/* Returns 1 when the mana-full chime was heard at or after `since`, by timeGetTime. */
+static int heard_full(DWORD since) {
+    DWORD at = full_at;
+    return at && (LONG)(at - since) >= 0;
+}
+
+static void run_training(void) {
+    double low, high;
+    int phase = -1;
+    DWORD since = 0, lost = 0, pause = 0;
+    train_band(job.train_min, job.train_max, job.train_middle, &low, &high);
+    while (task_wait(pause)) {
+        DWORD now = timeGetTime();
+        pause = 2;
+        if (!mana_valid) {
+            hold_charge(0);
+            if (!lost) lost = now;
+            if (now - lost < TRAIN_LOST_MS) continue;
+            task_reason = "the mana bar isn't found";
+            return;
+        }
+        lost = 0;
+        double level = mana_level;
+        int next = phase < 0 ? train_start(level, low) : train_next(phase, level, low, high, now - since, heard_full(since));
+        if (next != phase) {
+            phase = next;
+            since = now;
+        }
+        if (phase == TRAIN_CHARGE) {
+            hold_charge(1);
+        } else if (phase == TRAIN_RECOVER || level > high) {
+            hold_charge(0);
+        } else {
+            if (!snap(job.train_slot, high)) return;
+            InterlockedIncrement(&task_count);
+            pause = 0;
+        }
+    }
+}
+
+/*
+ * Returns 1 when the hotbar shows slot `slot` empty, which is how running out of an item shows.
+ * ponytail: reads the main thread's hotbar state without a lock; a stale read only delays the stop.
+ */
+static int slot_empty(int slot) {
+    return hotbar_locked && slot < slot_count && seen[slot] == 1 && skill_in[slot] == SLOT_EMPTY;
+}
+
+/* Moves to a spot and clicks it. Returns 0 when the task should stop. */
+static int click_spot(int x, int y) {
+    RECT client;
+    POINT origin = {0, 0};
+    if (!task_wait(0) || !GetClientRect(task_window, &client) || !ClientToScreen(task_window, &origin)) return 0;
+    send_move(origin.x + (int)((long long)client.right * x / 10000), origin.y + (int)((long long)client.bottom * y / 10000));
+    if (!task_wait(SMITH_ARRIVE_MS)) return 0;
+    held_button = 1;
+    send_button(0);
+    Sleep(SMITH_HOLD_MS);
+    send_button(1);
+    held_button = 0;
+    return 1;
+}
+
+static void run_smithing(void) {
+    struct smith_action actions[SMITH_ACTIONS];
+    int count = smith_actions(job.smith_slots, job.smith_clicks, job.smith_steps, actions);
+    for (int made = 0; made < job.smith_count; made++) {
+        for (int i = 0; i < count; i++) {
+            const struct smith_action *action = &actions[i];
+            if (action->kind == SMITH_PICK) {
+                if (slot_empty(action->slot)) {
+                    task_reason = "a step's hotbar slot is empty";
+                    return;
+                }
+                if (!task_wait(0)) return;
+                tap(action->slot + 2);
+                if (!task_wait((DWORD)job.smith_pick_ms)) return;
+            } else if (action->kind == SMITH_ANVIL) {
+                if (!click_spot(job.anvil_x, job.anvil_y) || !task_wait((DWORD)job.smith_click_ms)) return;
+            } else {
+                if (!task_wait((DWORD)job.smith_before_ms) || !click_spot(job.hammer_x, job.hammer_y)) return;
+                InterlockedIncrement(&task_count);
+                if (!task_wait((DWORD)job.smith_after_ms)) return;
+            }
+        }
+    }
+    task_reason = "finished";
+}
+
+/* Runs the task, lets go of anything it holds, and tells the main thread it ended. */
+static DWORD WINAPI run_task(void *unused) {
+    (void)unused;
+    held_charge = held_button = 0;
+    charge_since = timeGetTime();
+    if (task == TASK_TRAIN) run_training();
+    else run_smithing();
+    if (held_charge) send_key(SCAN_CHARGE, 1);
+    if (held_button) send_button(1);
+    held_charge = held_button = 0;
+    PostMessageW(mana_layer.window, WM_TASK_DONE, 0, 0);
+    return 0;
+}
+
+/* Returns why task `which` can't start, or NULL. */
+static const char *task_problem(int which) {
+    if (which == TASK_TRAIN) {
+        if (!config.train_name[0] || config.train_max <= config.train_min) return "no spell is set";
+        if (hotbar_state != STATE_TRACKING) return "the hotbar isn't found";
+        if (find_slot(config.train_name) < 0) return "the spell isn't on the hotbar";
+        return mana_valid ? NULL : "the mana bar isn't found";
+    }
+    if (!config.smith_steps) return "no steps are set";
+    if (config.anvil_x < 0 || config.anvil_y < 0) return "the anvil isn't set";
+    return config.hammer_x < 0 || config.hammer_y < 0 ? "the hammer isn't set" : NULL;
+}
+
+static void start_task(int which) {
+    const char *problem = task_problem(which);
+    task = which;
+    task_count = 0;
+    task_heard = 0;
+    if (problem) {
+        note("warn", "%s didn't start: %s.", which == TASK_TRAIN ? "Snap training" : "Blacksmithing", problem);
+        emit_task(0, problem);
+        return;
+    }
+    job = config;
+    if (which == TASK_TRAIN) job.train_slot = find_slot(job.train_name);
+    task_window = GetForegroundWindow();
+    task_reason = "stopped";
+    ResetEvent(automation_stop);
+    timeBeginPeriod(1);
+    automation = CreateThread(NULL, 0, run_task, NULL, 0, NULL);
+    if (!automation) {
+        timeEndPeriod(1);
+        emit_task(0, "the task couldn't start");
+        return;
+    }
+    note("info", "%s started.", which == TASK_TRAIN ? "Snap training" : "Blacksmithing");
+    emit_task(1, NULL);
+}
+
+static void stop_task(void) {
+    if (automation) SetEvent(automation_stop);
+}
+
+static void finish_task(void) {
+    if (!automation) return;
+    WaitForSingleObject(automation, INFINITE);
+    CloseHandle(automation);
+    automation = NULL;
+    timeEndPeriod(1);
+    note("info", "%s ended after %ld: %s.", task == TASK_TRAIN ? "Snap training" : "Blacksmithing", task_count, task_reason);
+    emit_task(0, task_reason);
+}
+
+/* A task key, pressed while Roblox is focused. It stops whatever task runs, or starts its own. */
+static void press_task(int which) {
+    if (!is_target(GetForegroundWindow())) return;
+    if (automation) stop_task();
+    else if (which == TASK_TRAIN ? config.train : config.smith) start_task(which);
+}
+
+/* Sets the spot being picked to a left click inside the Roblox window. Clicks elsewhere are ignored. */
+static void pick_spot(POINT point) {
+    HWND window = GetForegroundWindow();
+    POINT origin = {0, 0};
+    RECT client;
+    if (!is_target(window) || !GetClientRect(window, &client) || !ClientToScreen(window, &origin)) return;
+    point.x -= origin.x;
+    point.y -= origin.y;
+    if (point.x < 0 || point.y < 0 || point.x >= client.right || point.y >= client.bottom) return;
+    emit("{\"type\":\"spot\",\"spot\":\"%s\",\"x\":%ld,\"y\":%ld}", picking == 1 ? "anvil" : "hammer", point.x * 10000 / client.right,
+         point.y * 10000 / client.bottom);
+    picking = 0;
+    listen_input();
 }
 
 static LRESULT CALLBACK overlay_proc(HWND window, UINT message, WPARAM wide, LPARAM data) {
@@ -1571,6 +2138,7 @@ static LRESULT CALLBACK overlay_proc(HWND window, UINT message, WPARAM wide, LPA
         else {
             if (config.enabled != before.enabled) note("info", "Mana bar overlay turned %s.", config.enabled ? "on" : "off");
             if (config.gate != before.gate) note("info", "Gate backfire warning turned %s.", config.gate ? "on" : "off");
+            if (config.train != before.train || strcmp(config.train_name, before.train_name)) hotbar_dirty = 1;
             if (config.cooldowns != before.cooldowns) {
                 note("info", "Cooldown overlay turned %s.%s", config.cooldowns ? "on" : "off",
                      config.cooldowns ? " Hotbar keys and left clicks in Roblox are watched." : "");
@@ -1580,15 +2148,33 @@ static LRESULT CALLBACK overlay_proc(HWND window, UINT message, WPARAM wide, LPA
             }
         }
         if (locked) layout();
-        hook_input(config.cooldowns && supported);
+        task_keys[TASK_TRAIN] = config.train ? config.train_key : 0;
+        task_keys[TASK_SMITH] = config.smith ? config.smith_key : 0;
+        if (automation && !(task == TASK_TRAIN ? config.train : config.smith)) stop_task();
+        listen_input();
         status_dirty = 1;
         return 0;
     }
+    case WM_TASK_KEY:
+        press_task((int)wide);
+        return 0;
+    case WM_TASK_DONE:
+        finish_task();
+        return 0;
+    case WM_AUDIO:
+        audio_event(wide, data);
+        return 0;
+    case WM_PICK:
+        picking = (int)wide;
+        if (picking) note("info", "Waiting for a left click in Roblox to set the %s.", picking == 1 ? "anvil" : "hammer");
+        listen_input();
+        return 0;
     case WM_HOTBAR_KEY:
         press_key((int)wide);
         return 0;
     case WM_LEFT_CLICK:
-        use_skill((POINT){(LONG)(LONG_PTR)wide, (LONG)data});
+        if (picking) pick_spot((POINT){(LONG)(LONG_PTR)wide, (LONG)data});
+        else if (config.cooldowns) use_skill((POINT){(LONG)(LONG_PTR)wide, (LONG)data});
         return 0;
     case WM_SLOT_TEXT: {
         struct reading *reading = (struct reading *)data;
@@ -1647,7 +2233,10 @@ static LRESULT CALLBACK overlay_proc(HWND window, UINT message, WPARAM wide, LPA
         return 0;
     }
     case WM_DESCRIBE:
-        emit("{\"type\":\"ready\",\"version\":\"%s\",\"supported\":%s}", HELPER_VERSION, supported ? "true" : "false");
+        emitted_count = -1;
+        emit_audio();
+        emit("{\"type\":\"ready\",\"version\":\"%s\",\"supported\":%s,\"error\":%lu,\"build\":%lu,\"capture\":\"%s\"}", HELPER_VERSION,
+             supported ? "true" : "false", support_error, windows_build, SOURCE_NAMES[source]);
         status_dirty = 1;
         hotbar_dirty = 1;
         return 0;
@@ -1686,6 +2275,13 @@ static int field(const char *line, const char *key, char *out, size_t size) {
     return 1;
 }
 
+/* Reads a whole number from `low` to `high`, or returns `fallback`. */
+static int bounded(const char *value, int low, int high, int fallback) {
+    char *end;
+    long number = strtol(value, &end, 10);
+    return end == value || *end || number < low || number > high ? fallback : (int)number;
+}
+
 static int percentage(const char *value, int fallback) {
     int number = atoi(value);
     return *value < '0' || *value > '9' ? fallback : number > 100 ? 100 : number;
@@ -1714,6 +2310,46 @@ static void configure(const char *line) {
     if (field(line, "shade", value, sizeof value) && strlen(value) == 6 && strspn(value, "0123456789abcdefABCDEF") == 6) {
         next.shade = (uint32_t)strtoul(value, NULL, 16);
     }
+    next.train_slot = -1;
+    next.train_middle = 60;
+    next.anvil_x = next.anvil_y = next.hammer_x = next.hammer_y = -1;
+    next.smith_count = 1;
+    next.smith_click_ms = 100;
+    next.smith_pick_ms = 20;
+    next.smith_before_ms = 250;
+    next.smith_after_ms = 300;
+    next.listen = 1;
+    if (field(line, "listen", value, sizeof value)) next.listen = !strcmp(value, "true");
+    if (field(line, "train", value, sizeof value)) next.train = !strcmp(value, "true");
+    if (field(line, "trainKey", value, sizeof value)) next.train_key = bounded(value, 0, 0xFE, 0);
+    if (field(line, "trainName", value, sizeof value)) {
+        size_t length = 0;
+        for (const char *c = value; *c && length + 1 < sizeof next.train_name; c++)
+            if (*c >= ' ' && *c <= '~') next.train_name[length++] = *c;
+        next.train_name[length] = 0;
+    }
+    if (field(line, "trainMin", value, sizeof value)) next.train_min = bounded(value, 0, 100, 0);
+    if (field(line, "trainMax", value, sizeof value)) next.train_max = bounded(value, 0, 100, 0);
+    if (field(line, "trainMiddle", value, sizeof value)) next.train_middle = bounded(value, 10, 100, 60);
+    if (field(line, "smith", value, sizeof value)) next.smith = !strcmp(value, "true");
+    if (field(line, "smithKey", value, sizeof value)) next.smith_key = bounded(value, 0, 0xFE, 0);
+    if (field(line, "smithCount", value, sizeof value)) next.smith_count = bounded(value, 1, 9999, 1);
+    if (field(line, "anvilX", value, sizeof value)) next.anvil_x = bounded(value, -1, 10000, -1);
+    if (field(line, "anvilY", value, sizeof value)) next.anvil_y = bounded(value, -1, 10000, -1);
+    if (field(line, "hammerX", value, sizeof value)) next.hammer_x = bounded(value, -1, 10000, -1);
+    if (field(line, "hammerY", value, sizeof value)) next.hammer_y = bounded(value, -1, 10000, -1);
+    if (field(line, "smithClick", value, sizeof value)) next.smith_click_ms = bounded(value, 0, 5000, 100);
+    if (field(line, "smithPick", value, sizeof value)) next.smith_pick_ms = bounded(value, 0, 5000, 20);
+    if (field(line, "smithBefore", value, sizeof value)) next.smith_before_ms = bounded(value, 0, 5000, 250);
+    if (field(line, "smithAfter", value, sizeof value)) next.smith_after_ms = bounded(value, 0, 5000, 300);
+    if (field(line, "smithSteps", value, sizeof value)) {
+        for (char *item = strtok(value, ";"); item && next.smith_steps < SMITH_STEPS; item = strtok(NULL, ";")) {
+            int slot, clicks;
+            if (sscanf(item, "%d:%d", &slot, &clicks) != 2 || slot < 0 || slot >= HOTBAR_SLOTS || clicks < 1 || clicks > SMITH_CLICKS) continue;
+            next.smith_slots[next.smith_steps] = slot;
+            next.smith_clicks[next.smith_steps++] = clicks;
+        }
+    }
     if (field(line, "zones", value, sizeof value)) {
         for (char *item = strtok(value, ";"); item && next.zone_count < MAX_ZONES; item = strtok(NULL, ";")) {
             struct zone *zone = &next.zones[next.zone_count];
@@ -1733,21 +2369,25 @@ static void configure(const char *line) {
 }
 
 /*
- * Reads a skill message: an ID of lowercase letters, digits, "_", and "-", the name shown in the
- * hotbar, and a cooldown in milliseconds.
+ * Reads a skills message, the whole catalogue in one line as "id:name:milliseconds" joined by ";".
+ * IDs hold lowercase letters, digits, "_", and "-", and names the text shown in the hotbar. Entries
+ * that don't fit are skipped.
  */
-static void add_skill(const char *line) {
-    char id[32], name[32], cooldown[16];
-    if (!field(line, "id", id, sizeof id) || !*id || strspn(id, "abcdefghijklmnopqrstuvwxyz0123456789_-") != strlen(id)) return;
-    if (!field(line, "name", name, sizeof name) || !*name || !field(line, "cooldown", cooldown, sizeof cooldown)) return;
-    long milliseconds = strtol(cooldown, NULL, 10);
-    if (milliseconds <= 0 || milliseconds > MAX_COOLDOWN_MS) return;
-    struct skill *skill = calloc(1, sizeof *skill);
-    if (!skill) return;
-    strcpy(skill->id, id);
-    strcpy(skill->name, name);
-    skill->cooldown = (ULONGLONG)milliseconds;
-    if (!PostMessageW(mana_layer.window, WM_SKILL, 0, (LPARAM)skill)) free(skill);
+static void add_skills(const char *line) {
+    static char value[8192];
+    if (!field(line, "value", value, sizeof value)) return;
+    for (char *item = strtok(value, ";"); item; item = strtok(NULL, ";")) {
+        char id[32], name[32];
+        long milliseconds;
+        if (sscanf(item, "%31[^:]:%31[^:]:%ld", id, name, &milliseconds) != 3) continue;
+        if (strspn(id, "abcdefghijklmnopqrstuvwxyz0123456789_-") != strlen(id) || milliseconds <= 0 || milliseconds > MAX_COOLDOWN_MS) continue;
+        struct skill *skill = calloc(1, sizeof *skill);
+        if (!skill) return;
+        strcpy(skill->id, id);
+        strcpy(skill->name, name);
+        skill->cooldown = (ULONGLONG)milliseconds;
+        if (!PostMessageW(mana_layer.window, WM_SKILL, 0, (LPARAM)skill)) free(skill);
+    }
 }
 
 /* Exits when standard input closes, so the helper never outlives Toolblox. */
@@ -1758,9 +2398,19 @@ static DWORD WINAPI read_input(void *unused) {
     while (fgets(line, sizeof line, stdin)) {
         if (!field(line, "type", type, sizeof type)) continue;
         if (!strcmp(type, "configure")) configure(line);
-        else if (!strcmp(type, "skill")) add_skill(line);
+        else if (!strcmp(type, "skills")) add_skills(line);
         else if (!strcmp(type, "describe")) PostMessageW(mana_layer.window, WM_DESCRIBE, 0, 0);
         else if (!strcmp(type, "test")) PostMessageW(mana_layer.window, WM_TEST, 0, 0);
+        else if (!strcmp(type, "pick")) {
+            char spot[16] = "";
+            field(line, "spot", spot, sizeof spot);
+            PostMessageW(mana_layer.window, WM_PICK, !strcmp(spot, "anvil") ? 1 : !strcmp(spot, "hammer") ? 2 : 0, 0);
+        }
+    }
+    HANDLE running = automation;
+    if (running) {
+        SetEvent(automation_stop);
+        WaitForSingleObject(running, 1000);
     }
     ExitProcess(0);
 }
@@ -1773,6 +2423,21 @@ static HWND create_window(const wchar_t *name, WNDPROC proc) {
     if (!RegisterClassW(&type)) return NULL;
     return CreateWindowExW(WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, name,
                            L"Rogue Lineage", WS_POPUP, 0, 0, 1, 1, NULL, NULL, type.hInstance, NULL);
+}
+
+/* Leaves a window out of screen capture, and records the first failure's error code. */
+static int exclude(HWND window) {
+    if (SetWindowDisplayAffinity(window, WDA_EXCLUDEFROMCAPTURE)) return 1;
+    if (!support_error) support_error = GetLastError();
+    return 0;
+}
+
+/* The Windows build number. GetVersionEx reports an older version to programs without a manifest. */
+static DWORD read_windows_build(void) {
+    RTL_OSVERSIONINFOW info = {0};
+    info.dwOSVersionInfoSize = sizeof info;
+    LONG(WINAPI * get_version)(RTL_OSVERSIONINFOW *) = (LONG(WINAPI *)(RTL_OSVERSIONINFOW *))(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion");
+    return get_version && get_version(&info) == 0 ? info.dwBuildNumber : 0;
 }
 
 static int create_layer(struct layer *layer, const wchar_t *name, WNDPROC proc) {
@@ -1794,20 +2459,35 @@ int main(void) {
     InitializeCriticalSection(&config_lock);
     InitializeCriticalSection(&request_lock);
     request_ready = CreateEventW(NULL, FALSE, FALSE, NULL);
+    automation_stop = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!automation_stop) return 1;
     screen_dc = GetDC(NULL);
     capture_dc = CreateCompatibleDC(screen_dc);
     if (!screen_dc || !capture_dc) return 1;
     if (!create_layer(&mana_layer, L"ToolbloxRogueLineageOverlay", overlay_proc) ||
         !create_layer(&cooldown_layer, L"ToolbloxRogueLineageCooldowns", DefWindowProcW) ||
         !create_layer(&debug_layer, L"ToolbloxRogueLineageDebug", DefWindowProcW) ||
-        !create_layer(&backpack_layer, L"ToolbloxRogueLineageBackpack", DefWindowProcW)) return 1;
+        !create_layer(&backpack_layer, L"ToolbloxRogueLineageBackpack", DefWindowProcW) ||
+        !create_layer(&task_layer, L"ToolbloxRogueLineageTask", DefWindowProcW)) return 1;
     flash = create_window(L"ToolbloxRogueLineageWarning", flash_proc);
     if (!flash) return 1;
-    supported = SetWindowDisplayAffinity(mana_layer.window, WDA_EXCLUDEFROMCAPTURE) &&
-                SetWindowDisplayAffinity(cooldown_layer.window, WDA_EXCLUDEFROMCAPTURE) &&
-                SetWindowDisplayAffinity(debug_layer.window, WDA_EXCLUDEFROMCAPTURE) &&
-                SetWindowDisplayAffinity(backpack_layer.window, WDA_EXCLUDEFROMCAPTURE) &&
-                SetWindowDisplayAffinity(flash, WDA_EXCLUDEFROMCAPTURE);
+    windows_build = read_windows_build();
+    int excluded = exclude(mana_layer.window) && exclude(cooldown_layer.window) && exclude(debug_layer.window) &&
+                   exclude(backpack_layer.window) && exclude(task_layer.window) && exclude(flash);
+    frame_dc = CreateCompatibleDC(screen_dc);
+    /*
+     * Windows.Graphics.Capture is preferred where its border can be turned off, which is Windows 11,
+     * and used anywhere the screen can't leave the overlays out. TOOLBLOX_RL_SOURCE picks a source,
+     * to test each one on one device.
+     */
+    const char *forced = getenv("TOOLBLOX_RL_SOURCE");
+    int graphics = graphics_start();
+    if (forced && !strcmp(forced, "graphics") && graphics) source = SOURCE_GRAPHICS;
+    else if (forced && !strcmp(forced, "print") && frame_dc) source = SOURCE_PRINT;
+    else if (forced && !strcmp(forced, "screen")) source = SOURCE_SCREEN;
+    else if (graphics && (windows_build >= 22000 || !excluded)) source = SOURCE_GRAPHICS;
+    else if (!excluded && frame_dc) source = SOURCE_PRINT;
+    supported = excluded || source != SOURCE_SCREEN;
 
     PostMessageW(mana_layer.window, WM_DESCRIBE, 0, 0);
     CreateThread(NULL, 0, read_input, NULL, 0, NULL);

@@ -18,7 +18,12 @@
 #define FRAME 0xD9A871
 #define EMPTY 0x534049
 
+/* The bright interface's frame and empty interior, which some scenes show. */
+#define BRIGHT_FRAME 0xFFFFC9
+#define BRIGHT_EMPTY 0x977888
+
 static uint8_t pixels[WIDTH * HEIGHT * 4];
+static uint32_t frame_color = FRAME, empty_color = EMPTY;
 static const struct image image = {pixels, WIDTH, HEIGHT, WIDTH * 4};
 static int failures;
 
@@ -51,18 +56,18 @@ static void scene(uint32_t color) {
  */
 static void draw_bar(int left, int top, int width, int height, int *fill_top, int *fill_bottom) {
     int line = width / 18 < 1 ? 1 : width / 18;
-    rect(left, top, left + width - 1, top + height - 1, FRAME);
+    rect(left, top, left + width - 1, top + height - 1, frame_color);
     rect(left + line, top + line, left + width - 1 - line, top + height - 1 - line, 0x4B341C);
-    rect(left + line, top + line * 2, left + width - 1 - line, top + line * 3 - 1, FRAME);
-    rect(left + line, top + height - line * 3, left + width - 1 - line, top + height - 1 - line * 2, FRAME);
+    rect(left + line, top + line * 2, left + width - 1 - line, top + line * 3 - 1, frame_color);
+    rect(left + line, top + height - line * 3, left + width - 1 - line, top + height - 1 - line * 2, frame_color);
     *fill_top = top + line * 3;
     *fill_bottom = top + height - 1 - line * 3;
-    rect(left + line * 2, *fill_top, left + width - 1 - line * 2, *fill_bottom, EMPTY);
+    rect(left + line * 2, *fill_top, left + width - 1 - line * 2, *fill_bottom, empty_color);
 }
 
 static void draw_mana(const struct bar *bar, double percent, uint32_t color) {
     int rows = bar->fill_bottom - bar->fill_top + 1;
-    rect(bar->fill_left, bar->fill_top, bar->fill_right, bar->fill_bottom, EMPTY);
+    rect(bar->fill_left, bar->fill_top, bar->fill_right, bar->fill_bottom, empty_color);
     int filled = (int)lround(rows * percent / 100);
     if (filled) rect(bar->fill_left, bar->fill_bottom - filled + 1, bar->fill_right, bar->fill_bottom, color);
 }
@@ -101,6 +106,15 @@ static void test_bar(int left, int top, int width, int height) {
             CHECK(levels[i] == 0 ? color == 0 : color == colors[c]);
         }
     }
+    /* Lines a few rows tall across the empty part, or across the fill, don't move the reading. */
+    int rows = bar.fill_bottom - bar.fill_top + 1;
+    uint32_t color = 0;
+    draw_mana(&bar, 50, 0x2A6BD9);
+    rect(bar.fill_left, bar.fill_bottom - rows * 8 / 10, bar.fill_right, bar.fill_bottom - rows * 8 / 10 + 2, 0xE04040);
+    CHECK(fabs(read_fill(&image, &bar, &color) - 50) <= 1.5);
+    draw_mana(&bar, 50, 0x2A6BD9);
+    rect(bar.fill_left, bar.fill_bottom - rows * 3 / 10, bar.fill_right, bar.fill_bottom - rows * 3 / 10 + 2, empty_color);
+    CHECK(fabs(read_fill(&image, &bar, &color) - 50) <= 1.5);
     draw_mana(&bar, 60, 0x8F9B27);
     struct bar again;
     CHECK(find_bar(&image, &again) && again.fill_top == bar.fill_top);
@@ -402,6 +416,98 @@ static void test_names(void) {
     CHECK(letter_count("H o\n,\n") == 2);
 }
 
+
+#define SOUND_RATE 48000
+static float sound[SOUND_RATE * 3];
+
+/* Adds a sine tone to `sound`, from and for a number of seconds, fading in and out over 5 ms. */
+static void tone(double from, double seconds, double frequency, double amplitude) {
+    int start = (int)(from * SOUND_RATE), length = (int)(seconds * SOUND_RATE), fade = SOUND_RATE / 200;
+    for (int i = 0; i < length; i++) {
+        double edge = i < fade ? (double)i / fade : length - i < fade ? (double)(length - i) / fade : 1;
+        sound[start + i] += (float)(amplitude * edge * sin(2 * 3.14159265358979 * frequency * i / SOUND_RATE));
+    }
+}
+
+/* Feeds `sound` to the chime detector in 10 ms pieces, as capture delivers it, and returns how many it heard. */
+static int chimes(void) {
+    struct ding ding;
+    int heard = 0;
+    ding_reset(&ding);
+    for (int i = 0; i < SOUND_RATE * 3; i += SOUND_RATE / 100) heard += ding_feed(&ding, sound + i, SOUND_RATE / 100, SOUND_RATE);
+    return heard;
+}
+
+/* Adds a short burst shaped like the recorded cast sound: a tone in the middle of each band, as loud as the band. */
+static void burst(double from) {
+    double edges[CAST_BANDS + 1];
+    cast_band_edges(SOUND_RATE, edges);
+    int start = (int)(from * SOUND_RATE), length = SOUND_RATE / 25;
+    for (int band = 0; band < CAST_BANDS; band++) {
+        double frequency = sqrt(edges[band] * edges[band + 1]);
+        for (int i = 0; i < length; i++) {
+            double decay = exp(-6.0 * i / length);
+            sound[start + i] += (float)(0.2 * CAST_TEMPLATE[band] * decay * sin(2 * 3.14159265358979 * frequency * i / SOUND_RATE));
+        }
+    }
+}
+
+static int casts(double *score) {
+    struct cast_sound cast;
+    int heard = 0;
+    cast_sound_reset(&cast, CAST_MATCH);
+    for (int i = 0; i < SOUND_RATE * 3; i += SOUND_RATE / 100) heard += cast_sound_feed(&cast, sound + i, SOUND_RATE / 100, SOUND_RATE);
+    *score = cast.score;
+    return heard;
+}
+
+static void test_sound(void) {
+    double score;
+    memset(sound, 0, sizeof sound);
+    CHECK(chimes() == 0);
+    /* The chime: the low tone, then the high one. */
+    tone(0.5, 0.1, 3200, 0.3);
+    tone(0.6, 0.15, 4800, 0.3);
+    CHECK(chimes() == 1);
+    /* Quiet chimes count too, and a second one after the echo window. */
+    memset(sound, 0, sizeof sound);
+    tone(0.5, 0.1, 3200, 0.03);
+    tone(0.6, 0.15, 4800, 0.03);
+    tone(1.6, 0.1, 3200, 0.3);
+    tone(1.7, 0.15, 4800, 0.3);
+    CHECK(chimes() == 2);
+    /* Only the high tone, the tones the other way round, or a tone too long after isn't the chime. */
+    memset(sound, 0, sizeof sound);
+    tone(0.6, 0.15, 4800, 0.3);
+    CHECK(chimes() == 0);
+    memset(sound, 0, sizeof sound);
+    tone(0.5, 0.1, 4800, 0.3);
+    tone(0.65, 0.1, 3200, 0.3);
+    CHECK(chimes() == 0);
+    memset(sound, 0, sizeof sound);
+    tone(0.5, 0.1, 3200, 0.3);
+    tone(1.2, 0.1, 4800, 0.3);
+    CHECK(chimes() == 0);
+    /* Both tones under loud noise across the spectrum don't stand out, so it isn't heard. */
+    memset(sound, 0, sizeof sound);
+    srand(1);
+    for (int i = 0; i < SOUND_RATE * 3; i++) sound[i] = (float)(rand() / (double)RAND_MAX - 0.5);
+    tone(0.5, 0.1, 3200, 0.01);
+    tone(0.6, 0.15, 4800, 0.01);
+    CHECK(chimes() == 0);
+
+    /* A cast's burst after quiet is heard, once per burst. */
+    memset(sound, 0, sizeof sound);
+    CHECK(casts(&score) == 0);
+    burst(0.5);
+    burst(1.5);
+    CHECK(casts(&score) == 2 && score >= CAST_MATCH);
+    /* A burst of another shape isn't. */
+    memset(sound, 0, sizeof sound);
+    tone(0.5, 0.04, 2000, 0.3);
+    CHECK(casts(&score) == 0 && score < CAST_MATCH);
+}
+
 int main(int argc, char **argv) {
     if (argc > 1) return print_names(argc - 1, argv + 1);
     struct bar bar;
@@ -412,6 +518,9 @@ int main(int argc, char **argv) {
     test_bar(30, 200, 24, 250);
     test_bar(60, 120, 46, 480);
     test_bar(900, 10, 74, 700);
+    frame_color = BRIGHT_FRAME, empty_color = BRIGHT_EMPTY;
+    test_bar(60, 120, 46, 480);
+    frame_color = FRAME, empty_color = EMPTY;
 
     scene(SAND);
     CHECK(!find_prompt(&image, NULL));
@@ -482,6 +591,38 @@ int main(int argc, char **argv) {
     CHECK(zone_color(0x202020, 0x151515) > 0x202020);
     CHECK(zone_color(0xF0F0F0, 0xF2F2F2) < 0xF0F0F0);
 
+    /* Snap training casts in the middle of a range, and charges when mana falls below it. */
+    double low, high;
+    train_band(75, 85, 60, &low, &high);
+    CHECK(fabs(low - 77) < 0.01 && fabs(high - 83) < 0.01);
+    train_band(75, 85, 100, &low, &high);
+    CHECK(fabs(low - 75) < 0.01 && fabs(high - 85) < 0.01);
+    train_band(50, 52, 60, &low, &high);
+    CHECK(fabs(low - 49.5) < 0.01 && fabs(high - 52.5) < 0.01);
+    CHECK(train_start(70, 78) == TRAIN_CHARGE && train_start(80, 78) == TRAIN_CAST && train_start(90, 78) == TRAIN_CAST);
+    CHECK(train_next(TRAIN_CHARGE, 81, 78, 82, 100, 0) == TRAIN_CHARGE);
+    CHECK(train_next(TRAIN_CHARGE, 82, 78, 82, 100, 0) == TRAIN_CAST);
+    CHECK(train_next(TRAIN_CHARGE, 70, 78, 82, 100, 1) == TRAIN_CAST);
+    CHECK(train_next(TRAIN_CHARGE, 60, 78, 82, TRAIN_CHARGE_MAX_MS, 0) == TRAIN_CAST);
+    CHECK(train_next(TRAIN_CAST, 78, 78, 82, 5000, 0) == TRAIN_CAST);
+    CHECK(train_next(TRAIN_CAST, 77.9, 78, 82, 5000, 0) == TRAIN_RECOVER);
+    CHECK(train_next(TRAIN_RECOVER, 70, 78, 82, TRAIN_RECOVER_MS - 1, 0) == TRAIN_RECOVER);
+    CHECK(train_next(TRAIN_RECOVER, 70, 78, 82, TRAIN_RECOVER_MS, 0) == TRAIN_CHARGE);
+
+    /* A weapon picks each step's item before every anvil click, then hammers once. */
+    struct smith_action actions[SMITH_ACTIONS];
+    int slots[] = {2, 5}, clicks[] = {2, 1};
+    int count = smith_actions(slots, clicks, 2, actions);
+    CHECK(count == 7);
+    CHECK(actions[0].kind == SMITH_PICK && actions[0].slot == 2 && actions[1].kind == SMITH_ANVIL);
+    CHECK(actions[2].kind == SMITH_PICK && actions[2].slot == 2 && actions[3].kind == SMITH_ANVIL);
+    CHECK(actions[4].kind == SMITH_PICK && actions[4].slot == 5 && actions[5].kind == SMITH_ANVIL);
+    CHECK(actions[6].kind == SMITH_HAMMER);
+    int many[SMITH_STEPS + 2] = {0}, most[SMITH_STEPS + 2];
+    for (int i = 0; i < SMITH_STEPS + 2; i++) most[i] = 99;
+    CHECK(smith_actions(many, most, SMITH_STEPS + 2, actions) == SMITH_ACTIONS);
+
+    test_sound();
     test_hotbar();
     test_mana();
     test_names();

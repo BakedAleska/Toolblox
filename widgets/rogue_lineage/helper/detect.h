@@ -73,6 +73,82 @@ int judge_cast(struct cast *cast, double level, unsigned elapsed, int held, int 
 /* Returns `spell`, or a lighter or darker shade of it when it's too close to `mana` to tell apart. */
 uint32_t zone_color(uint32_t spell, uint32_t mana);
 
+/*
+ * Snap training casts a spell and puts it away before the cast finishes, while mana stays inside
+ * the spell's range. It casts only in the middle `middle` percent of the range, at least
+ * TRAIN_MIN_BAND wide, since casts near its edges can land outside it.
+ */
+#define TRAIN_MIN_BAND 3.0
+void train_band(int min, int max, int middle, double *low, double *high);
+/*
+ * Charging holds the charge key until mana reaches the top of the band, or for TRAIN_CHARGE_MAX_MS.
+ * Casting goes on while mana is in the band. Below it, casting stops, and charging starts again after
+ * TRAIN_RECOVER_MS.
+ */
+enum train_phase { TRAIN_CHARGE, TRAIN_CAST, TRAIN_RECOVER };
+#define TRAIN_CHARGE_MAX_MS 12000
+#define TRAIN_RECOVER_MS 500
+/* Returns the first phase for a mana `level`. */
+int train_start(double level, double low);
+/*
+ * Returns the phase after `phase`, which began `elapsed` milliseconds ago, at a mana `level`. `full`
+ * is 1 when the mana-full chime was heard since the phase began, which also ends charging.
+ */
+int train_next(int phase, double level, double low, double high, unsigned elapsed, int full);
+
+/*
+ * Game sound, from the Rogue Lineage Assist Tool's detectors. Both take mono samples from -1 to 1
+ * at any rate up to 96 kHz, keep time by the samples they're given, and return how many sounds
+ * they heard in the samples.
+ *
+ * The mana-full chime is two high tones in a row, about 3.2 kHz and then about 4.8 kHz. A tone counts
+ * when it stands far above the spectrum's median, so the volume doesn't matter.
+ */
+#define DING_BLOCK 512
+struct ding {
+    float samples[DING_BLOCK];
+    int filled;
+    double now, low_at, last;
+};
+void ding_reset(struct ding *ding);
+int ding_feed(struct ding *ding, const float *samples, int count, int rate);
+/*
+ * A spell cast is a short, sudden, noisy burst. A burst counts when it's much louder than the sound
+ * just before it and its spectrum's shape, in CAST_BANDS bands from 1.2 to 16 kHz, matches the
+ * recorded cast sound's by at least `match`, as a cosine from 0 to 1. `score` is the last burst's.
+ */
+#define CAST_BLOCK 1024
+#define CAST_BANDS 20
+#define CAST_FRAMES 12
+#define CAST_MATCH 0.99
+struct cast_sound {
+    float samples[CAST_BLOCK];
+    int filled, frames, rate;
+    double now, last, match, score;
+    double totals[CAST_FRAMES], bands[CAST_FRAMES][CAST_BANDS];
+};
+void cast_sound_reset(struct cast_sound *sound, double match);
+int cast_sound_feed(struct cast_sound *sound, const float *samples, int count, int rate);
+/* The recorded cast sound's shape, for tests. */
+extern const double CAST_TEMPLATE[CAST_BANDS];
+/* Writes the lower edge of each band at `rate`, and the upper edge of the last. */
+void cast_band_edges(int rate, double edges[CAST_BANDS + 1]);
+
+/*
+ * Smithing a weapon, as RLAT's Alchemy/Smith does in its weapons mode: for each step, the item in its
+ * hotbar slot is picked and the anvil clicked, once per click, picking the item again before every
+ * click as the anvil takes it from the hand. The hammer is clicked once at the end.
+ */
+#define SMITH_STEPS 8
+#define SMITH_CLICKS 10
+enum smith_kind { SMITH_PICK, SMITH_ANVIL, SMITH_HAMMER };
+struct smith_action {
+    int kind, slot;
+};
+#define SMITH_ACTIONS (SMITH_STEPS * SMITH_CLICKS * 2 + 1)
+/* Writes the actions of one weapon for `steps` steps of `slots` and `clicks`. Returns how many. */
+int smith_actions(const int *slots, const int *clicks, int steps, struct smith_action out[SMITH_ACTIONS]);
+
 #define HOTBAR_SLOTS 12
 #define GLYPH_WIDTH 32
 #define GLYPH_HEIGHT 16

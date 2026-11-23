@@ -14,5 +14,5 @@ cc $flags test.c detect.c $reader -lm -o detect-test
 rm -f detect-test detect-test.exe
 windows_cc=gcc
 command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 && windows_cc=x86_64-w64-mingw32-gcc
-"$windows_cc" $flags -mwindows -static manabar.c detect.c ocr.c -lruntimeobject -o "$out/manabar.exe"
+"$windows_cc" $flags -mwindows -static manabar.c detect.c ocr.c audio.c capture.c -lruntimeobject -lwinmm -lole32 -ld3d11 -ldwmapi -o "$out/manabar.exe"
 strip "$out/manabar.exe" 2>/dev/null || x86_64-w64-mingw32-strip "$out/manabar.exe"

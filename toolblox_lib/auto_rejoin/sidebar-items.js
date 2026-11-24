@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CLOSE_GRACE","LAUNCH_POLL_INTERVAL","LAUNCH_WINDOW","POLL_INTERVAL","REJOIN_GRACE"],"fn":["closed_all_recently","launched_recently","note_closed_all","run"],"static":["CLOSED_ALL_AT"],"struct":["Entry"]};

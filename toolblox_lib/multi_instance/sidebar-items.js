@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CREATE_NO_WINDOW","PLAYER_EXECUTABLE","ROBLOX_SINGLETON"],"fn":["CloseHandle","CreateMutexW","clear_new_roblox_instances","close_singleton_handles","find_roblox_player","hold_name","open_new_roblox_instance","release_roblox_singleton"],"static":["SINGLETON_HANDLE"]};

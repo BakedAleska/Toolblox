@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
@@ -13,6 +14,8 @@ use crate::widgets::WidgetProcess;
 
 /// Longest line read from or sent to a widget process, in bytes. Longer output lines are cut.
 const MAX_LINE_BYTES: usize = 64 * 1024;
+/// How long a process may take to exit after its input closes before it's killed.
+const EXIT_GRACE: Duration = Duration::from_secs(2);
 /// Error output lines logged per process start. Later lines still reach the widget.
 const MAX_LOGGED_STDERR_LINES: usize = 200;
 
@@ -156,29 +159,16 @@ impl WidgetProcessManager {
             .map_err(|_| "Couldn't send data to the widget process.".to_string())
     }
 
-    /// Kills and waits for the process. Stopping a missing or exited process succeeds.
+    /// Closes the process's input so it can clean up and exit, and kills it after `EXIT_GRACE`. Stopping a missing or exited process succeeds.
     pub fn stop(&mut self, widget_id: &str, process_id: &str) -> Result<(), String> {
-        let Some(mut process) = self
+        let Some(ManagedProcess { mut child, stdin }) = self
             .processes
             .remove(&(widget_id.to_owned(), process_id.to_owned()))
         else {
             return Ok(());
         };
-        if process
-            .child
-            .try_wait()
-            .is_ok_and(|status| status.is_some())
-        {
-            return Ok(());
-        }
-        process
-            .child
-            .kill()
-            .map_err(|_| "Couldn't stop the widget process.".to_string())?;
-        process
-            .child
-            .wait()
-            .map_err(|_| "Couldn't finish stopping the widget process.".to_string())?;
+        drop(stdin);
+        finish(&mut child, Instant::now() + EXIT_GRACE)?;
         log::info!(target: &format!("widget:{widget_id}"), "Stopped process {process_id}");
         Ok(())
     }
@@ -196,11 +186,16 @@ impl WidgetProcessManager {
         }
     }
 
-    /// Stops every process.
+    /// Stops every process, sharing one `EXIT_GRACE` between them.
     pub fn stop_all(&mut self) {
-        let ids: Vec<_> = self.processes.keys().cloned().collect();
-        for (widget_id, process_id) in ids {
-            let _ = self.stop(&widget_id, &process_id);
+        let children: Vec<_> = self
+            .processes
+            .drain()
+            .map(|(_, process)| process.child)
+            .collect();
+        let deadline = Instant::now() + EXIT_GRACE;
+        for mut child in children {
+            let _ = finish(&mut child, deadline);
         }
     }
 
@@ -225,6 +220,24 @@ impl Drop for WidgetProcessManager {
     fn drop(&mut self) {
         self.stop_all();
     }
+}
+
+/// Waits for a process whose input is closed, and kills it at `deadline`.
+fn finish(child: &mut Child, deadline: Instant) -> Result<(), String> {
+    while Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(Some(_)) => return Ok(()),
+            Ok(None) => thread::sleep(Duration::from_millis(20)),
+            Err(_) => break,
+        }
+    }
+    child
+        .kill()
+        .map_err(|_| "Couldn't stop the widget process.".to_string())?;
+    child
+        .wait()
+        .map_err(|_| "Couldn't finish stopping the widget process.".to_string())?;
+    Ok(())
 }
 
 /// Resolves `relative` inside `root`, rejecting paths that escape it or aren't files.
@@ -338,6 +351,27 @@ mod tests {
         let mut manager = WidgetProcessManager::default();
         assert!(manager.send("sample", "worker", "not-json").is_err());
         assert!(manager.send("sample", "worker", "{}\n{}").is_err());
+    }
+
+    /// `sort` reads its input to the end on Windows and macOS, so it exits only once that closes.
+    #[test]
+    fn stopping_lets_a_process_exit_before_killing_it() {
+        let spawn = || {
+            Command::new("sort")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .spawn()
+                .unwrap()
+        };
+        let mut child = spawn();
+        drop(child.stdin.take());
+        finish(&mut child, Instant::now() + Duration::from_secs(10)).unwrap();
+        assert!(child.wait().unwrap().success());
+
+        let mut held = spawn();
+        let _stdin = held.stdin.take();
+        finish(&mut held, Instant::now()).unwrap();
+        assert!(!held.wait().unwrap().success());
     }
 
     #[test]

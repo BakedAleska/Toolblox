@@ -72,9 +72,9 @@ test("builds embeds linked to the release, one per part, within Discord's limit"
 test("lists new and changed changelogs, oldest version first", () => {
   assert.deepEqual(["0.10.0", "0.3.1-beta", "0.2.0-beta", "0.3.0-beta"].sort(byVersion), ["0.2.0-beta", "0.3.0-beta", "0.3.1-beta", "0.10.0"]);
   const files = [
-    { version: "0.3.1-beta", sha: "c", url: "" },
-    { version: "0.2.0-beta", sha: "a", url: "" },
-    { version: "0.3.0-beta", sha: "b2", url: "" },
+    { version: "0.3.1-beta", sha: "c" },
+    { version: "0.2.0-beta", sha: "a" },
+    { version: "0.3.0-beta", sha: "b2" },
   ];
   const posted = { "0.2.0-beta": { sha: "a", messageId: "1" }, "0.3.0-beta": { sha: "b1", messageId: "2" } };
   assert.deepEqual(pendingChangelogs(files, posted).map(({ version }) => version), ["0.3.0-beta", "0.3.1-beta"]);
@@ -98,9 +98,12 @@ test("posts released changelogs once, edits changed ones, and skips unreleased o
     const method = init.method ?? "GET";
     calls.push(`${method} ${url}`);
     if (url.includes("/contents/changelogs")) {
-      return Response.json(Object.entries(files).map(([version, { sha }]) => ({ name: `${version}.md`, sha, type: "file", download_url: `raw:${version}` })));
+      return Response.json(Object.entries(files).map(([version, { sha }]) => ({ name: `${version}.md`, sha, type: "file" })));
     }
-    if (url.startsWith("raw:")) return new Response(files[url.slice(4)].text);
+    if (url.includes("/git/blobs/")) {
+      assert.equal(init.headers.Accept, "application/vnd.github.raw+json");
+      return new Response(Object.values(files).find(({ sha }) => url.endsWith(`/${sha}`)).text);
+    }
     if (url.endsWith("/users/@me/guilds")) return Response.json([{ id: "g1" }]);
     if (url.endsWith("/guilds/g1/channels")) return Response.json([{ id: "c1", name: "changelogs", type: 0 }]);
     if (method === "POST") return Response.json({ id: String(nextId++), body: JSON.parse(init.body) });

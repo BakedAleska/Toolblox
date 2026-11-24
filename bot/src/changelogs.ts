@@ -3,6 +3,9 @@ import { findChannel, syncMessages } from "./discord.ts";
 /** GitHub endpoint listing the files in `changelogs/` on main. */
 const CHANGELOGS_URL = "https://api.github.com/repos/BakedAleska/Toolblox/contents/changelogs?ref=main";
 
+/** GitHub endpoint serving a file's exact content by SHA. Raw URLs on main are cached and can lag behind the listing. */
+const BLOBS_URL = "https://api.github.com/repos/BakedAleska/Toolblox/git/blobs";
+
 /** Name of the Discord channel the bot posts changelogs in. */
 const CHANNEL_NAME = "changelogs";
 
@@ -17,7 +20,6 @@ const DESCRIPTION_LIMIT = 4096;
 export interface ChangelogFile {
   version: string;
   sha: string;
-  url: string;
 }
 
 /** A changelog's parts. Released files have a date under the title instead of *Unreleased*. */
@@ -60,16 +62,21 @@ export function pendingChangelogs(files: ChangelogFile[], posted: Posted): Chang
   return files.filter((file) => posted[file.version]?.sha !== file.sha).sort((a, b) => byVersion(a.version, b.version));
 }
 
-/** Lists `changelogs/*.md` on main. A token raises GitHub's rate limit and is optional. */
+/** GitHub request headers. A token raises GitHub's rate limit and is optional. */
+const githubHeaders = (accept: string, token?: string): Record<string, string> => ({
+  Accept: accept,
+  "User-Agent": "toolblox-bot",
+  ...(token && { Authorization: `Bearer ${token}` }),
+});
+
+/** Lists `changelogs/*.md` on main. */
 async function fetchChangelogFiles(token?: string): Promise<ChangelogFile[]> {
-  const headers: Record<string, string> = { Accept: "application/vnd.github+json", "User-Agent": "toolblox-bot" };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(CHANGELOGS_URL, { headers });
+  const response = await fetch(CHANGELOGS_URL, { headers: githubHeaders("application/vnd.github+json", token) });
   if (!response.ok) throw new Error(`GitHub returned status ${response.status} for the changelogs.`);
-  const entries = await response.json<{ name: string; sha: string; type: string; download_url: string }[]>();
+  const entries = await response.json<{ name: string; sha: string; type: string }[]>();
   return entries
     .filter(({ type, name }) => type === "file" && name.endsWith(".md"))
-    .map(({ name, sha, download_url }) => ({ version: name.slice(0, -".md".length), sha, url: download_url }));
+    .map(({ name, sha }) => ({ version: name.slice(0, -".md".length), sha }));
 }
 
 /**
@@ -84,7 +91,7 @@ export async function syncChangelogs(token: string, state: KVNamespace, githubTo
   if (!pending.length) return;
   let channel: string | undefined;
   for (const file of pending) {
-    const response = await fetch(file.url, { headers: { "User-Agent": "toolblox-bot" } });
+    const response = await fetch(`${BLOBS_URL}/${file.sha}`, { headers: githubHeaders("application/vnd.github.raw+json", githubToken) });
     if (!response.ok) throw new Error(`GitHub returned status ${response.status} for changelog ${file.version}.`);
     const changelog = parseChangelog(file.version, await response.text());
     const previous = posted[file.version];

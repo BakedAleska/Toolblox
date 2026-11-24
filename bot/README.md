@@ -3,8 +3,8 @@
 The Toolblox Discord bot has two parts that share one Discord application and token:
 
 - **Worker** (`src/`): a Cloudflare Worker that answers slash commands and, every five minutes,
-  posts released changelogs to #changelogs and keeps #rules and #faq current. It stays up without
-  a server.
+  posts released changelogs to #changelogs, edits them when their file changes, and keeps #rules
+  and #faq current. It stays up without a server.
 - **Gateway** (`gateway/`): a small Node process, run on an always-on server, that greets new
   members in #welcome and rotates the bot's status. Discord sends member joins only over a
   persistent Gateway connection, which a Worker can't keep open.

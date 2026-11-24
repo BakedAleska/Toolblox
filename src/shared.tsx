@@ -2,7 +2,7 @@ import { ArrowLeftRight, Hammer, MapPin, UserRound } from "lucide-react";
 import { createContext, useContext, useEffect, useId, useRef, useState, type ComponentProps, type ReactElement, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { bridge } from "@/bridge";
-import { accountName, parseJoinTarget, targetUserId } from "@/logic";
+import { accountName, opaqueSquare, parseJoinTarget, targetUserId } from "@/logic";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -157,12 +157,12 @@ export function DiscordButton({ size }: { size?: ComponentProps<typeof Button>["
   </IconButton>;
 }
 
-/** Dialog shapes. Landscape holds one-sentence confirmations: one wide, short shape with the
- * buttons beside the text, as tall as the text. Forms and lists are pages instead. Portrait remains
+/** Dialog shapes. Landscape holds one-sentence confirmations: a title row divided from a row with
+ * the description and the buttons beside it, as tall as the text. Forms and lists are pages instead. Portrait remains
  * for widgets that use it, in two scales. */
 const modalSizes = {
   portrait: { default: "h-96 max-w-96", small: "h-80 max-w-80 p-4" },
-  landscape: { default: "max-w-lg p-4", small: "max-w-lg p-4" },
+  landscape: { default: "max-w-md gap-0 p-0", small: "max-w-md gap-0 p-0" },
 };
 export type ModalScale = "default" | "small";
 
@@ -183,19 +183,22 @@ export function Modal({ open, close, title, description, action, submit, busy = 
   children?: ReactNode;
 }) {
   const landscape = size === "landscape";
-  const header = <AlertDialogHeader>
-    <AlertDialogTitle>{title}</AlertDialogTitle>
-    {description && <AlertDialogDescription>{description}</AlertDialogDescription>}
-  </AlertDialogHeader>;
-  const footer = <AlertDialogFooter className={landscape ? "shrink-0 pt-0" : "mt-auto"}>
+  const heading = <AlertDialogTitle className={cn(landscape && "border-b px-4 py-3")}>{title}</AlertDialogTitle>;
+  const text = description && <AlertDialogDescription>{description}</AlertDialogDescription>;
+  const footer = <AlertDialogFooter className={landscape ? "ml-auto shrink-0 pt-0" : "mt-auto"}>
     <AlertDialogCancel type="button" size={landscape ? "sm" : "default"} disabled={busy}>Cancel</AlertDialogCancel>
     <Button type="submit" size={landscape ? "sm" : "default"} variant={danger ? "destructive" : "default"} disabled={busy || disabled}>{busy && <Spinner />}{action}</Button>
   </AlertDialogFooter>;
   return <AlertDialog open={open} onOpenChange={(next) => { if (!next && !busy) close(); }}>
     <AlertDialogContent className={cn("flex flex-col", modalSizes[size][scale])}>
-      <form className={landscape ? "flex flex-wrap items-end gap-x-4 gap-y-3" : "contents"} onSubmit={(event) => { event.preventDefault(); submit(); }}>
-        {landscape ? <div className="grid min-w-0 flex-1 basis-56 gap-3">{header}{children}</div> : <>{header}{children}</>}
-        {footer}
+      <form className="contents" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+        {landscape ? <>
+          {heading}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
+            <div className="grid min-w-0 flex-1 basis-48 gap-3">{text}{children}</div>
+            {footer}
+          </div>
+        </> : <><AlertDialogHeader>{heading}{text}</AlertDialogHeader>{children}{footer}</>}
       </form>
     </AlertDialogContent>
   </AlertDialog>;
@@ -380,4 +383,63 @@ export function WidgetFrame({ widget, surface, title }: { widget: WidgetSummary;
   if (error) return <p className="text-sm text-destructive">The widget failed to open. Does reinstalling it help? ({error})</p>;
   if (!session) return <Skeleton className={cn("w-full rounded-xl", height)} role="status" aria-label="Opening widget" />;
   return <iframe className={cn("w-full rounded-xl bg-card ring-1 ring-foreground/8", height)} ref={frame} title={title} src={session.url} sandbox="allow-scripts" />;
+}
+
+const trimmedLogos = new Map<string, Promise<string>>();
+
+/** Crops an icon to its visible pixels, as a PNG data URL. Falls back to the original URL when
+ * the image can't be read. */
+const trimLogo = (url: string) => {
+  let trimmed = trimmedLogos.get(url);
+  if (!trimmed) {
+    trimmed = new Promise<string>((resolve) => {
+      const image = new Image();
+      image.crossOrigin = "anonymous";
+      image.onerror = () => resolve(url);
+      image.onload = () => {
+        try {
+          const width = image.naturalWidth || 64, height = image.naturalHeight || 64;
+          const canvas = document.createElement("canvas");
+          canvas.width = width; canvas.height = height;
+          const context = canvas.getContext("2d");
+          if (!context) return resolve(url);
+          context.drawImage(image, 0, 0, width, height);
+          const square = opaqueSquare(context.getImageData(0, 0, width, height).data, width, height);
+          if (!square) return resolve(url);
+          const [x, y, size] = square;
+          const out = document.createElement("canvas");
+          out.width = out.height = size;
+          out.getContext("2d")?.drawImage(canvas, x, y, size, size, 0, 0, size, size);
+          resolve(out.toDataURL());
+        } catch { resolve(url); }
+      };
+      image.src = url;
+    });
+    trimmedLogos.set(url, trimmed);
+  }
+  return trimmed;
+};
+
+/** Whether an image URL or data URL is a GIF. */
+const isGif = (url: string) => /^data:image\/gif|\.gif(?:[?#]|$)/i.test(url);
+
+/** A widget's icon. Animated GIFs play, and show their first frame while motion is off or reduced.
+ * `trim` crops a still icon to its visible pixels. */
+export function WidgetLogo({ url, trim = false, className, onError }: { url: string; trim?: boolean; className: string; onError?: () => void }) {
+  const gif = isGif(url);
+  const [still, setStill] = useState<string>();
+  useEffect(() => {
+    let live = true;
+    setStill(undefined);
+    if (trim || gif) void trimLogo(url).then((value) => { if (live) setStill(value); });
+    return () => { live = false; };
+  }, [url, trim, gif]);
+  if (!gif) {
+    const src = trim ? still : url;
+    return src ? <img src={src} alt="" className={className} onError={onError} /> : <span className={className} aria-hidden="true" />;
+  }
+  return <>
+    <img src={url} alt="" className={cn(className, "in-data-motion:hidden")} onError={onError} />
+    {still ? <img src={still} alt="" className={cn(className, "not-in-data-motion:hidden")} /> : <span className={cn(className, "not-in-data-motion:hidden")} aria-hidden="true" />}
+  </>;
 }

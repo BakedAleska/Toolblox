@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { bridge } from "@/bridge";
 import { cn } from "@/lib/utils";
 import { lift } from "@/lib/motion";
-import { Hint, Panel, Screen, SectionTitle, Spinner, permissionSummary, type ScreenProps, failure } from "@/shared";
+import { Hint, Panel, Screen, SectionTitle, Spinner, WidgetLogo, permissionSummary, type ScreenProps, failure } from "@/shared";
 import { WidgetContextMenu, WidgetMenuItems, useWidgetActions, type WidgetAction } from "@/screens/WidgetMenu";
 import { useWidgetRegistry } from "@/widgets/host";
 import type { CatalogueEntry, WidgetSummary } from "@/types";
@@ -102,7 +102,7 @@ function WidgetCard({ name, logoUrl, bannerUrl, meta, description, permissions, 
     <div className="flex min-h-0 flex-1 flex-col gap-2 px-4 pt-8 pb-4">
       <div className="flex shrink-0 items-end gap-3">
         <span className={cn("grid size-16 shrink-0 place-items-center overflow-hidden rounded-xl bg-muted text-muted-foreground ring-4 ring-card transition-[opacity,rotate,scale] duration-500 ease-spring group-hover/card:scale-105 group-hover/card:-rotate-3", !active && "opacity-50")} aria-hidden="true">
-          {logo ? <img src={logo} alt="" className="size-full object-cover" onError={() => setFailed(true)} /> : <Puzzle className="size-7" />}
+          {logo ? <WidgetLogo url={logo} className="size-full object-cover" onError={() => setFailed(true)} /> : <Puzzle className="size-7" />}
         </span>
         <div className="ml-auto pb-1">{action}</div>
       </div>

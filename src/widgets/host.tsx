@@ -247,7 +247,8 @@ export class WidgetBoundary extends Component<{ widgetId: string; children: Reac
 }
 
 /** Renders every widget contribution for a slot, or only `widgetId`'s when it's set. Outside
- * `page.topbar`, each carries `FromWidget` at its top-right corner. */
+ * `page.topbar`, each carries `FromWidget`: after the content in `accounts.row`, where a corner mark
+ * would cover text, and at the top-right corner elsewhere. */
 export function WidgetSlot<S extends SlotName>({ name, props, widgetId, wrap }: { name: S; props: SlotProps[S]; widgetId?: string; wrap?: (children: ReactNode) => ReactNode }) {
   const { slots: current } = useWidgetRegistry();
   const items = (current.get(name) ?? []).filter((item) => !widgetId || item.widgetId === widgetId);
@@ -256,9 +257,9 @@ export function WidgetSlot<S extends SlotName>({ name, props, widgetId, wrap }: 
     const Contribution = value as ComponentType<SlotProps[S]>;
     const widgetName = appState?.installedWidgets.find(({ id }) => id === widgetId)?.name ?? widgetId;
     return <WidgetBoundary key={`${widgetId}-${index}`} widgetId={widgetId}>
-      {name === "page.topbar" ? <Contribution {...props} /> : <span className={cn("relative", blockSlots.includes(name) ? "block" : "inline-flex")}>
+      {name === "page.topbar" ? <Contribution {...props} /> : <span className={cn("relative", blockSlots.includes(name) ? "block" : "inline-flex", name === "accounts.row" && "min-w-0 items-center gap-1.5")}>
         <Contribution {...props} />
-        <FromWidget name={widgetName} className="absolute -top-1 -right-1 z-10" />
+        <FromWidget name={widgetName} className={name === "accounts.row" ? undefined : "absolute -top-1 -right-1 z-10"} />
       </span>}
     </WidgetBoundary>;
   });

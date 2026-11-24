@@ -9,7 +9,7 @@ import { bridge, copyFailureReport, isDemo } from "@/bridge";
 import { ErrorBoundary, PageError } from "@/ErrorBoundary";
 import { pageOf, useCustomTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { SIDEBAR_COLLAPSED, accountName, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, clampSidebarWidth, opaqueSquare, stepSidebarWidth } from "@/logic";
+import { SIDEBAR_COLLAPSED, accountName, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, clampSidebarWidth, stepSidebarWidth } from "@/logic";
 import { Accounts } from "@/screens/Accounts";
 import { Dashboard } from "@/screens/Dashboard";
 import { MiniWindow } from "@/screens/Mini";
@@ -20,7 +20,7 @@ import { CustomCssScreen } from "@/screens/Themes";
 import { LogScreen, SettingsScreen, WidgetSettingsTab } from "@/screens/Settings";
 import { WidgetContextMenu, useWidgetActions, useWidgetHasSettings } from "@/screens/WidgetMenu";
 import { Widgets } from "@/screens/Widgets";
-import { DISCORD_URL, DiscordIcon, EmptyState, IconButton, Modal, Screen, ScreenTools, Spinner, WidgetFrame, type ConfirmRequest, type NextJoin, type ScreenProps, failure } from "@/shared";
+import { DISCORD_URL, DiscordIcon, EmptyState, IconButton, Modal, Screen, ScreenTools, Spinner, WidgetFrame, WidgetLogo, type ConfirmRequest, type NextJoin, type ScreenProps, failure } from "@/shared";
 import { WidgetBoundary, WidgetPageContext, WidgetSlot, syncWidgetHost, syncWidgetModules, useWidgetRegistry, type CoreScreen } from "@/widgets/host";
 import type { AppRoute, AppState, Settings, StartupStatus, ThemeMode, WidgetSummary } from "@/types";
 
@@ -378,54 +378,25 @@ function HeaderTools({ themeMode, patchSettings, openMini, icons, extra }: Pick<
   </div>;
 }
 
-const trimmedLogos = new Map<string, Promise<string>>();
-
-/** Crops an icon to its visible pixels, as a PNG data URL. Falls back to the original URL when
- * the image can't be read. */
-const trimLogo = (url: string) => {
-  let trimmed = trimmedLogos.get(url);
-  if (!trimmed) {
-    trimmed = new Promise<string>((resolve) => {
-      const image = new Image();
-      image.crossOrigin = "anonymous";
-      image.onerror = () => resolve(url);
-      image.onload = () => {
-        try {
-          const width = image.naturalWidth || 64, height = image.naturalHeight || 64;
-          const canvas = document.createElement("canvas");
-          canvas.width = width; canvas.height = height;
-          const context = canvas.getContext("2d");
-          if (!context) return resolve(url);
-          context.drawImage(image, 0, 0, width, height);
-          const square = opaqueSquare(context.getImageData(0, 0, width, height).data, width, height);
-          if (!square) return resolve(url);
-          const [x, y, size] = square;
-          const out = document.createElement("canvas");
-          out.width = out.height = size;
-          out.getContext("2d")?.drawImage(canvas, x, y, size, size, 0, 0, size, size);
-          resolve(out.toDataURL());
-        } catch { resolve(url); }
-      };
-      image.src = url;
-    });
-    trimmedLogos.set(url, trimmed);
-  }
-  return trimmed;
-};
-
-/** A widget's icon in the sidebar, cropped to its visible pixels so it fills the row's icon slot. */
-function SidebarLogo({ url }: { url: string }) {
-  const [src, setSrc] = useState<string>();
-  useEffect(() => { let live = true; void trimLogo(url).then((value) => { if (live) setSrc(value); }); return () => { live = false; }; }, [url]);
-  return src ? <img src={src} alt="" className="size-4 shrink-0 rounded-sm object-contain" /> : <span className="size-4 shrink-0" aria-hidden="true" />;
-}
-
 function Sidebar({ route, ...props }: ScreenProps & { route: AppRoute }) {
-  const { state, navigate, refresh, notify, done } = props;
+  const { state, navigate, refresh, notify, done, confirm } = props;
   const actions = useWidgetActions(props, async (_id, action, message, success) => {
     try { await action(); if (success) done(success); await refresh(); }
     catch (error) { notify(failure(`${message} Does retrying help?`, error)); }
   });
+  /** Asks to enable a disabled widget, then opens its page. */
+  const enableAndOpen = (widget: WidgetSummary) => confirm({ scale: "small", title: `Enable ${widget.name}?`, message: "This widget is disabled. Enabling it opens its page.", action: "Enable", run: async () => {
+    try { await bridge.setWidgetEnabled(widget.id, true); await refresh(); navigate(`/widgets/${widget.id}`); }
+    catch (error) { notify(failure(`${widget.name} couldn't be enabled. Does retrying help?`, error)); }
+  } });
+  /** The page shown before the last first click on a row, which a double-click returns to. */
+  const cameFrom = useRef<AppRoute>(route);
+  /** Leaves a widget's page, which the first click opened, and disables the widget. */
+  const disable = (widget: WidgetSummary) => {
+    const page = `/widgets/${widget.id}`;
+    navigate(cameFrom.current === page || cameFrom.current.startsWith(`${page}/`) ? "/widgets" : cameFrom.current);
+    actions(widget).find(({ id }) => id === "toggle")?.run();
+  };
   const [saved, setWidth] = useState(readSidebarWidth);
   const [dragging, setDragging] = useState(false);
   const [viewport, setViewport] = useState(window.innerWidth);
@@ -455,10 +426,15 @@ function Sidebar({ route, ...props }: ScreenProps & { route: AppRoute }) {
     if (next?.top !== pill?.top || next?.height !== pill?.height) setPill(next);
   });
   const rowClass = "relative flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-sm text-muted-foreground outline-none transition-colors hover:bg-sidebar-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset aria-disabled:opacity-50 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted-foreground [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:transition-transform [&_svg]:duration-300 [&_svg]:ease-spring hover:[&_svg]:scale-115 active:[&_svg]:scale-90";
-  const item = (target: AppRoute, label: string, icon: ReactNode, enabled = true) => <Tooltip key={target}>
+  const item = (target: AppRoute, label: string, icon: ReactNode, enabled = true, enable?: () => void, disable?: () => void) => <Tooltip key={target}>
     <TooltipTrigger render={<button className={cn(rowClass,
       current === target && "font-medium text-foreground hover:bg-transparent",
-    )} aria-current={current === target ? "page" : undefined} aria-disabled={!enabled || undefined} onClick={() => { if (enabled) navigate(target); }} aria-label={label} />}>
+      !enabled && enable && "opacity-50",
+    )} aria-current={current === target ? "page" : undefined} aria-disabled={(!enabled && !enable) || undefined} aria-haspopup={!enabled && enable ? "dialog" : undefined} onClick={({ detail }) => {
+      if (detail > 1) return;
+      cameFrom.current = route;
+      if (enabled) navigate(target); else enable?.();
+    }} onDoubleClick={() => { if (enabled) disable?.(); }} aria-label={enabled ? label : `${label} (disabled)`} />}>
       {icon}{!collapsed && <span className="animate-in truncate duration-300 ease-enter fade-in-0 slide-in-from-left-2">{label}</span>}
     </TooltipTrigger>
     <TooltipContent side={right ? "left" : "right"} className={cn(!collapsed && "hidden")}>{enabled ? label : `${label} is disabled`}</TooltipContent>
@@ -476,7 +452,7 @@ function Sidebar({ route, ...props }: ScreenProps & { route: AppRoute }) {
       {coreRoutes.map(({ route: target, label, icon: Icon }) => item(target, label, <Icon aria-hidden="true" />))}
       {state.installedWidgets.length > 0 && (collapsed ? <hr className="my-2 border-sidebar-border" /> : <p className="mt-4 mb-1 truncate px-2.5 text-xs text-muted-foreground">Widgets</p>)}
       {state.installedWidgets.map((widget) => <WidgetContextMenu key={widget.id} actions={actions(widget)}>
-        {item(`/widgets/${widget.id}`, widget.name, widget.logoUrl ? <SidebarLogo url={widget.logoUrl} /> : <Puzzle aria-hidden="true" />, widget.enabled && !state.safeMode)}
+        {item(`/widgets/${widget.id}`, widget.name, widget.logoUrl ? <WidgetLogo trim url={widget.logoUrl} className="size-4 shrink-0 rounded-sm object-contain" /> : <Puzzle aria-hidden="true" />, widget.enabled && !state.safeMode, state.safeMode ? undefined : () => enableAndOpen(widget), () => disable(widget))}
       </WidgetContextMenu>)}
     </nav>
     <WidgetSlot name="sidebar.footer" props={{ collapsed }} />

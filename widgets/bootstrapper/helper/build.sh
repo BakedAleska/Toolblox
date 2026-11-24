@@ -11,5 +11,5 @@ Darwin|Linux) windows_cc=x86_64-w64-mingw32-gcc ;;
 *) windows_cc=gcc ;;
 esac
 mkdir -p ../optional-bin
-"$windows_cc" -std=c11 -O2 -Wall -Wextra -mwindows -static bootstrapper.c -o ../optional-bin/bootstrapper.exe
+"$windows_cc" -std=c11 -O2 -Wall -Wextra -mwindows -static bootstrapper.c -o ../optional-bin/bootstrapper.exe -lrstrtmgr
 strip ../optional-bin/bootstrapper.exe 2>/dev/null || x86_64-w64-mingw32-strip ../optional-bin/bootstrapper.exe

@@ -2,23 +2,28 @@
  * Bootstrapper helper. Reads one JSON message per line on standard input and writes one JSON
  * message per line on standard output.
  *
- * While on, it sets Roblox's own Maximum frame rate setting, which clients read when they open,
- * and limits every Roblox client except the focused one, as soon as it opens: priority class,
+ * While on, it sets Roblox's own Maximum frame rate, Graphics quality, and Volume settings, which clients read when they open,
+ * and limits the Roblox clients opened since it was turned on, except the focused one. Clients
+ * already open are left alone, a client is limited only once the account in it is known and listed,
+ * and a "set" message limits or frees a single client. Anything left by an earlier run, or inherited
+ * from a limited client that opened another, is undone. Limits: priority class,
  * Windows efficiency mode (EcoQoS), low memory priority, a hard CPU cap through a job object, a hard
  * working set cap, fewer logical processors, and a lower GPU scheduling priority. Each is a Windows
  * scheduling setting; the helper never reads or writes a client's memory or code. Processes are
  * opened with PROCESS_SET_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA, and
  * PROCESS_TERMINATE, which assigning a job object needs. Turning it off, or closing
- * standard input, restores normal priority and the user's own frame rate setting. It also removes
+ * standard input, restores normal priority and the user's own settings. It also removes
  * the frame rate flag file earlier versions wrote, which Roblox now ignores.
  *
  * It also reads the Roblox logs written since it started, reports the public address of each
- * server a client joins, and shows a "toast" message at the top of the screen when asked. Nothing
- * else from the logs leaves the helper.
+ * server a client joins and the user ID in each client, and shows a "toast" message at the top of
+ * the screen when asked. Nothing else from the logs leaves the helper. Windows' Restart Manager
+ * finds the client that has a log open.
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <tlhelp32.h>
+#include <restartmanager.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <wchar.h>
@@ -32,15 +37,20 @@
 #define CLIENT_EXE L"RobloxPlayerBeta.exe"
 #define BACKUP_SUFFIX L".toolblox-backup"
 #define CAP_SUFFIX L".toolblox-framerate"
+#define GRAPHICS_SUFFIX L".toolblox-graphics"
+#define VOLUME_SUFFIX L".toolblox-volume"
 
 static CRITICAL_SECTION lock;
-/* cpu is a percentage of all cores (0 or 100 for no cap), ram is megabytes (0 for no cap), cores is how many logical processors a client may use (0 for all), and gpu is a GPU scheduling priority class. Each apply bumps generation. */
-static struct { int on, fps, eco, cpu, ram, cores, gpu; DWORD priority; unsigned generation; } config;
-/* A running client: the config generation it was limited with (0 when it runs normally), its CPU cap job, whether its GPU priority was lowered, and the limits Windows refused. */
-typedef struct { DWORD pid; unsigned applied; HANDLE job; int gpu, failed; } Client;
+/* fps and graphics are 0, and volume (0 to 10) is -1, to leave the user's own setting. cpu is a percentage of all cores (0 or 100 for no cap), ram is megabytes (0 for no cap), cores is how many logical processors a client may use (0 for all), and gpu is a GPU scheduling priority class. Each apply bumps generation. */
+static struct { int on, fps, graphics, volume, eco, cpu, ram, cores, gpu; DWORD priority; unsigned generation; } config;
+/* A running client: whether it opened while on, whether a set message limits or frees it (-1 for neither), whether the limits apply to it, the user ID in it (empty until it joins), the config generation it was limited with (0 when it runs normally, UNKNOWN when new), its CPU cap job, whether its GPU priority was lowered (-1 when new), and the limits Windows refused. */
+#define UNKNOWN 0xFFFFFFFFu
+typedef struct { DWORD pid; int fresh, forced, enrolled; char user[24]; unsigned applied; HANDLE job; int gpu, failed; } Client;
 static Client clients[MAX_CLIENTS];
 static int client_count;
-static int last_clients = -1, last_limited = -1, last_capped = -1, last_failed = -1;
+/* The user IDs to limit, as ",12,34,". */
+static char accounts[16 * 1024];
+static char last_status[MAX_CLIENTS * 80 + 256];
 
 static void send_line(const char *line) {
     fputs(line, stdout);
@@ -67,13 +77,18 @@ static int read_small(const wchar_t *path, char *out, DWORD size) {
     return 1;
 }
 
+/* Replaces a file in one step, so a reader never sees part of it. */
 static int write_text(const wchar_t *path, const char *text) {
-    HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    wchar_t temporary[MAX_PATH];
+    if (swprintf(temporary, MAX_PATH, L"%ls.toolblox-new", path) < 0) return 0;
+    HANDLE file = CreateFileW(temporary, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     DWORD written = 0, length = (DWORD)strlen(text);
     if (file == INVALID_HANDLE_VALUE) return 0;
     BOOL ok = WriteFile(file, text, length, &written, NULL);
     CloseHandle(file);
-    return ok && written == length;
+    if (ok && written == length && MoveFileExW(temporary, path, MOVEFILE_REPLACE_EXISTING)) return 1;
+    DeleteFileW(temporary);
+    return 0;
 }
 
 /* Removes the ClientAppSettings.json an earlier version wrote to one version folder, and puts back the user's own. Roblox now ignores that flag. */
@@ -107,30 +122,59 @@ static void clean_flags(void) {
     FindClose(search);
 }
 
+static int near_value(double a, double b) {
+    return a > b - 0.001 && a < b + 0.001;
+}
+
+/* One of Roblox's own settings. quiet counts ticks without clients since it was released. */
+typedef struct { const char *entry; const wchar_t *suffix; int quiet; } Setting;
+static Setting fps_setting = { FPS_ENTRY, CAP_SUFFIX, 0 }, graphics_setting = { GRAPHICS_ENTRY, GRAPHICS_SUFFIX, 0 }, volume_setting = { VOLUME_ENTRY, VOLUME_SUFFIX, 0 };
+
 /*
- * Brings Roblox's Maximum frame rate setting in line with the config. The user's own value is kept
- * in a file beside the settings while the cap holds, and written back when it's turned off.
- * Returns 1 when the cap holds.
+ * Brings a setting in line with wanted, or releases it when negative. A file beside the settings
+ * keeps the user's own value and the value written. Clients opened while it held write that value
+ * back when they close, so after release the file stays, and the user's value is restored again,
+ * until no clients have been open for a few seconds. A value that's neither of the two is the
+ * user's new choice and is kept. Returns 1 when the setting holds.
  */
-static int sync_cap(void) {
+static int sync_setting(Setting *setting, double wanted) {
     wchar_t root[MAX_PATH], path[MAX_PATH], saved[MAX_PATH];
-    char text[64 * 1024], updated[64 * 1024], value[16];
-    int old = 0;
+    char text[64 * 1024], updated[64 * 1024], value[64];
+    double current = 0, own = 0, held = -1;
     DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", root, MAX_PATH);
     if (!length || length >= MAX_PATH || swprintf(path, MAX_PATH, L"%ls\\Roblox\\GlobalBasicSettings_13.xml", root) < 0
-        || swprintf(saved, MAX_PATH, L"%ls" CAP_SUFFIX, path) < 0 || !read_small(path, text, sizeof text)) return 0;
-    int holding = GetFileAttributesW(saved) != INVALID_FILE_ATTRIBUTES;
-    if (config.on && config.fps) {
-        if (!cap_replace(text, config.fps, updated, sizeof updated, &old)) return 0;
-        if (old == config.fps) return 1;
-        snprintf(value, sizeof value, "%d", old);
-        if (!holding && !write_text(saved, value)) return 0;
-        return write_text(path, updated);
+        || swprintf(saved, MAX_PATH, L"%ls%ls", path, setting->suffix) < 0) return 0;
+    int fields = read_small(saved, value, sizeof value) ? sscanf(value, "%lf %lf", &own, &held) : 0;
+    if (wanted < 0 && fields < 1) return 0;
+    if (!read_small(path, text, sizeof text) || !strstr(text, "</roblox>")
+        || !cap_replace(text, setting->entry, wanted >= 0 ? wanted : own, updated, sizeof updated, &current)) return 0;
+    if (wanted >= 0) {
+        setting->quiet = 0;
+        if (fields < 1) own = current;
+        if (fields < 2 || !near_value(held, wanted)) {
+            snprintf(value, sizeof value, "%.7g %.7g", own, wanted);
+            if (!write_text(saved, value)) return 0;
+        }
+        return near_value(current, wanted) || write_text(path, updated);
     }
-    /* ponytail: a client opened while capped writes the cap back when it closes after this; turning the cap on and off again fixes it. */
-    if (holding && read_small(saved, value, sizeof value) && cap_replace(text, atoi(value), updated, sizeof updated, &old)
-        && write_text(path, updated)) DeleteFileW(saved);
+    if (!near_value(current, own)) {
+        if (fields < 2 || near_value(current, held)) {
+            if (!write_text(path, updated)) return 0;
+        } else {
+            snprintf(value, sizeof value, "%.7g %.7g", current, held);
+            write_text(saved, value);
+        }
+    }
+    setting->quiet = client_count ? 0 : setting->quiet + 1;
+    if (setting->quiet > 5) DeleteFileW(saved);
     return 0;
+}
+
+/* Returns 1 when the frame rate cap holds. */
+static int sync_settings(void) {
+    sync_setting(&graphics_setting, config.on && config.graphics ? config.graphics : -1);
+    sync_setting(&volume_setting, config.on && config.volume >= 0 ? config.volume / 10.0 : -1);
+    return sync_setting(&fps_setting, config.on && config.fps ? config.fps : -1);
 }
 
 /* Bits for each limit, reported as "failed" when Windows refuses it. */
@@ -153,14 +197,17 @@ static int set_gpu_priority(HANDLE process, int priority) {
 /*
  * Applies every limit in the config to a client when limit is 1, or returns it to normal when 0.
  * The CPU cap uses a job object per client. A process can't leave a job, so returning to normal
- * turns the job's cap off. Returns the FAIL_ bits for limits Windows refused.
+ * turns the job's cap off. Clients that a limited client opens stay out of its job. Returns the
+ * FAIL_ bits for limits, or returns to normal, that Windows refused.
  */
 static int limit_client(Client *client, int limit) {
     int failed = 0;
     HANDLE process = OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_QUOTA | PROCESS_TERMINATE, FALSE, client->pid);
     if (!process) return FAIL_PRIORITY | FAIL_ECO | FAIL_MEMORY | FAIL_CPU | FAIL_RAM | FAIL_CORES | FAIL_GPU;
 
-    if (!SetPriorityClass(process, limit ? config.priority : NORMAL_PRIORITY_CLASS)) failed |= FAIL_PRIORITY;
+    DWORD priority = GetPriorityClass(process);
+    if (limit ? !SetPriorityClass(process, config.priority)
+        : (priority == IDLE_PRIORITY_CLASS || priority == BELOW_NORMAL_PRIORITY_CLASS) && !SetPriorityClass(process, NORMAL_PRIORITY_CLASS)) failed |= FAIL_PRIORITY;
 
     PROCESS_POWER_THROTTLING_STATE throttling = { PROCESS_POWER_THROTTLING_CURRENT_VERSION, 0, 0 };
     if (limit && config.eco) throttling.ControlMask = throttling.StateMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
@@ -172,12 +219,14 @@ static int limit_client(Client *client, int limit) {
     int cpu = limit && config.cpu > 0 && config.cpu < 100;
     if (cpu && !client->job) {
         client->job = CreateJobObjectW(NULL, NULL);
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = { .BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK };
+        if (client->job) SetInformationJobObject(client->job, JobObjectExtendedLimitInformation, &limits, sizeof limits);
         if (client->job && !AssignProcessToJobObject(client->job, process)) { CloseHandle(client->job); client->job = NULL; }
     }
     if (client->job) {
         JOBOBJECT_CPU_RATE_CONTROL_INFORMATION rate = { 0 };
         if (cpu) rate.ControlFlags = JOB_OBJECT_CPU_RATE_CONTROL_ENABLE | JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP, rate.CpuRate = (DWORD)config.cpu * 100;
-        if (!SetInformationJobObject(client->job, JobObjectCpuRateControlInformation, &rate, sizeof rate) && cpu) failed |= FAIL_CPU;
+        if (!SetInformationJobObject(client->job, JobObjectCpuRateControlInformation, &rate, sizeof rate)) failed |= FAIL_CPU;
     } else if (cpu) failed |= FAIL_CPU;
 
     SIZE_T low, high;
@@ -185,8 +234,8 @@ static int limit_client(Client *client, int limit) {
     if (limit && config.ram > 0) {
         SIZE_T cap = (SIZE_T)config.ram << 20;
         if (!SetProcessWorkingSetSizeEx(process, cap / 4, cap, QUOTA_LIMITS_HARDWS_MIN_DISABLE | QUOTA_LIMITS_HARDWS_MAX_ENABLE)) failed |= FAIL_RAM;
-    } else if (GetProcessWorkingSetSizeEx(process, &low, &high, &flags) && flags & QUOTA_LIMITS_HARDWS_MAX_ENABLE)
-        SetProcessWorkingSetSizeEx(process, low, high, QUOTA_LIMITS_HARDWS_MIN_DISABLE | QUOTA_LIMITS_HARDWS_MAX_DISABLE);
+    } else if (GetProcessWorkingSetSizeEx(process, &low, &high, &flags) && flags & QUOTA_LIMITS_HARDWS_MAX_ENABLE
+        && !SetProcessWorkingSetSizeEx(process, low, high, QUOTA_LIMITS_HARDWS_MIN_DISABLE | QUOTA_LIMITS_HARDWS_MAX_DISABLE)) failed |= FAIL_RAM;
 
     DWORD_PTR mask, system;
     if (GetProcessAffinityMask(process, &mask, &system)) {
@@ -194,12 +243,12 @@ static int limit_client(Client *client, int limit) {
         if (limit && config.cores > 0)
             for (int bit = sizeof wanted * 8 - 1, kept = 0; bit >= 0; bit--)
                 if (system >> bit & 1) { if (kept < config.cores) kept++; else wanted &= ~((DWORD_PTR)1 << bit); }
-        if (wanted != mask && !SetProcessAffinityMask(process, wanted) && limit && config.cores > 0) failed |= FAIL_CORES;
+        if (wanted != mask && !SetProcessAffinityMask(process, wanted)) failed |= FAIL_CORES;
     } else if (limit && config.cores > 0) failed |= FAIL_CORES;
 
     if ((limit && config.gpu != 2) || client->gpu) {
-        if (!set_gpu_priority(process, limit ? config.gpu : 2) && limit) failed |= FAIL_GPU;
-        client->gpu = limit && config.gpu != 2;
+        if (!set_gpu_priority(process, limit ? config.gpu : 2) && (limit || client->gpu > 0)) failed |= FAIL_GPU;
+        else client->gpu = limit && config.gpu != 2;
     }
 
     CloseHandle(process);
@@ -207,7 +256,7 @@ static int limit_client(Client *client, int limit) {
 }
 
 #define MAX_LOGS 64
-typedef struct { wchar_t name[MAX_PATH]; LONGLONG offset; int seen; } Log;
+typedef struct { wchar_t name[MAX_PATH]; LONGLONG offset; int seen, tries; char user[24]; } Log;
 static Log logs[MAX_LOGS];
 static int log_count;
 static ULONGLONG started;
@@ -217,7 +266,7 @@ static int tracked(DWORD pid) {
     return -1;
 }
 
-/* Applies the config to every running client and forgets clients that exited. */
+/* Enrolls listed accounts in clients opened while on, applies the config to enrolled clients, and forgets clients that exited. A client that isn't returned to normal is tried again each time. */
 static void sync_clients(int *running, int *limited, int *failed) {
     DWORD focused = 0, live[MAX_CLIENTS];
     int live_count = 0;
@@ -243,27 +292,33 @@ static void sync_clients(int *running, int *limited, int *failed) {
         if (index < 0) {
             if (client_count == MAX_CLIENTS) continue;
             index = client_count++;
-            clients[index] = (Client){ .pid = live[i] };
+            clients[index] = (Client){ .pid = live[i], .fresh = config.on, .forced = -1, .applied = UNKNOWN, .gpu = -1 };
         }
         Client *client = &clients[index];
-        unsigned wanted = config.on && live[i] != focused ? config.generation : 0;
+        client->enrolled = client->forced >= 0 ? client->forced : client->fresh && user_listed(accounts, client->user);
+        unsigned wanted = config.on && client->enrolled && live[i] != focused ? config.generation : 0;
         if (wanted != client->applied) {
             client->failed = limit_client(client, wanted != 0);
-            client->applied = wanted;
+            client->applied = !wanted && client->failed ? UNKNOWN : wanted;
         }
-        if (client->applied) (*limited)++, *failed |= client->failed;
+        *limited += wanted != 0;
+        *failed |= client->failed;
     }
 }
 
 static void tick(void) {
-    int running, limited, failed, capped = sync_cap();
+    int running, limited, failed, capped = sync_settings();
     sync_clients(&running, &limited, &failed);
-    if (running != last_clients || limited != last_limited || capped != last_capped || failed != last_failed) {
-        char line[200];
-        snprintf(line, sizeof line, "{\"type\":\"status\",\"on\":%s,\"clients\":%d,\"limited\":%d,\"capped\":%s,\"failed\":%d}",
-            config.on ? "true" : "false", running, limited, capped ? "true" : "false", failed);
+    static char line[sizeof last_status];
+    int length = snprintf(line, sizeof line, "{\"type\":\"status\",\"on\":%s,\"clients\":%d,\"limited\":%d,\"capped\":%s,\"failed\":%d,\"open\":[",
+        config.on ? "true" : "false", running, limited, capped ? "true" : "false", failed);
+    for (int i = 0; i < client_count; i++)
+        length += snprintf(line + length, sizeof line - length, "%s{\"pid\":%lu,\"user\":\"%s\",\"enrolled\":%s}",
+            i ? "," : "", clients[i].pid, clients[i].user, clients[i].enrolled ? "true" : "false");
+    snprintf(line + length, sizeof line - length, "]}");
+    if (strcmp(line, last_status)) {
         send_line(line);
-        last_clients = running, last_limited = limited, last_capped = capped, last_failed = failed;
+        strcpy(last_status, line);
     }
 }
 
@@ -271,14 +326,41 @@ static ULONGLONG file_time(FILETIME time) {
     return (ULONGLONG)time.dwHighDateTime << 32 | time.dwLowDateTime;
 }
 
-/* Reports the server address in each complete line added to a log since the last read. */
-static void read_log(const wchar_t *path, Log *log) {
+/* Records the user on the client that has the log open. Returns 0 when there's none. */
+static int match_client(const wchar_t *path, const char *user) {
+    DWORD session, reason;
+    int matched = 0;
+    UINT needed = 0, count = 8;
+    RM_PROCESS_INFO users[8];
+    WCHAR key[CCH_RM_SESSION_KEY + 1] = { 0 };
+    if (RmStartSession(&session, 0, key) != ERROR_SUCCESS) return 0;
+    if (RmRegisterResources(session, 1, &path, 0, NULL, 0, NULL) == ERROR_SUCCESS
+        && RmGetList(session, &needed, &count, users, &reason) == ERROR_SUCCESS)
+        for (UINT i = 0; i < count; i++) {
+            int index = tracked(users[i].Process.dwProcessId);
+            if (index < 0) continue;
+            matched = 1;
+            if (!strcmp(clients[index].user, user)) continue;
+            if (*clients[index].user) clients[index].forced = -1;
+            strcpy(clients[index].user, user);
+        }
+    RmEndSession(session);
+    return matched;
+}
+
+/*
+ * Reads each complete line added to a log since the last read, up to limit. Reports server
+ * addresses when report is 1, and matches the last user that joined to its client, trying again on
+ * later reads when the client isn't known yet.
+ */
+static void read_log(const wchar_t *path, Log *log, LONGLONG limit, int report) {
     static char buffer[64 * 1024];
     HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
     LARGE_INTEGER size, position = { .QuadPart = log->offset };
     DWORD read;
+    char user[sizeof clients->user] = "";
     if (file == INVALID_HANDLE_VALUE) return;
-    while (GetFileSizeEx(file, &size) && size.QuadPart > log->offset && SetFilePointerEx(file, position, NULL, FILE_BEGIN)
+    while (log->offset < limit && GetFileSizeEx(file, &size) && size.QuadPart > log->offset && SetFilePointerEx(file, position, NULL, FILE_BEGIN)
            && ReadFile(file, buffer, sizeof buffer - 1, &read, NULL) && read) {
         buffer[read] = 0;
         char *end = strrchr(buffer, '\n');
@@ -287,7 +369,8 @@ static void read_log(const wchar_t *path, Log *log) {
         for (char *line = buffer, *next; line; line = next) {
             char address[16], message[64];
             if ((next = strchr(line, '\n'))) *next++ = 0;
-            if (server_address(line, address, sizeof address)) {
+            joined_user(line, user, sizeof user);
+            if (report && server_address(line, address, sizeof address)) {
                 snprintf(message, sizeof message, "{\"type\":\"server\",\"address\":\"%s\"}", address);
                 send_line(message);
             }
@@ -296,10 +379,26 @@ static void read_log(const wchar_t *path, Log *log) {
         position.QuadPart = log->offset;
     }
     CloseHandle(file);
+    if (*user) strcpy(log->user, user), log->tries = 10;
+    if (log->tries && (log->tries--, match_client(path, log->user))) log->tries = 0;
 }
 
-/* Reads the client logs in %LOCALAPPDATA%\Roblox\logs written since the helper started. */
+/* Returns the size of a log a running client has open, or -1. Folder listings show stale sizes and times for open files. */
+static LONGLONG open_log_size(const wchar_t *path) {
+    LARGE_INTEGER size;
+    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (file != INVALID_HANDLE_VALUE) { CloseHandle(file); return -1; }
+    if (GetLastError() != ERROR_SHARING_VIOLATION) return -1;
+    file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
+    if (file == INVALID_HANDLE_VALUE) return -1;
+    BOOL ok = GetFileSizeEx(file, &size);
+    CloseHandle(file);
+    return ok ? size.QuadPart : -1;
+}
+
+/* Reads the client logs in %LOCALAPPDATA%\Roblox\logs written since the helper started, and those open when it started. The latter are searched near their start for the user in them, then read from their end. */
 static void watch_logs(void) {
+    static int scanned;
     wchar_t root[MAX_PATH], pattern[MAX_PATH], path[MAX_PATH];
     WIN32_FIND_DATAW found;
     DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", root, MAX_PATH);
@@ -308,21 +407,27 @@ static void watch_logs(void) {
     HANDLE search = FindFirstFileW(pattern, &found);
     if (search != INVALID_HANDLE_VALUE) {
         do {
-            if (wcsstr(found.cFileName, L"CrashHandler") || file_time(found.ftLastWriteTime) < started
-                || swprintf(path, MAX_PATH, L"%ls\\Roblox\\logs\\%ls", root, found.cFileName) < 0) continue;
+            if (wcsstr(found.cFileName, L"CrashHandler") || swprintf(path, MAX_PATH, L"%ls\\Roblox\\logs\\%ls", root, found.cFileName) < 0) continue;
             int index = 0;
             while (index < log_count && wcscmp(logs[index].name, found.cFileName)) index++;
             if (index == log_count) {
-                if (log_count == MAX_LOGS) continue;
+                int old = file_time(found.ftCreationTime) < started;
+                LONGLONG size = old && !scanned ? open_log_size(path) : -1;
+                if (log_count == MAX_LOGS || (size < 0 && file_time(found.ftLastWriteTime) < started)) continue;
                 log_count++;
+                logs[index] = (Log){ 0 };
                 wcscpy(logs[index].name, found.cFileName);
-                logs[index].offset = file_time(found.ftCreationTime) < started ? (LONGLONG)found.nFileSizeHigh << 32 | found.nFileSizeLow : 0;
+                if (old) {
+                    read_log(path, &logs[index], 1 << 20, 0);
+                    logs[index].offset = size >= 0 ? size : (LONGLONG)found.nFileSizeHigh << 32 | found.nFileSizeLow;
+                }
             }
             logs[index].seen = 1;
-            read_log(path, &logs[index]);
+            read_log(path, &logs[index], MAXLONGLONG, 1);
         } while (FindNextFileW(search, &found));
         FindClose(search);
     }
+    scanned = 1;
     for (int i = log_count - 1; i >= 0; i--) if (!logs[i].seen) logs[i] = logs[--log_count];
 }
 
@@ -449,8 +554,14 @@ static void handle(const char *line) {
     EnterCriticalSection(&lock);
     if (!strcmp(type, "apply") && json_get(line, "fps", fps, sizeof fps) && json_get(line, "priority", priority, sizeof priority) && json_get(line, "eco", eco, sizeof eco)) {
         int cap = atoi(fps);
+        if (!config.on) tick();
+        if (!json_get(line, "accounts", accounts, sizeof accounts)) *accounts = 0;
         config.on = 1;
         config.fps = cap >= FPS_MIN && cap <= FPS_MAX ? cap : 0;
+        config.graphics = json_get(line, "graphics", number, sizeof number) ? atoi(number) : 0;
+        if (config.graphics < 0 || config.graphics > 10) config.graphics = 0;
+        config.volume = json_get(line, "volume", number, sizeof number) ? atoi(number) : -1;
+        if (config.volume < 0 || config.volume > 10) config.volume = -1;
         config.eco = !strcmp(eco, "on");
         config.priority = !strcmp(priority, "idle") ? IDLE_PRIORITY_CLASS : !strcmp(priority, "below") ? BELOW_NORMAL_PRIORITY_CLASS : NORMAL_PRIORITY_CLASS;
         config.cpu = json_get(line, "cpu", number, sizeof number) ? atoi(number) : 0;
@@ -460,25 +571,34 @@ static void handle(const char *line) {
         if (config.ram < 0 || config.ram > 1 << 20) config.ram = 0;
         if (config.cores < 0) config.cores = 0;
         config.gpu = !json_get(line, "gpu", gpu, sizeof gpu) ? 2 : !strcmp(gpu, "idle") ? 0 : !strcmp(gpu, "below") ? 1 : 2;
-        if (!++config.generation) config.generation = 1;
+        if (++config.generation == UNKNOWN) config.generation = 1;
     } else if (!strcmp(type, "clear")) config.on = 0;
-    else if (!strcmp(type, "toast")) {
+    else if (!strcmp(type, "set") && json_get(line, "pid", number, sizeof number) && json_get(line, "on", eco, sizeof eco)) {
+        int index = tracked(strtoul(number, NULL, 10));
+        if (index >= 0) clients[index].forced = !strcmp(eco, "on");
+    } else if (!strcmp(type, "toast")) {
         char title[64], text[128];
         if (json_get(line, "title", title, sizeof title) && json_get(line, "text", text, sizeof text)) show_toast(title, text);
         else send_error("The toast message isn't valid.");
         LeaveCriticalSection(&lock);
         return;
     } else send_error("The message isn't supported.");
-    last_clients = -1;
+    *last_status = 0;
     tick();
     LeaveCriticalSection(&lock);
 }
 
 int main(void) {
-    char line[1024];
+    static char line[32 * 1024];
     BOOL(WINAPI * set_awareness)(HANDLE) = (BOOL(WINAPI *)(HANDLE))(void *)GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetProcessDpiAwarenessContext");
     if (set_awareness) set_awareness((HANDLE)-4);
     InitializeCriticalSection(&lock);
+    HANDLE only = CreateMutexW(NULL, FALSE, L"Local\\ToolbloxBootstrapper");
+    DWORD turn = only ? WaitForSingleObject(only, 3000) : WAIT_OBJECT_0;
+    if (turn != WAIT_OBJECT_0 && turn != WAIT_ABANDONED) {
+        send_error("Another Toolblox is running the Bootstrapper. Is it closed?");
+        return 1;
+    }
     FILETIME now;
     GetSystemTimeAsFileTime(&now);
     started = file_time(now);
@@ -489,6 +609,10 @@ int main(void) {
     while (fgets(line, sizeof line, stdin)) handle(line);
     EnterCriticalSection(&lock);
     config.on = 0;
-    tick();
+    for (int attempt = 0, running, limited, failed = 1; attempt < 3 && failed; attempt++) {
+        sync_settings();
+        sync_clients(&running, &limited, &failed);
+        if (failed) Sleep(100);
+    }
     return 0;
 }

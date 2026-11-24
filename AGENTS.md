@@ -64,8 +64,8 @@ and installing reviewed game-specific widgets. `PRODUCT.md` is the product autho
   previous page when it opens without one.
 - A popup is only for an extremely simple step: confirming or cancelling an action in one
   sentence, such as a delete. These use `Modal` with the `landscape` shape: a wide, short
-  rectangle with Cancel and the action beside the text, not on their own row, and the height set
-  by the text. Don't give a confirmation a fixed height. `portrait` remains
+  rectangle with a divided title row, then the description with Cancel and the action beside it, not
+  on their own row, and the height set by the text. Don't give a confirmation a fixed height. `portrait` remains
   only for widgets that already use it. Don't add other sizes.
 - Use the shared spacing scale: 4, 8, 12, 16, and 24 pixels.
 - Radii: 6 pixels for controls (`rounded-lg`), 9 for panels (`rounded-xl`), 12 for the hero

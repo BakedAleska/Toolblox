@@ -120,8 +120,8 @@ These aren't built yet. Each replaces the matching constraint above once it ship
   repeated warnings that the widget is unreviewed and runs with full access, and the widget stays
   marked as unreviewed while installed.
 - Users can turn an existing tool into a widget through a simple import, which generates a widget
-  that wraps it. AutoHotkey scripts come first, then general applications. The wrapper starts,
-  stops, and shows the tool from Toolblox. Wrapped tools follow the same catalogue review rules as
+  that wraps it. Scripts come first, then general applications. The wrapper starts, stops, and
+  shows the tool from Toolblox. Wrapped tools follow the same catalogue review rules as
   other widgets when published.
 - The Starlight docs at `toolblox.dev/docs/` serve committed widget authors, and cover the full
   host API, windows, processes, and packaging in depth.

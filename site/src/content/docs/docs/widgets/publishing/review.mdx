@@ -40,7 +40,7 @@ Review rejects widgets that:
 - read or change Roblox client memory or files, or inject code into the client, including
   through `optional-bin/` executables. The exceptions are writing `ClientAppSettings.json` with
   flags on Roblox's allowlist, restoring the user's own file when turned off, and reading the logs
-  Roblox writes for the server address of a join, as the Bootstrapper widget does. Changing a
+  Roblox writes for the server address and user ID of a join, as the Bootstrapper widget does. Changing a
   client's priority or efficiency mode doesn't touch its memory or files;
 - send account names, user IDs, notes, or widget data anywhere the widget's description doesn't
   state;
